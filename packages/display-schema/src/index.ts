@@ -14,6 +14,10 @@ export type ContentLanguage = 'en' | 'gu' | 'hi'; // English, Gujarati, Hindi
 
 export type UserRole = 'admin' | 'department_head';
 
+export type UserStatus = 'active' | 'inactive';
+
+export type DepartmentStatus = 'active' | 'inactive';
+
 export interface Resolution {
   width: number;
   height: number;
@@ -23,7 +27,7 @@ export interface Site {
   id: string;
   name: string;
   location: string;
-  timezone: string; // e.g., 'Asia/Kolkata'
+  timezone: string; // 'Asia/Kolkata'
   createdAt: string;
   updatedAt: string;
 }
@@ -32,8 +36,22 @@ export interface Department {
   id: string;
   name: string;
   code: string; // e.g., 'HR', 'OPERATIONS', 'SAFETY'
-  siteIds: string[];
+  status: DepartmentStatus;
+  siteIds?: string[];
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserProfile {
+  uid: string;
+  email: string;
+  displayName: string;
+  role: UserRole;
+  departmentId: string | null;
+  status: UserStatus;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt?: string;
 }
 
 export interface DigitalDisplay {
@@ -101,10 +119,12 @@ export interface AuditEvent {
   id: string;
   actorId: string;
   action: string;
-  resourceType: 'display' | 'asset' | 'schedule' | 'playlist' | 'publication' | 'user' | 'role';
-  resourceId: string;
+  targetId: string;
+  targetType: 'user' | 'department' | 'role' | 'display' | 'asset' | 'schedule' | 'playlist' | 'publication';
   timestamp: string;
-  metadata: Record<string, unknown>;
+  previousState?: Record<string, unknown>;
+  newState?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface SystemHealthSummary {
@@ -121,3 +141,94 @@ export interface SystemHealthSummary {
   };
 }
 
+export interface SystemCounts {
+  activeAdminCount: number;
+  totalUserCount: number;
+  activeDepartmentCount: number;
+  updatedAt: string;
+}
+
+// ==========================================
+// Cloud Function Payloads
+// ==========================================
+
+export interface ProvisionUserRequest {
+  email: string;
+  displayName: string;
+  role: UserRole;
+  departmentId?: string | null;
+}
+
+export interface ProvisionUserResponse {
+  uid: string;
+  email: string;
+  displayName: string;
+  role: UserRole;
+  departmentId: string | null;
+  status: UserStatus;
+  setupLink?: string;
+}
+
+export interface UpdateUserRequest {
+  uid: string;
+  displayName?: string;
+  role?: UserRole;
+  departmentId?: string | null;
+}
+
+export interface UpdateUserResponse {
+  uid: string;
+  displayName: string;
+  role: UserRole;
+  departmentId: string | null;
+  status: UserStatus;
+}
+
+export interface SetUserStatusRequest {
+  uid: string;
+  status: UserStatus;
+}
+
+export interface SetUserStatusResponse {
+  uid: string;
+  status: UserStatus;
+}
+
+export interface TriggerPasswordResetRequest {
+  email: string;
+}
+
+export interface TriggerPasswordResetResponse {
+  success: boolean;
+  message: string;
+  resetLink?: string;
+}
+
+export interface CreateDepartmentRequest {
+  name: string;
+  code: string;
+}
+
+export interface CreateDepartmentResponse {
+  department: Department;
+}
+
+export interface UpdateDepartmentRequest {
+  id: string;
+  name?: string;
+  code?: string;
+}
+
+export interface UpdateDepartmentResponse {
+  department: Department;
+}
+
+export interface SetDepartmentStatusRequest {
+  id: string;
+  status: DepartmentStatus;
+}
+
+export interface SetDepartmentStatusResponse {
+  department: Department;
+  affectedUserCount: number;
+}

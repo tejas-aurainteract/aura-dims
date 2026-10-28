@@ -99,6 +99,9 @@ importers:
 
   functions:
     dependencies:
+      '@aura-dims/display-schema':
+        specifier: workspace:*
+        version: link:../packages/display-schema
       firebase-admin:
         specifier: ^13.1.0
         version: 13.10.0(@firebase/app-compat@0.4.2)(@firebase/app@0.13.2)

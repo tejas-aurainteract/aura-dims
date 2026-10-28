@@ -12,9 +12,10 @@
     "shell": "firebase functions:shell"
   },
   "engines": {
-    "node": "22"
+    "node": "24"
   },
   "dependencies": {
+    "@aura-dims/display-schema": "workspace:*",
     "firebase-admin": "^13.1.0",
     "firebase-functions": "^6.3.2"
   },
@@ -24,4 +25,3 @@
   },
   "private": true
 }
-
