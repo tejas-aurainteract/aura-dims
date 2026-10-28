@@ -1,0 +1,17 @@
+{
+  "name": "@aura-dims/display-schema",
+  "version": "0.1.0",
+  "description": "Shared schema and domain types for Aura Digital Information Management System",
+  "author": "Aurainteract Private Limited",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"@aura-dims/display-schema lint ok\""
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
+

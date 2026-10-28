@@ -1,0 +1,14 @@
+{
+  "name": "@aura-dims/player",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Digital Display Signage Player runtime placeholder for Aura DIMS",
+  "author": "Aurainteract Private Limited",
+  "main": "index.js",
+  "scripts": {
+    "typecheck": "echo \"@aura-dims/player is a placeholder\"",
+    "lint": "echo \"@aura-dims/player is a placeholder\"",
+    "build": "echo \"@aura-dims/player build placeholder\""
+  }
+}
+

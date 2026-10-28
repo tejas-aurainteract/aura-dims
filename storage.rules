@@ -1,0 +1,15 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Aura DIMS - Deny-By-Default Storage Rules
+    // Aurainteract Private Limited
+    //
+    // All read and write operations are strictly disallowed by default.
+    // Explicit storage authorization policies will be added alongside user authentication and asset upload pipelines.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
+

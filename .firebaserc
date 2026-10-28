@@ -1,0 +1,9 @@
+{
+  "projects": {
+    "default": "demo-aura-dims",
+    "development": "demo-aura-dims",
+    "staging": "aura-dims-staging",
+    "production": "aura-dims-prod"
+  }
+}
+

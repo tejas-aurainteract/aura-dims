@@ -1,0 +1,16 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Aura DIMS - Deny-By-Default Authorization Foundation
+    // Aurainteract Private Limited
+    //
+    // All read and write operations are strictly disallowed by default.
+    // Privileged mutations must be performed via Cloud Functions with the Admin SDK.
+    // Role-based authorization rules (Admin, Department Head) will be introduced in the next milestone.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
