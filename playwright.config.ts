@@ -8,7 +8,7 @@ export default defineConfig({
   workers: 1,
   reporter: 'list',
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL: 'http://127.0.0.1:5175',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -20,8 +20,8 @@ export default defineConfig({
   ],
   webServer: {
     command: 'pnpm --filter @aura-dims/web dev',
-    url: 'http://127.0.0.1:5173',
-    reuseExistingServer: !process.env.CI,
+    url: 'http://127.0.0.1:5175',
+    reuseExistingServer: false,
     timeout: 30000,
   },
 });

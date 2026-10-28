@@ -1,80 +1,165 @@
 import { test, expect } from '@playwright/test';
+import * as path from 'node:path';
 
-test.describe('Aura DIMS - Foundation Smoke Suite', () => {
-  test('renders shell branding and emulator indicator', async ({ page }) => {
+const ARTIFACT_DIR = 'C:/Users/meshw/.gemini/antigravity/brain/b6363ab7-edf1-4cc2-ad2a-d8361fec7b28';
+
+test.describe('Aura DIMS - Milestone 2 End-to-End Suite', () => {
+  test('redirects unauthenticated user to login and renders branded interface without public signup', async ({ page }) => {
+    // Attempt accessing root dashboard
     await page.goto('/');
 
-    // Check title
-    await expect(page).toHaveTitle(/Aura DIMS/);
+    // Must be redirected to /login
+    await expect(page).toHaveURL(/\/login/);
 
-    // Check company and product branding
-    await expect(page.getByText('Digital Display').first()).toBeVisible();
-    await expect(page.getByText('Aura DIMS').first()).toBeVisible();
+    // Verify brand identity
+    await expect(page.getByRole('heading', { name: 'Aura DIMS' })).toBeVisible();
+    await expect(page.getByText('Aura Digital Information Management System').first()).toBeVisible();
     await expect(page.getByText('Aurainteract Private Limited').first()).toBeVisible();
 
-    // Check local emulator indicator
-    await expect(page.getByText(/Local Development/i).first()).toBeVisible();
-    await expect(page.getByText(/Connected to Firebase Emulator Suite:/i).first()).toBeVisible();
+    // Verify absence of public signup
+    await expect(page.getByRole('link', { name: /sign up|register|create account/i })).toHaveCount(0);
+    await expect(page.getByText(/public registration is disabled/i)).toBeVisible();
 
-    // Check dashboard header
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+    // Verify form fields
+    await expect(page.locator('input[type="email"]')).toBeVisible();
+    await expect(page.locator('input[type="password"]')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
 
-    // Check target digital display metrics (not fabricated)
-    await expect(page.getByText('Initial Target Fleet')).toBeVisible();
-    await expect(page.getByText('Asia/Kolkata').first()).toBeVisible();
+    // Capture screenshot of the Login interface
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, 'login-screen.png'), fullPage: true });
   });
 
-  test('navigates through all core routes and renders empty states', async ({ page }) => {
-    await page.goto('/');
+  test('validates invalid credentials error message', async ({ page }) => {
+    await page.goto('/login');
+    await page.locator('input[type="email"]').fill('nonexistent@aurainteract.com');
+    await page.locator('input[type="password"]').fill('WrongPassword123!');
+    await page.getByRole('button', { name: 'Sign in' }).click();
 
-    // Displays page
-    await page.getByRole('link', { name: 'Displays' }).click();
-    await expect(page).toHaveURL(/\/displays/);
-    await expect(page.getByRole('heading', { name: 'Digital Display Fleet Management' })).toBeVisible();
+    await expect(page.getByText(/Invalid email or password/i)).toBeVisible({ timeout: 10000 });
+  });
+
+  test('generic password reset request obscures user enumeration', async ({ page }) => {
+    await page.goto('/forgot-password');
+    await expect(page.getByRole('heading', { name: 'Reset Password' })).toBeVisible();
+
+    await page.locator('input[type="email"]').fill('any-user@aurainteract.com');
+    await page.getByRole('button', { name: 'Send Reset Instructions' }).click();
+
+    // Generic confirmation message must appear
+    await expect(page.getByText(/instructions to reset your password have been sent/i)).toBeVisible();
+  });
+
+  test('authenticates as Administrator and renders simplified application shell and dashboard', async ({ page }) => {
+    await page.goto('/login');
+
+    // Fill in bootstrapped Administrator credentials
+    await page.locator('input[type="email"]').fill('admin@aurainteract.com');
+    await page.locator('input[type="password"]').fill('AuraAdmin#2026');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+
+    // Successfully navigates to Dashboard
+    await expect(page).toHaveURL(/\/(#.*)?$/);
+
+    // Verify Header: authenticated name, role badge, dev indicator
+    await expect(page.getByText(/Welcome back/i)).toBeVisible();
+    await expect(page.getByText(/Admin/i).first()).toBeVisible();
+
+    // Verify nonfunctional global search and notification bell are REMOVED
+    await expect(page.locator('input[placeholder*="Search content"]')).toHaveCount(0);
+    await expect(page.locator('button[title="Notifications"]')).toHaveCount(0);
+
+    // Verify removal of fake metrics and milestone commentary
+    await expect(page.getByText('Initial Target Fleet')).toHaveCount(0);
+    await expect(page.getByText('Milestone: Foundation & Emulators')).toHaveCount(0);
+
+    // Verify compact setup state notice
+    await expect(page.getByText(/Digital Display Fleet & Content Management Configuration/i)).toBeVisible();
+
+    // Verify terminology: "digital display" used exclusively
     await expect(page.getByText(/digital display/i).first()).toBeVisible();
 
-    // Content Library page
-    await page.getByRole('link', { name: 'Content Library' }).click();
-    await expect(page).toHaveURL(/\/content-library/);
-    await expect(page.getByRole('heading', { name: 'Media Asset Library' })).toBeVisible();
+    // Verify Sidebar primary navigation
+    await expect(page.getByRole('link', { name: 'Dashboard' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Displays' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Content' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Schedules' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Approvals' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Users' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Settings' })).toBeVisible();
 
-    // Content Creator page
-    await page.getByRole('link', { name: 'Content Creator' }).click();
-    await expect(page).toHaveURL(/\/content-creator/);
-    await expect(page.getByRole('heading', { name: 'Visual Content Creator Studio' })).toBeVisible();
+    // Capture screenshot of Simplified Dashboard
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, 'dashboard-simplified.png'), fullPage: true });
+  });
 
-    // Templates page
-    await page.getByRole('link', { name: 'Templates' }).click();
-    await expect(page).toHaveURL(/\/templates/);
-    await expect(page.getByRole('heading', { name: 'Display Layout Templates' })).toBeVisible();
+  test('admin accesses Users & Access Control management', async ({ page }) => {
+    // Sign in first
+    await page.goto('/login');
+    await page.locator('input[type="email"]').fill('admin@aurainteract.com');
+    await page.locator('input[type="password"]').fill('AuraAdmin#2026');
+    await page.getByRole('button', { name: 'Sign in' }).click();
 
-    // Schedules page
-    await page.getByRole('link', { name: 'Schedules' }).click();
-    await expect(page).toHaveURL(/\/schedules/);
-    await expect(page.getByRole('heading', { name: 'Playlist & Broadcast Scheduling' })).toBeVisible();
+    await expect(page).toHaveURL(/\/(#.*)?$/);
 
-    // Approvals page
-    await page.getByRole('link', { name: 'Approvals' }).click();
-    await expect(page).toHaveURL(/\/approvals/);
-    await expect(page.getByRole('heading', { name: 'Content Governance & Approval Workflow' })).toBeVisible();
+    // Navigate to Users
+    await page.getByRole('link', { name: 'Users' }).click();
+    await expect(page).toHaveURL(/\/users/);
 
-    // Users & Roles page
-    await page.getByRole('link', { name: 'Users & Roles' }).click();
-    await expect(page).toHaveURL(/\/users-and-roles/);
-    await expect(page.getByRole('heading', { name: 'User Provisioning & Role-Based Access Control' })).toBeVisible();
+    // Verify User management UI
+    await expect(page.getByRole('heading', { name: 'Users & Access Control' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Provision User' })).toBeVisible();
+    await expect(page.getByText('Active Administrators')).toBeVisible();
 
-    // Settings page
+    // Admin user should be listed in table
+    await expect(page.getByText('admin@aurainteract.com')).toBeVisible();
+
+    // Capture screenshot of Users management
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, 'users-management.png'), fullPage: true });
+  });
+
+  test('verifies Content hub tabs and legacy route redirects', async ({ page }) => {
+    await page.goto('/login');
+    await page.locator('input[type="email"]').fill('admin@aurainteract.com');
+    await page.locator('input[type="password"]').fill('AuraAdmin#2026');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+
+    // Test Content tabs
+    await page.getByRole('link', { name: 'Content' }).click();
+    await expect(page).toHaveURL(/\/content/);
+    await expect(page.getByRole('button', { name: 'Designs' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Media Library' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Templates' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Create content' })).toBeVisible();
+
+    // Test legacy redirects
+    await page.goto('/content-library');
+    await expect(page).toHaveURL(/\/content\?tab=media/);
+
+    await page.goto('/content-creator');
+    await expect(page).toHaveURL(/\/content\?tab=designs/);
+
+    await page.goto('/templates');
+    await expect(page).toHaveURL(/\/content\?tab=templates/);
+
+    await page.goto('/users-and-roles');
+    await expect(page).toHaveURL(/\/users/);
+  });
+
+  test('verifies Settings page shows timezone Asia/Kolkata and supported languages', async ({ page }) => {
+    await page.goto('/login');
+    await page.locator('input[type="email"]').fill('admin@aurainteract.com');
+    await page.locator('input[type="password"]').fill('AuraAdmin#2026');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+
     await page.getByRole('link', { name: 'Settings' }).click();
     await expect(page).toHaveURL(/\/settings/);
-    await expect(page.getByRole('heading', { name: 'System Configuration & Multi-Site Settings' })).toBeVisible();
 
-    // Diagnostics page
-    await page.getByRole('link', { name: 'System Diagnostics' }).click();
-    await expect(page).toHaveURL(/\/diagnostics/);
-    await expect(page.getByRole('heading', { name: 'System & Emulator Diagnostics' })).toBeVisible();
-    await expect(page.getByText('Firebase Authentication Emulator')).toBeVisible();
-    await expect(page.getByText('Cloud Firestore Emulator')).toBeVisible();
-    await expect(page.getByText('Cloud Storage for Firebase Emulator')).toBeVisible();
+    // Verify timezone Asia/Kolkata
+    await expect(page.getByText('Asia/Kolkata')).toBeVisible();
+    await expect(page.getByText('Indian Standard Time (IST, UTC+05:30)')).toBeVisible();
+
+    // Verify supported languages
+    await expect(page.getByText('English (en)')).toBeVisible();
+    await expect(page.getByText('Gujarati (gu)')).toBeVisible();
+    await expect(page.getByText('Hindi (hi)')).toBeVisible();
   });
 });
-

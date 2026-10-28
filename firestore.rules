@@ -2,15 +2,94 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Aura DIMS - Deny-By-Default Authorization Foundation
-    // Aurainteract Private Limited
-    //
-    // All read and write operations are strictly disallowed by default.
-    // Privileged mutations must be performed via Cloud Functions with the Admin SDK.
-    // Role-based authorization rules (Admin, Department Head) will be introduced in the next milestone.
+    // Aura DIMS - Role-Based Access Control & Departmental Governance
+    // Company: Aurainteract Private Limited
+    // Product: Aura Digital Information Management System (Aura DIMS)
+
+    // Helper: Check authentication
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper: Fetch caller's authoritative user record
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Helper: Validate caller is an active System Administrator
+    function isAdmin() {
+      return isAuthenticated() && (
+        (request.auth.token.role == 'admin' && request.auth.token.active == true) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         getUserData().role == 'admin' &&
+         getUserData().status == 'active')
+      );
+    }
+
+    // Helper: Validate caller is an active Department Head
+    function isDepartmentHead() {
+      return isAuthenticated() && (
+        (request.auth.token.role == 'department_head' && request.auth.token.active == true) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         getUserData().role == 'department_head' &&
+         getUserData().status == 'active')
+      );
+    }
+
+    // Helper: Retrieve caller's assigned department ID
+    function getCallerDepartmentId() {
+      return request.auth.token.departmentId != null
+        ? request.auth.token.departmentId
+        : getUserData().departmentId;
+    }
+
+    // Users Collection: /users/{userId}
+    match /users/{userId} {
+      // 1. User can read their own profile.
+      // 2. Admin can read any user profile.
+      // 3. Department Head can only read users within their own department.
+      // 4. Department Head CANNOT read users of other departments.
+      allow read: if isAuthenticated() && (
+        request.auth.uid == userId ||
+        isAdmin() ||
+        (isDepartmentHead() && resource.data.departmentId != null && resource.data.departmentId == getCallerDepartmentId())
+      );
+
+      // Client writes are completely disallowed.
+      // User provisioning, role assignment, and status modifications must go through Cloud Functions.
+      allow write: if false;
+    }
+
+    // Departments Collection: /departments/{departmentId}
+    match /departments/{departmentId} {
+      // Admin reads all departments; users read active departments or their own department.
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (resource.data.status == 'active') ||
+        (isDepartmentHead() && resource.data.id == getCallerDepartmentId())
+      );
+
+      // Client writes are completely disallowed.
+      allow write: if false;
+    }
+
+    // Audit Events Collection: /auditEvents/{eventId}
+    match /auditEvents/{eventId} {
+      // Read-only for Administrators; append-only via backend Cloud Functions.
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // System Metadata Collection: /systemMetadata/{docId}
+    match /systemMetadata/{docId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // All other collections (displays, assets, templates, designs, playlists, schedules, publications, assignments)
+    // remain strictly denied until their respective milestones.
     match /{document=**} {
       allow read, write: if false;
     }
   }
 }
-

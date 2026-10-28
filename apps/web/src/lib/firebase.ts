@@ -19,7 +19,10 @@ import { getFunctions, connectFunctionsEmulator, httpsCallable, type Functions }
 
 // Read configuration strictly from environment variables
 const useEmulator = import.meta.env.VITE_USE_FIREBASE_EMULATOR !== 'false';
-const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || (useEmulator ? 'demo-aura-dims' : '');
+// In emulator mode, strictly target demo-aura-dims per AGENTS.md rule 2
+const projectId = useEmulator
+  ? 'demo-aura-dims'
+  : (import.meta.env.VITE_FIREBASE_PROJECT_ID || '');
 
 // Validation Guards
 if (!projectId) {

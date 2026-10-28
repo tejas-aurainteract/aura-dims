@@ -2,70 +2,87 @@
 
 **Company:** Aurainteract Private Limited  
 **Product:** Aura Digital Information Management System (Aura DIMS)  
-**Current Phase:** Foundation & Local Firebase Emulator Suite Setup  
+**Current Status:** Milestone 2 Complete (Authentication, Role-Based Access Control & Departmental Governance)
 
 ---
 
-## 1. Foundation Deliverables Matrix
+## 1. Milestones Overview
 
-| Component / Requirement | Status | Verification Reference |
+```
+Milestone 1 (Complete)   ──>   Milestone 2 (Complete)             ──>   Milestone 3 (Planned)
+Foundation, Emulators,         Authentication, RBAC, User &             Digital Display Fleet Enrollment,
+Deny-by-default rules,         Department Provisioning, Cloud           Hardware Heartbeats, Offline
+Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Player Manifest Activation.
+```
+
+---
+
+## 2. Deliverables Matrix
+
+| Capability / Requirement | Status | Architecture & Implementation Reference |
 | :--- | :--- | :--- |
-| **Monorepo Structure** (`apps/web`, `functions`, `packages/display-schema`, `player`, `firebase`, `docs`) | Complete | Workspace root `pnpm-workspace.yaml` |
-| **React + TypeScript (Strict Mode) + Vite** | Complete | `apps/web/tsconfig.json` (`strict: true`) |
-| **Tailwind CSS Shell** | Complete | Custom Aura teal theme, responsive layout |
-| **Firebase Modular SDK Integration** | Complete | `apps/web/src/lib/firebase.ts` |
-| **Silent Production Fallback Prevention** | Complete | Throws explicit error if non-emulator demo project is run |
-| **Firebase Emulator Configuration** | Complete | `firebase.json` (Auth, Firestore, Storage, Functions, UI) |
-| **Deny-by-Default Firestore Rules** | Complete | `firestore.rules` (allow read, write: if false) |
-| **Deny-by-Default Storage Rules** | Complete | `storage.rules` (allow read, write: if false) |
-| **Security Rules Test Suite** | Complete | `tests/rules/security-rules.test.ts` (Vitest + Rules Testing) |
-| **Playwright Browser Smoke Tests** | Complete | `tests/e2e/smoke.spec.ts` |
-| **Diagnostic Cloud Functions (v2)** | Complete | `functions/src/index.ts` (`healthCheck`, `apiHealth`) |
-| **Application Foundation Shell & Navigation** | Complete | 9 core routes + Diagnostics page |
-| **Digital Display Terminology Standard** | Complete | Strictly enforced across all UI components and docs |
-| **Persistent Emulator Import/Export** | Complete | Configured via `firebase/emulators/data` |
-| **Comprehensive Documentation** | Complete | `AGENTS.md`, `README.md`, and `docs/` specifications |
+| **Product Branding "Aura DIMS"** | Complete | Header, Sidebar, Login, and meta tags reflect Aura DIMS identity |
+| **Digital Display Terminology** | Complete | Strictly enforced: devices are always "digital display", never bare screen/TV |
+| **Simplified Navigation Shell** | Complete | Primary routes: Dashboard, Displays, Content, Schedules, Approvals, Users, Settings |
+| **Content Hub & Subtabs** | Complete | `ContentPage` with tabs: Designs, Media Library, Templates; "Create content" action |
+| **Legacy Route Redirects** | Complete | Redirects `/content-library`, `/content-creator`, `/templates`, `/users-and-roles` |
+| **Development-Only Diagnostics** | Complete | Moved to `/dev/diagnostics`; excluded from production builds; unobtrusive header pill |
+| **Firebase Email/Password Auth** | Complete | `apps/web/src/contexts/AuthContext.tsx`, `LoginPage`, `ForgotPasswordPage` |
+| **Native SDK Session Persistence** | Complete | No custom tokens in `localStorage`; uses Firebase Auth native state |
+| **Enumeration Attack Prevention** | Complete | Generic password reset confirmation message regardless of user existence |
+| **No Public Self-Registration** | Complete | Public signup removed; users must be provisioned by System Administrators |
+| **Role-Based Access Control** | Complete | Roles: `admin` (system-wide) vs `department_head` (departmental boundary) |
+| **Protected Route Guards** | Complete | Distinguishes auth restoring, profile loading, and authorization checks |
+| **Unassigned / Inactive Denials** | Complete | Redirects to `/access-denied` with informative explanation and sign-out action |
+| **Privileged Mutation Cloud Functions** | Complete | 7 callable functions in `functions/src/index.ts` with explicit caller authorization |
+| **Last-Admin Invariant Protection** | Complete | Transactional invariant prevents demoting or deactivating the last active Admin |
+| **Department Management** | Complete | Admin can create, rename, activate/deactivate departments (`Settings` -> Departments) |
+| **Admin Bootstrap Script** | Complete | `scripts/bootstrap-admin.ts` (`pnpm run bootstrap:admin`) with production refusal |
+| **Security Rules Test Suite** | Complete | 18 unit tests in `tests/rules/security-rules.test.ts` (100% passing) |
+| **Playwright E2E Suite** | Complete | 9 browser smoke & RBAC tests in `tests/e2e/` (100% passing) |
 
 ---
 
-## 2. Intentionally Deferred Capabilities (Out of Current Scope)
+## 3. Security Rules & Privileged Boundaries Verification
 
-In compliance with task boundaries, the following modules are deferred:
+### 3.1 Security Rules (`firestore.rules`)
+- **Unauthenticated:** Completely denied from reading or writing `/users`, `/departments`, `/auditEvents`.
+- **System Administrator:** Authorized to read all users and departments; client writes are strictly denied (must invoke Cloud Functions).
+- **Department Head:** Authorized to read their own user profile and users belonging to their assigned department. Reading other departments or cross-department users is strictly blocked.
+- **Audit Events:** Append-only through backend Cloud Functions; direct client writes or modifications are blocked.
 
-1. **Authentication & User Provisioning:**
-   - Login forms, password reset, and registration endpoints.
-   - Assignment of custom claims (`admin`, `department_head`).
-2. **Operational Display Fleet Telemetry:**
-   - Display pairing screens, token enrollment, and live ping streams.
-   - *Note:* Operational metrics are purposefully not fabricated.
-3. **Visual Content Authoring Engine:**
-   - Canvas drag-and-drop, multi-layer z-index management, and font embedding.
-4. **Approval & Publication Pipeline:**
-   - Editorial sign-off triggers and manifest compilation workflows.
-5. **Production Infrastructure Provisioning:**
-   - Cloud project creation, billing account linkage, or live deployments.
+### 3.2 Cloud Functions (v2 in `asia-south1`)
+- `provisionUser`: Creates Firebase Auth user, assigns custom claims, creates Firestore profile, maintains Admin counts, writes audit event.
+- `updateUser`: Modifies name, role, department with Last-Admin guard.
+- `setUserActiveStatus`: Toggles user active/inactive status, revokes refresh tokens immediately upon deactivation, enforces Last-Admin guard.
+- `triggerPasswordReset`: Dispatches password reset link via Admin SDK without client exposure.
+- `createDepartment`, `updateDepartment`, `setDepartmentStatus`: Department lifecycle governance.
 
 ---
 
-## 3. Verification Checklist
+## 4. Verification & Testing Evidence
 
-- [x] Application dependencies install without errors via pnpm.
-- [x] Local Firebase Emulators start without requiring cloud credentials.
-- [x] Frontend connects directly to local emulators.
-- [x] Security Rules reject unauthorized Firestore and Storage access.
-- [x] Minimal Cloud Function (`healthCheck`) responds locally with system status.
-- [x] Strict TypeScript type checks and builds succeed across the monorepo.
-- [x] Playwright smoke tests verify branding, navigation, and digital display terminology.
-- [x] Persistent emulator data import and export operations succeed.
-
----
-
-## 4. Next Milestone: Milestone 2
-
-**Target Scope:** **Login, User Provisioning, and Role Management**
-- Secure Firebase Authentication flows with email/password and MFA.
-- Multi-tier role governance: System Admin and Department Head roles.
-- Cloud Functions for role provisioning and claims assignment.
-- Explicit assignment of digital displays to Department Heads.
-- Role-scoped Security Rules replacing current deny-by-default rules.
-
+1. **Security Rules Suite:**
+   ```bash
+   pnpm run test:rules
+   # 18 passed (18)
+   ```
+2. **Playwright End-to-End Suite:**
+   ```bash
+   pnpm run test:e2e
+   # 9 passed (9)
+   ```
+3. **TypeScript Typecheck:**
+   ```bash
+   pnpm run typecheck
+   # 4 workspace projects clean (0 errors)
+   ```
+4. **Monorepo Build:**
+   ```bash
+   pnpm run build
+   # display-schema, functions, and web build clean
+   ```
+5. **Screenshots Captured:**
+   - `login-screen.png`: Clean branded login interface without public signup.
+   - `dashboard-simplified.png`: Executive dashboard without fake metrics or commentary.
+   - `users-management.png`: Admin-only user directory with status badges and provisioning modal.

@@ -101,7 +101,17 @@ pnpm run emulators:start
 - When the command initializes, it loads existing seed data from `firebase/emulators/data`.
 - When terminated gracefully (e.g., via `Ctrl+C`), it exports all new state back into `firebase/emulators/data`.
 
-### 3.3 Manual Emulator Export
+### 3.3 Initial Administrator Bootstrap (Local Development Only)
+To seed or reset an initial System Administrator account in the local emulator:
+
+```bash
+pnpm run bootstrap:admin --email admin@aurainteract.com --password "AuraAdmin#2026" --name "System Administrator"
+```
+
+> [!CAUTION]
+> The bootstrap script strictly refuses execution against live Google Cloud or non-emulator environments. For production provisioning, an authorized bootstrap Cloud Run job or Admin console is used with Cloud KMS credentials.
+
+### 3.4 Manual Emulator Export
 To force an export of emulator state during active testing:
 
 ```bash
@@ -114,7 +124,7 @@ pnpm run emulators:export
 
 | Service | Port | Host | URL / Direct Endpoint |
 | :--- | :--- | :--- | :--- |
-| **Vite Web Server** | `5173` | `127.0.0.1` | `http://127.0.0.1:5173` |
+| **Vite Web Server** | `5175` | `127.0.0.1` | `http://127.0.0.1:5175` |
 | **Firebase Emulator UI** | `4000` | `127.0.0.1` | `http://127.0.0.1:4000` |
 | **Auth Emulator** | `9099` | `127.0.0.1` | `http://127.0.0.1:9099` |
 | **Firestore Emulator** | `8080` | `127.0.0.1` | `127.0.0.1:8080` |
