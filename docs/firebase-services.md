@@ -22,6 +22,25 @@ Firebase services are incorporated strictly where justified by digital signage r
 
 ---
 
+## 1.1 Client Configuration & Secrets Policy
+
+In accordance with enterprise security standards:
+- **Zero Hardcoded Keys:** Client source code contains no hardcoded API keys, project identifiers, or secrets.
+- **Environment Driven:** All parameters are loaded at build/runtime strictly through `import.meta.env.*` variables defined in `.env.local` or deployment platform secrets.
+- **Example Files Use Placeholders:** Public template files (`.env.example`) contain only placeholder values (`your-api-key-placeholder`, etc.).
+
+| Environment Variable | Description | Example Target |
+| :--- | :--- | :--- |
+| `VITE_FIREBASE_PROJECT_ID` | Firebase Project ID | `aura-dims` |
+| `VITE_FIREBASE_API_KEY` | Client Web API Key | Retrieved from `.env.local` |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Firebase Auth Domain | `aura-dims.firebaseapp.com` |
+| `VITE_FIREBASE_STORAGE_BUCKET` | Storage Bucket URL | `aura-dims.firebasestorage.app` |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | Cloud Messaging Sender ID | Numeric ID |
+| `VITE_FIREBASE_APP_ID` | Web Application ID | App ID string |
+| `VITE_FIREBASE_MEASUREMENT_ID` | Optional Analytics ID | Measurement ID string |
+
+---
+
 ## 2. Deferred & Excluded Services
 
 The following services are intentionally omitted from the current phase:

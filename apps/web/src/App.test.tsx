@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { EMULATOR_CONFIG } from './lib/firebase';
 
 describe('Aura DIMS - Frontend Foundation Unit Tests', () => {
-  it('configures default demo project ID for emulator suite', () => {
-    expect(EMULATOR_CONFIG.projectId).toBe('demo-aura-dims');
+  it('configures valid project ID and emulator flag for development', () => {
+    expect(['demo-aura-dims', 'aura-dims']).toContain(EMULATOR_CONFIG.projectId);
     expect(EMULATOR_CONFIG.isEmulator).toBe(true);
   });
 

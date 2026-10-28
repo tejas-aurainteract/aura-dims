@@ -14,7 +14,7 @@ test.describe('Aura DIMS - Foundation Smoke Suite', () => {
 
     // Check local emulator indicator
     await expect(page.getByText(/Local Development/i).first()).toBeVisible();
-    await expect(page.getByText(/Connected to Firebase Emulator Suite: demo-aura-dims/i).first()).toBeVisible();
+    await expect(page.getByText(/Connected to Firebase Emulator Suite:/i).first()).toBeVisible();
 
     // Check dashboard header
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();

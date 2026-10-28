@@ -3,10 +3,12 @@
  * Company: Aurainteract Private Limited
  * Product: Aura Digital Information Management System (Aura DIMS)
  *
- * Rules:
- * 1. Default to local Firebase Emulator Suite with a demo project ID ('demo-aura-dims').
- * 2. Never fall back silently to live production services.
- * 3. Never include service account credentials on the client.
+ * Security Rules:
+ * 1. ZERO HARDCODED API KEYS OR CREDENTIALS IN SOURCE CODE.
+ *    All configuration parameters are retrieved strictly from environment variables (import.meta.env).
+ * 2. Default to local Firebase Emulator Suite with a demo project ID ('demo-aura-dims').
+ * 3. Never fall back silently to live production services.
+ * 4. Never include service account credentials on the client.
  */
 
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
@@ -15,32 +17,41 @@ import { getFirestore, connectFirestoreEmulator, type Firestore } from 'firebase
 import { getStorage, connectStorageEmulator, type FirebaseStorage } from 'firebase/storage';
 import { getFunctions, connectFunctionsEmulator, httpsCallable, type Functions } from 'firebase/functions';
 
-// Read configuration with strict fallback protection
-const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || 'demo-aura-dims';
+// Read configuration strictly from environment variables
 const useEmulator = import.meta.env.VITE_USE_FIREBASE_EMULATOR !== 'false';
+const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || (useEmulator ? 'demo-aura-dims' : '');
 
-// Safety Guard: In local development, ensure emulator or demo project is strictly required
-if (!useEmulator && projectId.startsWith('demo-')) {
+// Validation Guards
+if (!projectId) {
   throw new Error(
-    '[Aura DIMS Configuration Error] Cannot run in production mode with a demo-* project ID. ' +
-    'Provide valid cloud credentials or set VITE_USE_FIREBASE_EMULATOR=true.'
+    '[Aura DIMS Configuration Error] VITE_FIREBASE_PROJECT_ID is not configured in your environment. ' +
+    'Specify it in your .env file or enable VITE_USE_FIREBASE_EMULATOR=true.'
   );
 }
 
-if (!useEmulator && (!import.meta.env.VITE_FIREBASE_API_KEY || import.meta.env.VITE_FIREBASE_API_KEY === 'demo-api-key')) {
+if (!useEmulator && projectId.startsWith('demo-')) {
   throw new Error(
-    '[Aura DIMS Configuration Error] Production mode requires valid VITE_FIREBASE_API_KEY. ' +
+    '[Aura DIMS Configuration Error] Cannot run in production mode with a demo-* project ID. ' +
+    'Provide valid cloud credentials in .env or set VITE_USE_FIREBASE_EMULATOR=true.'
+  );
+}
+
+if (!useEmulator && !import.meta.env.VITE_FIREBASE_API_KEY) {
+  throw new Error(
+    '[Aura DIMS Configuration Error] VITE_FIREBASE_API_KEY is missing from environment. ' +
     'Silent fallback to unauthenticated production cloud services is prohibited.'
   );
 }
 
+// Assemble client config exclusively from environment variables
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'demo-api-key',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || (useEmulator ? 'demo-api-key' : ''),
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com`,
   projectId,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || `${projectId}.appspot.com`,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '000000000000',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:000000000000:web:0000000000000000000000',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app`,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || undefined,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || undefined,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || undefined,
 };
 
 // Initialize Firebase App
@@ -125,4 +136,3 @@ export async function checkDiagnostics(): Promise<DiagnosticsResult> {
 
   return result;
 }
-
