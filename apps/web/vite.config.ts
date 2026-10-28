@@ -8,6 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@aura-dims/display-schema': path.resolve(__dirname, '../../packages/display-schema/src/index.ts'),
     },
   },
   server: {
@@ -19,4 +20,3 @@ export default defineConfig({
     host: '127.0.0.1',
   },
 });
-
