@@ -53,6 +53,14 @@ export async function getAuthenticatedCaller(auth: CallableAuth | undefined): Pr
   if (profile.status !== 'active') {
     throw new HttpsError('permission-denied', 'The user account has been deactivated.');
   }
+
+  // Deactivated departments immediately lose operational access
+  if (profile.role === 'department_head' && profile.departmentId) {
+    const deptDoc = await db.collection('departments').doc(profile.departmentId).get();
+    if (deptDoc.exists && deptDoc.data()?.status === 'inactive') {
+      throw new HttpsError('permission-denied', 'The assigned department has been deactivated.');
+    }
+  }
   return { ...profile, uid: auth.uid };
 }
 

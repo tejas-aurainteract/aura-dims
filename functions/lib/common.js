@@ -85,6 +85,13 @@ async function getAuthenticatedCaller(auth) {
     if (profile.status !== 'active') {
         throw new https_1.HttpsError('permission-denied', 'The user account has been deactivated.');
     }
+    // Deactivated departments immediately lose operational access
+    if (profile.role === 'department_head' && profile.departmentId) {
+        const deptDoc = await exports.db.collection('departments').doc(profile.departmentId).get();
+        if (deptDoc.exists && deptDoc.data()?.status === 'inactive') {
+            throw new https_1.HttpsError('permission-denied', 'The assigned department has been deactivated.');
+        }
+    }
     return { ...profile, uid: auth.uid };
 }
 async function assertAdminCaller(auth) {

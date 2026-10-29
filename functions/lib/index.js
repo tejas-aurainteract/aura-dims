@@ -140,7 +140,7 @@ exports.apiHealth = (0, https_1.onRequest)({ cors: true, region: REGION }, (req,
  */
 exports.provisionUser = (0, https_1.onCall)({ cors: true, region: REGION }, async (request) => {
     const caller = await assertAdminCaller(request.auth);
-    const { email, displayName, role, departmentId } = request.data;
+    const { email, displayName, role, departmentId, temporaryPassword } = request.data;
     // Validation
     if (!email || !email.includes('@')) {
         throw new https_1.HttpsError('invalid-argument', 'A valid email address is required.');
@@ -168,6 +168,9 @@ exports.provisionUser = (0, https_1.onCall)({ cors: true, region: REGION }, asyn
     // Check if user exists in Firebase Authentication
     try {
         authUser = await admin.auth().getUserByEmail(cleanEmail);
+        if (temporaryPassword && temporaryPassword.length >= 6) {
+            await admin.auth().updateUser(authUser.uid, { password: temporaryPassword });
+        }
         // Check if user profile already exists in Firestore
         const existingProfile = await db.collection('users').doc(authUser.uid).get();
         if (existingProfile.exists) {
@@ -177,12 +180,14 @@ exports.provisionUser = (0, https_1.onCall)({ cors: true, region: REGION }, asyn
     catch (err) {
         const fbErr = err;
         if (fbErr.code === 'auth/user-not-found') {
-            // User does not exist in Auth, create one with a secure random initial password
-            const randomPassword = crypto.randomBytes(24).toString('base64') + '!Aa1';
+            // User does not exist in Auth, create one with a secure initial password
+            const initialPassword = temporaryPassword && temporaryPassword.length >= 6
+                ? temporaryPassword
+                : (crypto.randomBytes(24).toString('base64') + '!Aa1');
             authUser = await admin.auth().createUser({
                 email: cleanEmail,
                 displayName: cleanName,
-                password: randomPassword,
+                password: initialPassword,
                 emailVerified: true,
             });
             isNewAuth = true;

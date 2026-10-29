@@ -342,6 +342,7 @@ export interface ProvisionUserRequest {
   displayName: string;
   role: UserRole;
   departmentId?: string | null;
+  temporaryPassword?: string;
 }
 
 export interface ProvisionUserResponse {

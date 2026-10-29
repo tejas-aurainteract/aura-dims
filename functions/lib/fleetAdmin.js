@@ -834,12 +834,28 @@ exports.getDevicePublicationManifest = (0, https_1.onCall)(opts, async (request)
     const [content] = await manifestFile.download();
     const manifest = JSON.parse(content.toString('utf8'));
     const isEmulator = !!process.env.STORAGE_EMULATOR_HOST || process.env.FUNCTIONS_EMULATOR === 'true';
-    const storageHost = process.env.STORAGE_EMULATOR_HOST || '127.0.0.1:9199';
+    const rawHost = process.env.STORAGE_EMULATOR_HOST || process.env.FIREBASE_STORAGE_EMULATOR_HOST || '127.0.0.1:9199';
+    const storageHost = rawHost.replace(/^https?:\/\//, '');
     const bucketName = bucket.name || 'demo-aura-dims.appspot.com';
     const assetUrls = {};
     for (const a of manifest.assets) {
         if (isEmulator) {
-            assetUrls[a.assetId] = `http://${storageHost}/v0/b/${bucketName}/o/${encodeURIComponent(a.storagePath)}?alt=media`;
+            let token = 'aura-dims-emulator-token';
+            try {
+                const file = bucket.file(a.storagePath);
+                const [metadata] = await file.getMetadata();
+                const m = metadata?.metadata;
+                token = m?.firebaseStorageDownloadTokens || token;
+                if (!m?.firebaseStorageDownloadTokens) {
+                    await file.setMetadata({
+                        metadata: { ...(m || {}), firebaseStorageDownloadTokens: token },
+                    });
+                }
+            }
+            catch {
+                // ignore error if setting metadata fails
+            }
+            assetUrls[a.assetId] = `http://${storageHost}/v0/b/${bucketName}/o/${encodeURIComponent(a.storagePath)}?alt=media&token=${token}`;
         }
         else {
             try {

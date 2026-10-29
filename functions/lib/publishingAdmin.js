@@ -559,9 +559,9 @@ async function validateAndResolveTargets(caller, targetDisplayIds, orientation, 
             throw new https_1.HttpsError('not-found', `Digital display '${dId}' does not exist.`);
         }
         const display = dDoc.data();
-        // Check active lifecycle
-        if (display.lifecycle !== 'active') {
-            throw new https_1.HttpsError('failed-precondition', `Digital display '${display.name || dId}' is in '${display.lifecycle}' state (must be 'active').`);
+        // Check active or pending enrollment lifecycle
+        if (display.lifecycle !== 'active' && display.lifecycle !== 'pending_enrollment') {
+            throw new https_1.HttpsError('failed-precondition', `Digital display '${display.name || dId}' is in '${display.lifecycle}' state (must be 'active' or 'pending_enrollment').`);
         }
         // Check orientation compatibility
         if (display.orientation !== orientation) {

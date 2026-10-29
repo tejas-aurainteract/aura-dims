@@ -757,11 +757,11 @@ async function validateAndResolveTargets(
     }
     const display = dDoc.data() as DigitalDisplay;
 
-    // Check active lifecycle
-    if (display.lifecycle !== 'active') {
+    // Check active or pending enrollment lifecycle
+    if (display.lifecycle !== 'active' && display.lifecycle !== 'pending_enrollment') {
       throw new HttpsError(
         'failed-precondition',
-        `Digital display '${display.name || dId}' is in '${display.lifecycle}' state (must be 'active').`
+        `Digital display '${display.name || dId}' is in '${display.lifecycle}' state (must be 'active' or 'pending_enrollment').`
       );
     }
 

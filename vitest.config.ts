@@ -1,6 +1,12 @@
 import { defineConfig } from 'vitest/config';
+import { resolve } from 'path';
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@aura-dims/display-schema': resolve(__dirname, './packages/display-schema/src/index.ts'),
+    },
+  },
   test: {
     globals: true,
     environment: 'node',
@@ -9,4 +15,3 @@ export default defineConfig({
     hookTimeout: 20000,
   },
 });
-
