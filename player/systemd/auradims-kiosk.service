@@ -1,0 +1,44 @@
+[Unit]
+Description=Aura DIMS Digital Display Chromium Kiosk Renderer
+Documentation=https://aurainteract.com/docs/aura-dims
+After=auradims-agent.service graphical.target
+Wants=auradims-agent.service
+PartOf=graphical.target
+
+[Service]
+Type=simple
+User=auradims
+Group=auradims
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/auradims/.Xauthority
+
+# Disable screensavers, DPMS power-saving sleep, and screen blanking before starting browser
+ExecStartPre=/usr/bin/xset s off
+ExecStartPre=/usr/bin/xset -dpms
+ExecStartPre=/usr/bin/xset s noblank
+
+# Launch Chromium in pure fullscreen kiosk mode connected strictly to local loopback
+ExecStart=/usr/bin/chromium-browser \
+  --kiosk \
+  --noerrdialogs \
+  --disable-infobars \
+  --check-for-update-interval=31536000 \
+  --disable-pinch \
+  --autoplay-policy=no-user-gesture-required \
+  --incognito \
+  --disable-features=TranslateUI \
+  --disable-session-crashed-bubble \
+  --disk-cache-dir=/tmp/chromium-cache \
+  http://127.0.0.1:8090
+
+Restart=always
+RestartSec=5s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=auradims-kiosk
+
+[Install]
+WantedBy=graphical.target
+

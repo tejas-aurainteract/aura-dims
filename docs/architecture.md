@@ -288,27 +288,80 @@ Digital displays deployed in factory floors, lobbies, and industrial sites frequ
 
 > [!IMPORTANT]
 > **Firestore offline persistence alone is NOT a complete digital signage solution.**
-> Cache eviction, incomplete collection reads, and dependency on live server clocks cause signage screens to fail or display black screens during outages. Aura DIMS implements an autonomous pull-and-verify architecture.
+> Cache eviction, incomplete collection reads, and dependency on live server clocks cause signage screens to fail or display black screens during outages. Aura DIMS implements an autonomous pull-and-verify dual-process architecture.
+
+```mermaid
+flowchart TB
+    subgraph Cloud["Firebase Cloud & Functions (asia-south1)"]
+        FleetAdmin["Fleet Admin Functions\n(getDevicePublication, reportDeviceDelivery)"]
+        PubStorage["Cloud Storage\n(Detailed Manifest & Asset Binaries)"]
+    end
+
+    subgraph PhysicalDisplay["Physical Digital Display Device (Linux ARM64 / Dev Kiosk)"]
+        subgraph AgentProcess["Player Agent Process (TypeScript Daemon)"]
+            Supervisor["Supervision & Timers\n(Sync Loop: 60s, Heartbeat: 30s)"]
+            SyncEngine["Sync Engine & State Machine\n(discovered -> downloading -> verifying -> ready -> active)"]
+            CacheMgr["Content-Addressable Cache\n(SHA-256 Verified Binaries)"]
+            LocalServer["Loopback HTTP Service\n(http://127.0.0.1:8090)"]
+            CredStore["Credentials Store\n(0600 device-credentials.json)"]
+        end
+
+        subgraph KioskProcess["Fullscreen Kiosk Browser (Chromium / Webview)"]
+            LoopbackFetch["Fetch Local Loopback Manifest\n(Zero Firebase SDK / Pure Offline)"]
+            SchedEval["Local Schedule Evaluator\n(Asia/Kolkata Hardware Clock)"]
+            DOMRenderer["Aura DIMS Logical Renderer\n(1920x1080 / 1080x1920 DOM Canvas)"]
+            EventPoster["Local Event Dispatcher\n(POST /api/playback-event)"]
+        end
+    end
+
+    FleetAdmin -->|Poll Publication Metadata| Supervisor
+    PubStorage -->|Download Assets & Manifest| SyncEngine
+    Supervisor --> SyncEngine
+    SyncEngine --> CacheMgr
+    CacheMgr --> LocalServer
+    CredStore --> Supervisor
+
+    LocalServer -->|Loopback HTTP 8090| LoopbackFetch
+    LoopbackFetch --> SchedEval
+    SchedEval --> DOMRenderer
+    DOMRenderer --> EventPoster
+    EventPoster --> LocalServer
+    LocalServer -->|Report Delivery & Presentation State| FleetAdmin
+```
 
 ### 3.1 Architectural Pillars of Offline Playback
 
-1. **Versioned Publication Manifest:**
-   - Playlists and schedules compile into an immutable, versioned manifest (`PublicationManifest`).
-   - The manifest specifies exact slide display duration in milliseconds, sequence order, media asset URLs, and SHA-256 file checksums.
-2. **Local Hardware Clock Execution:**
-   - Time-based playlist transitions and dayparting evaluate locally against the hardware clock configured to `Asia/Kolkata`.
-   - Slide changes NEVER depend on a scheduled Cloud Function firing over the network.
-3. **Atomic Verification & Staging:**
-   - The player downloads assets to persistent local storage (IndexedDB or local file system).
-   - Before activating a new manifest, the player computes the SHA-256 hash of every asset.
-   - The player switches to the new publication **only after 100% of required media files are validated locally**.
-4. **Last-Known-Good (LKG) State:**
-   - If a new manifest download fails, is corrupted, or times out, the digital display continues looping the Last-Known-Good publication without interruption.
-5. **Fallback Content:**
-   - If a publication reaches its hard expiration timestamp without an update, the player switches to localized fallback emergency notices or company branding slides stored permanently on device.
-6. **Telemetry & Reconciliation:**
-   - During offline periods, proof-of-play events and heartbeats are recorded in a local FIFO queue.
-   - Upon reconnection, telemetry is batched and reconciled with Cloud Firestore.
+1. **Two-Component Process Separation:**
+   - **Local Agent Daemon (`node player/dist/agent/index.js`):** Runs as a background service (`auradims-agent.service`). Responsible for device enrollment, credentials management, polling cloud manifest updates, staging and SHA-256 verifying asset binaries, atomic package activation, rolling log management, and serving loopback assets.
+   - **Fullscreen Browser Renderer (`http://127.0.0.1:8090`):** Runs in kiosk mode (`auradims-kiosk.service`). Pure HTML5/DOM renderer reusing `@aura-dims/display-schema` slide definitions. Contains **zero Firebase SDK credentials or network dependencies**, rendering entirely from local loopback.
+
+2. **Zero-Trust Network Perimeter & Local Loopback Security:**
+   - The player HTTP server binds exclusively to `127.0.0.1:8090`.
+   - Host and Origin header validation blocks non-loopback requests with `403 Forbidden` to defend against DNS rebinding or cross-site request attacks.
+   - Content Security Policy (CSP) restricts `script-src` and `connect-src` exclusively to `'self' http://127.0.0.1:8090`.
+   - Path traversal defenses reject malicious asset IDs attempting directory escapes.
+
+3. **Staged Synchronization State Machine:**
+   - Package synchronization transitions through strict discrete stages:
+     `discovered` ➔ `downloading` ➔ `verifying` ➔ `ready` ➔ `active` (or `failed`).
+   - All newly downloaded media files are placed in an isolated staging folder (`staging/{publicationId}`).
+   - SHA-256 checksums are verified against the manifest before files are committed to the content-addressable cache (`player/data/cache/{sha256}`).
+   - Pointer switch is atomic (`active.json` pointer), while preserving the `previous.json` package for emergency rollback.
+
+4. **Local Hardware Clock Execution in `Asia/Kolkata`:**
+   - Evaluates schedule rules locally against the hardware clock set to Indian Standard Time (UTC+05:30).
+   - Dayparting, one-time windows, daily recurrences, and overnight broadcasting run autonomously without server roundtrips.
+   - Transitions to neutral corporate fallback if all schedules expire or if a package fails verification.
+
+5. **First-Run Device Pairing & Credentials Isolation:**
+   - Displays boot into an enrollment screen displaying a 6-character CSPRNG pairing code input.
+   - Upon pairing redemption, the device receives a signed custom auth token and writes device credentials to `player/data/credentials/device-credentials.json` with `0600` permissions.
+   - Credentials persist across power cycles and restarts.
+
+6. **Storage Management & Bounded Rolling Logs:**
+   - Unreferenced cache files are pruned via safe garbage collection.
+   - Agent execution logs are bounded with 5 MB rotation across 3 backup archives (`player.log`, `player.log.1`, `player.log.2`).
+   - Linux systemd units and logrotate profiles (`auradims-logrotate.conf`) ensure long-term operational health on factory displays.
 
 ---
 

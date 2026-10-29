@@ -42,7 +42,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.rollbackPublication = exports.preparePublication = exports.getApproval = exports.listApprovals = exports.withdrawApproval = exports.reviewApproval = exports.submitForApproval = exports.setScheduleStatus = exports.listSchedules = exports.getSchedule = exports.updateSchedule = exports.createSchedule = exports.getPlaylistRevision = exports.createPlaylistRevision = exports.setPlaylistArchivedStatus = exports.listPlaylists = exports.getPlaylist = exports.updatePlaylist = exports.createPlaylist = exports.getDesignRevision = exports.listDesignRevisions = exports.createDesignRevision = exports.seedStarterTemplates = exports.setTemplateArchivedStatus = exports.instantiateTemplate = exports.createTemplate = exports.listTemplates = exports.convertDesignOrientation = exports.listDesigns = exports.setDesignArchivedStatus = exports.duplicateDesign = exports.updateDesign = exports.getDesign = exports.createDesign = exports.cleanupExpiredUploads = exports.listMediaAssets = exports.setMediaArchivedStatus = exports.updateMediaMetadata = exports.getMediaPreviewUrl = exports.finalizeMediaUpload = exports.initiateMediaUpload = exports.setDepartmentStatus = exports.updateDepartment = exports.createDepartment = exports.triggerPasswordReset = exports.setUserActiveStatus = exports.updateUser = exports.provisionUser = exports.apiHealth = exports.healthCheck = void 0;
-exports.evaluateSchedulePreview = exports.setUserDirectPublishPermission = void 0;
+exports.getDisplay = exports.listDisplays = exports.reportDeviceHeartbeat = exports.reportDeviceDelivery = exports.getDevicePublicationManifest = exports.getDevicePublication = exports.deviceSignIn = exports.redeemPairingCode = exports.listUserAssignments = exports.unassignDisplayUser = exports.assignDisplayUser = exports.generateDisplayPairingCode = exports.resetEnrollment = exports.setDisplayLifecycle = exports.updateDisplay = exports.registerDisplay = exports.setDisplayGroupStatus = exports.updateDisplayGroup = exports.createDisplayGroup = exports.updateSite = exports.createSite = exports.evaluateSchedulePreview = exports.setUserDirectPublishPermission = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-admin/firestore");
@@ -646,4 +646,29 @@ Object.defineProperty(exports, "preparePublication", { enumerable: true, get: fu
 Object.defineProperty(exports, "rollbackPublication", { enumerable: true, get: function () { return publishingAdmin_1.rollbackPublication; } });
 Object.defineProperty(exports, "setUserDirectPublishPermission", { enumerable: true, get: function () { return publishingAdmin_1.setUserDirectPublishPermission; } });
 Object.defineProperty(exports, "evaluateSchedulePreview", { enumerable: true, get: function () { return publishingAdmin_1.evaluateSchedulePreview; } });
+// ==============================================================================
+// Fleet Management & Digital Display Device Protocol Operations
+// ==============================================================================
+var fleetAdmin_1 = require("./fleetAdmin");
+Object.defineProperty(exports, "createSite", { enumerable: true, get: function () { return fleetAdmin_1.createSite; } });
+Object.defineProperty(exports, "updateSite", { enumerable: true, get: function () { return fleetAdmin_1.updateSite; } });
+Object.defineProperty(exports, "createDisplayGroup", { enumerable: true, get: function () { return fleetAdmin_1.createDisplayGroup; } });
+Object.defineProperty(exports, "updateDisplayGroup", { enumerable: true, get: function () { return fleetAdmin_1.updateDisplayGroup; } });
+Object.defineProperty(exports, "setDisplayGroupStatus", { enumerable: true, get: function () { return fleetAdmin_1.setDisplayGroupStatus; } });
+Object.defineProperty(exports, "registerDisplay", { enumerable: true, get: function () { return fleetAdmin_1.registerDisplay; } });
+Object.defineProperty(exports, "updateDisplay", { enumerable: true, get: function () { return fleetAdmin_1.updateDisplay; } });
+Object.defineProperty(exports, "setDisplayLifecycle", { enumerable: true, get: function () { return fleetAdmin_1.setDisplayLifecycle; } });
+Object.defineProperty(exports, "resetEnrollment", { enumerable: true, get: function () { return fleetAdmin_1.resetEnrollment; } });
+Object.defineProperty(exports, "generateDisplayPairingCode", { enumerable: true, get: function () { return fleetAdmin_1.generateDisplayPairingCode; } });
+Object.defineProperty(exports, "assignDisplayUser", { enumerable: true, get: function () { return fleetAdmin_1.assignDisplayUser; } });
+Object.defineProperty(exports, "unassignDisplayUser", { enumerable: true, get: function () { return fleetAdmin_1.unassignDisplayUser; } });
+Object.defineProperty(exports, "listUserAssignments", { enumerable: true, get: function () { return fleetAdmin_1.listUserAssignments; } });
+Object.defineProperty(exports, "redeemPairingCode", { enumerable: true, get: function () { return fleetAdmin_1.redeemPairingCode; } });
+Object.defineProperty(exports, "deviceSignIn", { enumerable: true, get: function () { return fleetAdmin_1.deviceSignIn; } });
+Object.defineProperty(exports, "getDevicePublication", { enumerable: true, get: function () { return fleetAdmin_1.getDevicePublication; } });
+Object.defineProperty(exports, "getDevicePublicationManifest", { enumerable: true, get: function () { return fleetAdmin_1.getDevicePublicationManifest; } });
+Object.defineProperty(exports, "reportDeviceDelivery", { enumerable: true, get: function () { return fleetAdmin_1.reportDeviceDelivery; } });
+Object.defineProperty(exports, "reportDeviceHeartbeat", { enumerable: true, get: function () { return fleetAdmin_1.reportDeviceHeartbeat; } });
+Object.defineProperty(exports, "listDisplays", { enumerable: true, get: function () { return fleetAdmin_1.listDisplays; } });
+Object.defineProperty(exports, "getDisplay", { enumerable: true, get: function () { return fleetAdmin_1.getDisplay; } });
 //# sourceMappingURL=index.js.map

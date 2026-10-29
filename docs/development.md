@@ -144,6 +144,23 @@ To force an export of emulator state during active testing:
 pnpm run emulators:export
 ```
 
+### 3.7 Digital Display Player Agent & Development Mode
+Aura DIMS includes a dedicated player runtime workspace (`@aura-dims/player`) for offline signage playback:
+
+```bash
+# Start player agent and loopback server (runs on http://127.0.0.1:8090)
+pnpm run player:agent
+
+# Or build the player bundle and run simultaneously
+pnpm run player:dev
+```
+
+When started, the agent:
+1. Serves the static kiosk renderer on `http://127.0.0.1:8090/`.
+2. Serves content-addressable verified cache binaries from `player/data/cache/`.
+3. Dispatches regular heartbeats and delivery reports to backend Cloud Functions (`reportDeviceHeartbeat`, `reportDeviceDelivery`).
+4. Evaluates schedule rules locally in Indian Standard Time (`Asia/Kolkata`).
+
 ---
 
 ## 4. Digital Display Timeline Simulator & Preflight Collision Detection
@@ -159,6 +176,7 @@ Milestone 5 includes interactive testing tools accessible directly from the Aura
 | Service | Port | Host | URL / Direct Endpoint |
 | :--- | :--- | :--- | :--- |
 | **Vite Web Server** | `5175` | `127.0.0.1` | `http://127.0.0.1:5175` |
+| **Player Loopback HTTP Server** | `8090` | `127.0.0.1` | `http://127.0.0.1:8090` |
 | **Firebase Emulator UI** | `4000` | `127.0.0.1` | `http://127.0.0.1:4000` |
 | **Auth Emulator** | `9099` | `127.0.0.1` | `http://127.0.0.1:9099` |
 | **Firestore Emulator** | `8080` | `127.0.0.1` | `127.0.0.1:8080` |

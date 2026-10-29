@@ -57,6 +57,7 @@ if (admin.apps.length === 0) {
     admin.initializeApp();
 }
 exports.db = admin.firestore();
+exports.db.settings({ ignoreUndefinedProperties: true });
 exports.REGION = 'asia-south1'; // India (Mumbai) regional target
 /** Reserved UID namespace for digital display device identities. */
 exports.DEVICE_UID_PREFIX = 'dvc_';

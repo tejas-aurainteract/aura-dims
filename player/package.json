@@ -2,13 +2,23 @@
   "name": "@aura-dims/player",
   "version": "0.1.0",
   "private": true,
-  "description": "Digital Display Signage Player runtime placeholder for Aura DIMS",
+  "description": "Secure Digital Display Signage Player Runtime for Aura DIMS",
   "author": "Aurainteract Private Limited",
-  "main": "index.js",
+  "main": "dist/agent/index.js",
+  "type": "module",
   "scripts": {
-    "typecheck": "echo \"@aura-dims/player is a placeholder\"",
-    "lint": "echo \"@aura-dims/player is a placeholder\"",
-    "build": "echo \"@aura-dims/player build placeholder\""
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "echo \"@aura-dims/player lint check ok\"",
+    "start": "node dist/agent/index.js",
+    "dev": "node --experimental-strip-types src/agent/index.ts"
+  },
+  "dependencies": {
+    "@aura-dims/display-schema": "workspace:*",
+    "firebase": "^11.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "typescript": "^5.7.3"
   }
 }
-

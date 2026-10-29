@@ -82,6 +82,29 @@ export interface UserProfile {
   lastLoginAt?: string;
 }
 
+export type PackageDeliveryStage =
+  | 'idle'
+  | 'discovered'
+  | 'downloading'
+  | 'verifying'
+  | 'ready'
+  | 'active'
+  | 'failed';
+
+export interface StorageMetrics {
+  totalBytes: number;
+  usedBytes: number;
+  freeBytes: number;
+}
+
+export interface PlaybackPresentationState {
+  currentPlaylistId: string | null;
+  currentSlideId: string | null;
+  designRevisionId?: string | null;
+  isPlaying: boolean;
+  lastSlideStartedAt: string | null;
+}
+
 /** Values reported by an enrolled device in its last accepted heartbeat. */
 export interface DisplayReportedState {
   appVersion: string;
@@ -90,6 +113,17 @@ export interface DisplayReportedState {
   screenHeight: number | null;
   availableStorageBytes: number | null;
   uptimeSeconds: number | null;
+  desiredPublicationId?: string | null;
+  downloadingPublicationId?: string | null;
+  readyPublicationId?: string | null;
+  activePublicationId?: string | null;
+  deliveryStage?: PackageDeliveryStage;
+  lastSyncAt?: string | null;
+  storage?: StorageMetrics | null;
+  playback?: PlaybackPresentationState | null;
+  rendererHealth?: 'healthy' | 'stalled' | 'error';
+  lastError?: string | null;
+  errorCount?: number;
 }
 
 /**
@@ -107,6 +141,11 @@ export interface DigitalDisplay {
   orientation: DisplayOrientation;
   configuredResolution: Resolution;
   lifecycle: DisplayLifecycle;
+  desiredPublicationId?: string | null;
+  activePublicationId?: string | null;
+  deliveryStage?: PackageDeliveryStage;
+  lastSyncAt?: string | null;
+  lastDeliveryError?: string | null;
   /** Server receipt time of the last accepted heartbeat. */
   lastHeartbeatAt: string | null;
   reported: DisplayReportedState | null;
@@ -500,11 +539,60 @@ export interface RedeemPairingCodeResponse {
 export interface DeviceSignInRequest { displayId: string; deviceSecret: string }
 export interface DeviceSignInResponse { customToken: string }
 
+export interface GetDevicePublicationRequest {
+  displayId: string;
+}
+
+export interface GetDevicePublicationResponse {
+  displayId: string;
+  lifecycle: DisplayLifecycle;
+  desiredPublicationId: string | null;
+  activePublicationId: string | null;
+  orientation: DisplayOrientation;
+  configuredResolution: Resolution;
+  serverTimestamp: string;
+}
+
+export interface GetDevicePublicationManifestRequest {
+  displayId: string;
+  publicationId: string;
+}
+
+export interface GetDevicePublicationManifestResponse {
+  manifest: DetailedPublicationManifest;
+  assetUrls: Record<string, string>;
+}
+
+export interface ReportDeviceDeliveryRequest {
+  displayId: string;
+  publicationId: string;
+  stage: PackageDeliveryStage;
+  checksumSha256?: string;
+  errorMessage?: string;
+}
+
+export interface ReportDeviceDeliveryResponse {
+  accepted: boolean;
+  serverReceivedAt: string;
+}
+
 export interface DeviceHeartbeatRequest {
+  displayId?: string;
   appVersion: string;
   clientKind?: 'player' | 'simulator';
   screen?: { width: number; height: number } | null;
   diagnostics?: { availableStorageBytes?: number; uptimeSeconds?: number } | null;
+  desiredPublicationId?: string | null;
+  downloadingPublicationId?: string | null;
+  readyPublicationId?: string | null;
+  activePublicationId?: string | null;
+  deliveryStage?: PackageDeliveryStage;
+  lastSyncAt?: string | null;
+  storage?: StorageMetrics | null;
+  playback?: PlaybackPresentationState | null;
+  rendererHealth?: 'healthy' | 'stalled' | 'error';
+  lastError?: string | null;
+  errorCount?: number;
 }
 
 export interface DeviceHeartbeatResponse {

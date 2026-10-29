@@ -109,6 +109,17 @@ import type {
   SetUserDirectPublishPermissionResponse,
   EvaluateSchedulePreviewRequest,
   EvaluateSchedulePreviewResponse,
+  RegisterDisplayRequest,
+  UpdateDisplayRequest,
+  DisplayMutationResponse,
+  SetDisplayLifecycleRequest,
+  GeneratePairingCodeRequest,
+  GeneratePairingCodeResponse,
+  ResetEnrollmentRequest,
+  ListDisplaysRequest,
+  ListDisplaysResponse,
+  GetDisplayRequest,
+  GetDisplayResponse,
 } from '@aura-dims/display-schema';
 
 export const api = {
@@ -416,6 +427,49 @@ export const api = {
 
   evaluateSchedulePreview: async (req: EvaluateSchedulePreviewRequest): Promise<EvaluateSchedulePreviewResponse> => {
     const fn = httpsCallable<EvaluateSchedulePreviewRequest, EvaluateSchedulePreviewResponse>(functions, 'evaluateSchedulePreview');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  // Digital Displays Fleet
+  listDisplays: async (req: ListDisplaysRequest): Promise<ListDisplaysResponse> => {
+    const fn = httpsCallable<ListDisplaysRequest, ListDisplaysResponse>(functions, 'listDisplays');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  getDisplay: async (req: GetDisplayRequest): Promise<GetDisplayResponse> => {
+    const fn = httpsCallable<GetDisplayRequest, GetDisplayResponse>(functions, 'getDisplay');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  registerDisplay: async (req: RegisterDisplayRequest): Promise<DisplayMutationResponse> => {
+    const fn = httpsCallable<RegisterDisplayRequest, DisplayMutationResponse>(functions, 'registerDisplay');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  updateDisplay: async (req: UpdateDisplayRequest): Promise<DisplayMutationResponse> => {
+    const fn = httpsCallable<UpdateDisplayRequest, DisplayMutationResponse>(functions, 'updateDisplay');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  setDisplayLifecycle: async (req: SetDisplayLifecycleRequest): Promise<DisplayMutationResponse> => {
+    const fn = httpsCallable<SetDisplayLifecycleRequest, DisplayMutationResponse>(functions, 'setDisplayLifecycle');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  resetEnrollment: async (req: ResetEnrollmentRequest): Promise<DisplayMutationResponse> => {
+    const fn = httpsCallable<ResetEnrollmentRequest, DisplayMutationResponse>(functions, 'resetEnrollment');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  generateDisplayPairingCode: async (req: GeneratePairingCodeRequest): Promise<GeneratePairingCodeResponse> => {
+    const fn = httpsCallable<GeneratePairingCodeRequest, GeneratePairingCodeResponse>(functions, 'generateDisplayPairingCode');
     const result = await fn(req);
     return result.data;
   },

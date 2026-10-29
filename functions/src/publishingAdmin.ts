@@ -12,6 +12,7 @@
 
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import * as crypto from 'node:crypto';
 import type {
   UserProfile,
@@ -147,7 +148,7 @@ async function writeAuditLog(params: {
     previousState: params.previousState || null,
     newState: params.newState || null,
     metadata: params.metadata || {},
-    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    timestamp: FieldValue.serverTimestamp(),
   });
 }
 
@@ -336,16 +337,21 @@ export const createPlaylist = onCall(
 
     assertDepartmentAccess(caller, departmentId);
 
-    const playlistItems: PlaylistItem[] = (items || []).map((it, idx) => ({
-      id: crypto.randomUUID(),
-      designId: it.designId,
-      designRevisionId: (it as any).designRevisionId,
-      title: it.title,
-      orientation: it.orientation,
-      slideCount: it.slideCount,
-      durationSeconds: it.durationSeconds,
-      order: idx + 1,
-    }));
+    const playlistItems: PlaylistItem[] = (items || []).map((it, idx) => {
+      const item: PlaylistItem = {
+        id: crypto.randomUUID(),
+        designId: it.designId,
+        title: it.title,
+        orientation: it.orientation,
+        slideCount: it.slideCount,
+        durationSeconds: it.durationSeconds,
+        order: idx + 1,
+      };
+      if ((it as any).designRevisionId) {
+        item.designRevisionId = (it as any).designRevisionId;
+      }
+      return item;
+    });
 
     const val = validatePlaylist({ title, orientation, items: playlistItems });
     if (!val.valid) {
@@ -414,16 +420,21 @@ export const updatePlaylist = onCall(
       );
     }
 
-    const playlistItems: PlaylistItem[] = (items || []).map((it, idx) => ({
-      id: it.id || crypto.randomUUID(),
-      designId: it.designId,
-      designRevisionId: it.designRevisionId,
-      title: it.title,
-      orientation: it.orientation,
-      slideCount: it.slideCount,
-      durationSeconds: it.durationSeconds,
-      order: idx + 1,
-    }));
+    const playlistItems: PlaylistItem[] = (items || []).map((it, idx) => {
+      const item: PlaylistItem = {
+        id: it.id || crypto.randomUUID(),
+        designId: it.designId,
+        title: it.title,
+        orientation: it.orientation,
+        slideCount: it.slideCount,
+        durationSeconds: it.durationSeconds,
+        order: idx + 1,
+      };
+      if (it.designRevisionId) {
+        item.designRevisionId = it.designRevisionId;
+      }
+      return item;
+    });
 
     const val = validatePlaylist({ title, orientation: current.orientation, items: playlistItems });
     if (!val.valid) {

@@ -989,5 +989,26 @@ describe('Aura DIMS - Security Rules Suite', () => {
         })
       );
     });
+
+    it('DENIES digital display device identities from accessing administrative and departmental documents', async () => {
+      const deviceCtx = testEnv.authenticatedContext('dvc_disp_hr_1', {
+        role: 'device',
+        principal: 'device',
+        displayId: 'disp-hr-1',
+      });
+
+      // Digital display tokens cannot read users, departments, approvals, or general media assets
+      await assertFails(getDoc(doc(deviceCtx.firestore(), 'users/admin-1')));
+      await assertFails(getDoc(doc(deviceCtx.firestore(), 'approvals/appr-hr-1')));
+      await assertFails(getDoc(doc(deviceCtx.firestore(), 'assets/asset-hr-1')));
+      await assertFails(getDoc(doc(deviceCtx.firestore(), 'displays/disp-ops-1')));
+
+      // Direct client writes are strictly denied for devices
+      await assertFails(
+        setDoc(doc(deviceCtx.firestore(), 'displays/disp-hr-1'), {
+          reported: { appVersion: 'hacked' },
+        })
+      );
+    });
   });
 });

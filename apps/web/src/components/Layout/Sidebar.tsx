@@ -32,7 +32,7 @@ interface NavItem {
 
 const baseNavItems: NavItem[] = [
   { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-  { name: 'Displays', path: '/displays', icon: Tv },
+  { name: 'Digital Displays', path: '/displays', icon: Tv },
   { name: 'Content', path: '/content', icon: FolderOpen },
   { name: 'Schedules', path: '/schedules', icon: Calendar },
   { name: 'Approvals', path: '/approvals', icon: CheckCircle2 },

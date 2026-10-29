@@ -2,18 +2,18 @@
 
 **Company:** Aurainteract Private Limited  
 **Product:** Aura Digital Information Management System (Aura DIMS)  
-**Current Status:** Milestone 5 Complete (Playlists, Approvals, Scheduling, and Publication Preparation)
+**Current Status:** Milestone 6 Complete (Secure Digital Display Playback & Delivery Reporting)
 
 ---
 
 ## 1. Milestones Overview
 
 ```
-Milestone 1 (Complete)   ──>   Milestone 2 (Complete)             ──>   Milestone 3 (Complete)             ──>   Milestone 4 (Complete)             ──>   Milestone 5 (Complete)             ──>   Milestone 6 (Planned)
+Milestone 1 (Complete)   ──>   Milestone 2 (Complete)             ──>   Milestone 3 (Complete)             ──>   Milestone 4 (Complete)             ──>   Milestone 5 (Complete)             ──>   Milestone 6 (Complete)
 Foundation, Emulators,         Authentication, RBAC, User &             Secure Departmental Media                Visual Content Creator,                  Content Approval Workflows,              Digital Display Player Runtime,
 Deny-by-default rules,         Department Provisioning, Cloud           Library, Server Validation Pipeline,     Reusable Templates, DOM Renderer,        Playlist Sequencing,                     Offline Autonomous Playback,
-Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksums, Private Previews.             Autosave & Local Draft Recovery.         Deterministic Asia/Kolkata Scheduling,   Package Downloads, Heartbeats.
-                                                                                                                                                          Publication Manifest Compilation.
+Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksums, Private Previews.             Autosave & Local Draft Recovery.         Deterministic Asia/Kolkata Scheduling,   Package Downloads, Heartbeats,
+                                                                                                                                                          Publication Manifest Compilation.        Delivery Reporting & Diagnostics.
 ```
 
 ---
@@ -67,10 +67,20 @@ Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksum
 | **Editorial Approvals Governance** | Complete | Admin review queue (`/approvals`), review modal with mandatory rejection reasoning, history audit |
 | **Delegated Direct Publishing** | Complete | Admins can delegate `canDirectPublish: true` to trusted Department Heads |
 | **Publication Manifest Compilation** | Complete | Idempotent `preparePublication` Cloud Function compiling versioned manifest to Cloud Storage with SHA-256 |
-| **Dashboard KPI Integrations** | Complete | Live cards for Pending Editorial Approvals and Active Broadcast Schedules |
+| **Dashboard KPI Integrations** | Complete | Live cards for Pending Editorial Approvals, Active Schedules, and Display fleet |
 | **Digital Displays & Sites Seeder** | Complete | `scripts/seed-displays.ts` (`pnpm run seed:displays`) seeding 2 sites, 4 displays, and HR assignments |
-| **Security Rules Test Suite** | Complete | 62 unit tests in `tests/rules/security-rules.test.ts` (100% passing) |
-| **Playwright E2E Suite** | Complete | 12 browser smoke, RBAC, media, editor, and publishing pipeline tests in `tests/e2e/` (100% passing) |
+| **Digital Display Player Runtime Package** | Complete | Dedicated workspace `@aura-dims/player` with TypeScript agent and HTML5 kiosk renderer |
+| **Pure Local Offline Signage Playback** | Complete | Loopback binding (`http://127.0.0.1:8090`), zero Firebase SDK in renderer, neutral corporate fallback |
+| **Strict Security & Anti-Rebinding** | Complete | Loopback Host/Origin validation (403 Forbidden), CSP restrictions, path traversal defense |
+| **Single-Use Enrollment Code Pairing** | Complete | 6-character CSPRNG pairing flow with isolated device credentials (`0600` permissions) |
+| **Atomic Package Synchronization** | Complete | State machine (`discovered` -> `downloading` -> `verifying` -> `ready` -> `active`), SHA-256 validation |
+| **Content-Addressable Cache & GC** | Complete | SHA-256 deduplicated cache (`player/data/cache/`), atomic pointer switch, unreferenced cleanup |
+| **Autonomous Asia/Kolkata Scheduling** | Complete | Deterministic evaluation against local hardware clock in `Asia/Kolkata` with zero network pings |
+| **Fleet Monitoring & Diagnostics Console** | Complete | `DisplaysPage.tsx` with live delivery stage tracking, storage metrics, and telemetry drawer |
+| **Linux ARM64 Systemd Supervision** | Complete | `auradims-agent.service`, `auradims-kiosk.service`, and `auradims-logrotate.conf` |
+| **Player Runtime Unit Tests** | Complete | 14 unit tests in `tests/player/player-runtime.test.ts` (100% passing) |
+| **Security Rules Test Suite** | Complete | 63 unit tests in `tests/rules/security-rules.test.ts` (100% passing) |
+| **Playwright E2E Suite** | Complete | 14 browser tests across all milestones in `tests/e2e/` (100% passing) |
 
 ---
 

@@ -767,3 +767,31 @@ export {
   setUserDirectPublishPermission,
   evaluateSchedulePreview,
 } from './publishingAdmin';
+
+
+// ==============================================================================
+// Fleet Management & Digital Display Device Protocol Operations
+// ==============================================================================
+export {
+  createSite,
+  updateSite,
+  createDisplayGroup,
+  updateDisplayGroup,
+  setDisplayGroupStatus,
+  registerDisplay,
+  updateDisplay,
+  setDisplayLifecycle,
+  resetEnrollment,
+  generateDisplayPairingCode,
+  assignDisplayUser,
+  unassignDisplayUser,
+  listUserAssignments,
+  redeemPairingCode,
+  deviceSignIn,
+  getDevicePublication,
+  getDevicePublicationManifest,
+  reportDeviceDelivery,
+  reportDeviceHeartbeat,
+  listDisplays,
+  getDisplay,
+} from './fleetAdmin';

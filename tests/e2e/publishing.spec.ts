@@ -90,6 +90,7 @@ test.describe('Aura DIMS - Playlists, Scheduling, Approvals & Publication Suite'
     await page.getByRole('button', { name: 'Create Playlist', exact: true }).click();
 
     // Verify modal closes and playlist appears in list
+    await expect(page.getByRole('heading', { name: 'Create Signage Playlist' })).toHaveCount(0, { timeout: 15000 });
     await expect(page.getByText('Corporate Reception Loop').first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('Landscape (1920×1080)').first()).toBeVisible();
 
@@ -130,7 +131,8 @@ test.describe('Aura DIMS - Playlists, Scheduling, Approvals & Publication Suite'
     // Submit schedule
     await page.getByRole('button', { name: 'Create Schedule', exact: true }).click();
 
-    // Verify schedule appears in list
+    // Verify modal closes and schedule appears in list
+    await expect(page.getByRole('heading', { name: 'Create Broadcast Schedule' })).toHaveCount(0, { timeout: 15000 });
     await expect(page.getByText('HQ Reception Weekday Broadcast').first()).toBeVisible({ timeout: 10000 });
 
     // Capture screenshot: schedules-list.png

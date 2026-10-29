@@ -7,7 +7,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "dev": "concurrently -k -n \"EMULATORS,WEB\" -c \"yellow,cyan\" \"pnpm run emulators:start\" \"pnpm --filter @aura-dims/web dev\"",
-    "build": "pnpm --filter @aura-dims/display-schema build && pnpm --filter @aura-dims/functions build && pnpm --filter @aura-dims/web build",
+    "build": "pnpm --filter @aura-dims/display-schema build && pnpm --filter @aura-dims/functions build && pnpm --filter @aura-dims/player build && pnpm --filter @aura-dims/web build",
     "typecheck": "pnpm -r run typecheck",
     "lint": "pnpm -r run lint",
     "test": "pnpm run test:rules && pnpm --filter @aura-dims/web test:unit",
@@ -17,7 +17,9 @@
     "emulators:start:blank": "firebase emulators:start --project demo-aura-dims",
     "emulators:export": "firebase emulators:export ./firebase/emulators/data --project demo-aura-dims --force",
     "bootstrap:admin": "node --experimental-strip-types scripts/bootstrap-admin.ts",
-    "seed:displays": "node --experimental-strip-types scripts/seed-displays.ts"
+    "seed:displays": "node --experimental-strip-types scripts/seed-displays.ts",
+    "player:dev": "node --experimental-strip-types player/src/agent/index.ts --open",
+    "player:agent": "node --experimental-strip-types player/src/agent/index.ts"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^4.0.1",

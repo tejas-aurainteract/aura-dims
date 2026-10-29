@@ -38,7 +38,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.listUserAssignments = exports.unassignDisplayUser = exports.assignDisplayUser = exports.generateDisplayPairingCode = exports.resetEnrollment = exports.setDisplayLifecycle = exports.updateDisplay = exports.registerDisplay = exports.setDisplayGroupStatus = exports.updateDisplayGroup = exports.createDisplayGroup = exports.setSiteStatus = exports.updateSite = exports.createSite = void 0;
+exports.getDisplay = exports.listDisplays = exports.reportDeviceHeartbeat = exports.reportDeviceDelivery = exports.getDevicePublicationManifest = exports.getDevicePublication = exports.deviceSignIn = exports.redeemPairingCode = exports.listUserAssignments = exports.unassignDisplayUser = exports.assignDisplayUser = exports.generateDisplayPairingCode = exports.resetEnrollment = exports.setDisplayLifecycle = exports.updateDisplay = exports.registerDisplay = exports.setDisplayGroupStatus = exports.updateDisplayGroup = exports.createDisplayGroup = exports.setSiteStatus = exports.updateSite = exports.createSite = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-admin/firestore");
@@ -635,5 +635,412 @@ exports.listUserAssignments = (0, https_1.onCall)(opts, async (request) => {
     const uid = (0, common_js_1.requireId)(request.data?.uid, 'User ID');
     const snaps = await common_js_1.db.collection(displayModel_js_1.COL.assignments).where('uid', '==', uid).limit(500).get();
     return { assignments: await (0, displayModel_js_1.buildAssignmentViews)(snaps.docs) };
+});
+// ---------------------------------------------------------------------------
+// Device protocol & Delivery reporting
+// ---------------------------------------------------------------------------
+exports.redeemPairingCode = (0, https_1.onCall)(opts, async (request) => {
+    const rawCode = request.data?.pairingCode;
+    if (!rawCode || typeof rawCode !== 'string') {
+        throw new https_1.HttpsError('invalid-argument', 'Pairing code is required.');
+    }
+    const cleanCode = rawCode.trim().toUpperCase();
+    const verifier = (0, credentials_js_1.pairingCodeVerifier)(cleanCode);
+    const clientIp = (0, credentials_js_1.clientAddress)(request.rawRequest);
+    const rateLimitKey = (0, credentials_js_1.hashClientKey)('pairing_attempt', clientIp);
+    await (0, credentials_js_1.checkRateLimit)(rateLimitKey, 300, 10);
+    const pRef = common_js_1.db.collection(displayModel_js_1.COL.pairingCodes).doc(verifier);
+    const pSnap = await pRef.get();
+    if (!pSnap.exists) {
+        await (0, credentials_js_1.recordRateLimitHit)(rateLimitKey, 300, 10);
+        throw new https_1.HttpsError('not-found', 'Invalid pairing code.');
+    }
+    const pData = pSnap.data();
+    if (pData.consumedAt) {
+        throw new https_1.HttpsError('failed-precondition', 'Pairing code has already been consumed.');
+    }
+    const expiresAt = pData.expiresAt;
+    if (expiresAt.toMillis() < Date.now()) {
+        throw new https_1.HttpsError('failed-precondition', 'Pairing code has expired.');
+    }
+    const displayId = pData.displayId;
+    const dRef = common_js_1.db.collection(displayModel_js_1.COL.displays).doc(displayId);
+    const sRef = common_js_1.db.collection(displayModel_js_1.COL.secrets).doc(displayId);
+    const deviceSecret = (0, credentials_js_1.generateDeviceSecret)();
+    const secretHash = (0, credentials_js_1.deviceSecretVerifier)(displayId, deviceSecret);
+    const deviceUid = (0, credentials_js_1.newDeviceUid)();
+    await common_js_1.db.runTransaction(async (tx) => {
+        const [dSnap, sSnap] = await Promise.all([tx.get(dRef), tx.get(sRef)]);
+        if (!dSnap.exists)
+            throw new https_1.HttpsError('not-found', 'Digital display not found.');
+        const d = dSnap.data();
+        if (d.lifecycle !== 'pending_enrollment') {
+            throw new https_1.HttpsError('failed-precondition', 'Digital display is not in pending_enrollment state.');
+        }
+        const s = sSnap.data() || {};
+        const nextGen = Number(s.credentialGeneration || 0) + 1;
+        tx.update(pRef, { consumedAt: firestore_1.FieldValue.serverTimestamp() });
+        tx.set(sRef, {
+            displayId,
+            activeDeviceUid: deviceUid,
+            credentialVerifier: secretHash,
+            credentialGeneration: nextGen,
+            pairingCodeVerifier: null,
+            pairingCodeExpiresAt: null,
+            enrolledAt: firestore_1.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        tx.update(dRef, {
+            lifecycle: 'active',
+            enrolledAt: firestore_1.FieldValue.serverTimestamp(),
+            lastHeartbeatAt: firestore_1.FieldValue.serverTimestamp(),
+            updatedAt: firestore_1.FieldValue.serverTimestamp(),
+        });
+        tx.create(common_js_1.db.collection('auditEvents').doc(), (0, common_js_1.buildAuditRecord)({
+            actorId: deviceUid,
+            action: 'display.enrolled',
+            targetId: displayId,
+            targetType: 'display',
+            newState: { lifecycle: 'active', credentialGeneration: nextGen },
+        }));
+    });
+    try {
+        await admin.auth().createUser({
+            uid: deviceUid,
+            displayName: `Device for display ${displayId}`,
+            disabled: false,
+        });
+    }
+    catch (e) {
+        if (e.code !== 'auth/uid-already-exists') {
+            console.error('Failed to create device auth user:', e);
+        }
+    }
+    await admin.auth().setCustomUserClaims(deviceUid, {
+        role: 'device',
+        displayId,
+        principal: 'device',
+    });
+    const customToken = await admin.auth().createCustomToken(deviceUid, {
+        role: 'device',
+        displayId,
+        principal: 'device',
+    });
+    return {
+        displayId,
+        deviceSecret,
+        customToken,
+    };
+});
+exports.deviceSignIn = (0, https_1.onCall)(opts, async (request) => {
+    const { displayId, deviceSecret } = request.data || {};
+    if (!displayId || !deviceSecret) {
+        throw new https_1.HttpsError('invalid-argument', 'Missing displayId or deviceSecret.');
+    }
+    const clientIp = (0, credentials_js_1.clientAddress)(request.rawRequest);
+    const rateLimitKey = (0, credentials_js_1.hashClientKey)('device_signin', `${displayId}:${clientIp}`);
+    await (0, credentials_js_1.checkRateLimit)(rateLimitKey, 600, 30);
+    const [dSnap, sSnap] = await Promise.all([
+        common_js_1.db.collection(displayModel_js_1.COL.displays).doc(displayId).get(),
+        common_js_1.db.collection(displayModel_js_1.COL.secrets).doc(displayId).get(),
+    ]);
+    if (!dSnap.exists || !sSnap.exists) {
+        await (0, credentials_js_1.recordRateLimitHit)(rateLimitKey, 600, 30);
+        throw new https_1.HttpsError('not-found', 'Digital display not found.');
+    }
+    const d = dSnap.data();
+    if (d.lifecycle !== 'active') {
+        throw new https_1.HttpsError('permission-denied', `Digital display is not active (status: ${d.lifecycle}).`);
+    }
+    const s = sSnap.data();
+    const expectedHash = s.credentialVerifier;
+    const activeDeviceUid = s.activeDeviceUid;
+    if (!expectedHash || !activeDeviceUid) {
+        throw new https_1.HttpsError('failed-precondition', 'Digital display is not enrolled.');
+    }
+    const providedHash = (0, credentials_js_1.deviceSecretVerifier)(displayId, deviceSecret);
+    if (!(0, credentials_js_1.verifiersEqual)(providedHash, expectedHash)) {
+        await (0, credentials_js_1.recordRateLimitHit)(rateLimitKey, 600, 30);
+        throw new https_1.HttpsError('permission-denied', 'Invalid device credentials.');
+    }
+    await admin.auth().setCustomUserClaims(activeDeviceUid, {
+        role: 'device',
+        displayId,
+        principal: 'device',
+    });
+    const customToken = await admin.auth().createCustomToken(activeDeviceUid, {
+        role: 'device',
+        displayId,
+        principal: 'device',
+    });
+    return { customToken };
+});
+exports.getDevicePublication = (0, https_1.onCall)(opts, async (request) => {
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+        throw new https_1.HttpsError('unauthenticated', 'Device authentication required.');
+    }
+    const displayId = (0, common_js_1.requireId)(request.data?.displayId, 'Display ID');
+    const sDoc = await common_js_1.db.collection(displayModel_js_1.COL.secrets).doc(displayId).get();
+    if (!sDoc.exists || sDoc.data()?.activeDeviceUid !== auth.uid) {
+        throw new https_1.HttpsError('permission-denied', 'Device identity does not match this digital display.');
+    }
+    const dDoc = await common_js_1.db.collection(displayModel_js_1.COL.displays).doc(displayId).get();
+    if (!dDoc.exists) {
+        throw new https_1.HttpsError('not-found', 'Digital display not found.');
+    }
+    const display = dDoc.data();
+    if (display.lifecycle !== 'active') {
+        throw new https_1.HttpsError('permission-denied', `Digital display is ${display.lifecycle}.`);
+    }
+    return {
+        displayId,
+        lifecycle: display.lifecycle,
+        desiredPublicationId: display.desiredPublicationId || null,
+        activePublicationId: display.activePublicationId || null,
+        orientation: display.orientation,
+        configuredResolution: display.configuredResolution,
+        serverTimestamp: new Date().toISOString(),
+    };
+});
+exports.getDevicePublicationManifest = (0, https_1.onCall)(opts, async (request) => {
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+        throw new https_1.HttpsError('unauthenticated', 'Device authentication required.');
+    }
+    const displayId = (0, common_js_1.requireId)(request.data?.displayId, 'Display ID');
+    const publicationId = (0, common_js_1.requireId)(request.data?.publicationId, 'Publication ID');
+    const sDoc = await common_js_1.db.collection(displayModel_js_1.COL.secrets).doc(displayId).get();
+    if (!sDoc.exists || sDoc.data()?.activeDeviceUid !== auth.uid) {
+        throw new https_1.HttpsError('permission-denied', 'Device identity does not match this digital display.');
+    }
+    const dDoc = await common_js_1.db.collection(displayModel_js_1.COL.displays).doc(displayId).get();
+    if (!dDoc.exists || dDoc.data()?.lifecycle !== 'active') {
+        throw new https_1.HttpsError('permission-denied', 'Digital display is not active.');
+    }
+    const pubDoc = await common_js_1.db.collection('publications').doc(publicationId).get();
+    if (!pubDoc.exists) {
+        throw new https_1.HttpsError('not-found', `Publication ${publicationId} not found.`);
+    }
+    const pub = pubDoc.data();
+    if (pub.displayId !== displayId && dDoc.data()?.desiredPublicationId !== publicationId) {
+        throw new https_1.HttpsError('permission-denied', 'Access denied to publications belonging to other digital displays.');
+    }
+    const bucket = admin.storage().bucket();
+    const manifestFile = bucket.file(pub.storagePath);
+    const [exists] = await manifestFile.exists();
+    if (!exists) {
+        throw new https_1.HttpsError('not-found', 'Publication manifest file not found in storage.');
+    }
+    const [content] = await manifestFile.download();
+    const manifest = JSON.parse(content.toString('utf8'));
+    const isEmulator = !!process.env.STORAGE_EMULATOR_HOST || process.env.FUNCTIONS_EMULATOR === 'true';
+    const storageHost = process.env.STORAGE_EMULATOR_HOST || '127.0.0.1:9199';
+    const bucketName = bucket.name || 'demo-aura-dims.appspot.com';
+    const assetUrls = {};
+    for (const a of manifest.assets) {
+        if (isEmulator) {
+            assetUrls[a.assetId] = `http://${storageHost}/v0/b/${bucketName}/o/${encodeURIComponent(a.storagePath)}?alt=media`;
+        }
+        else {
+            try {
+                const [url] = await bucket.file(a.storagePath).getSignedUrl({
+                    action: 'read',
+                    expires: Date.now() + 3600 * 1000,
+                });
+                assetUrls[a.assetId] = url;
+            }
+            catch {
+                assetUrls[a.assetId] = `https://storage.googleapis.com/${bucketName}/${a.storagePath}`;
+            }
+        }
+    }
+    return { manifest, assetUrls };
+});
+exports.reportDeviceDelivery = (0, https_1.onCall)(opts, async (request) => {
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+        throw new https_1.HttpsError('unauthenticated', 'Device authentication required.');
+    }
+    const displayId = (0, common_js_1.requireId)(request.data?.displayId, 'Display ID');
+    const publicationId = (0, common_js_1.requireId)(request.data?.publicationId, 'Publication ID');
+    const stage = request.data?.stage;
+    const checksumSha256 = request.data?.checksumSha256 || null;
+    const errorMessage = request.data?.errorMessage || null;
+    const sDoc = await common_js_1.db.collection(displayModel_js_1.COL.secrets).doc(displayId).get();
+    if (!sDoc.exists || sDoc.data()?.activeDeviceUid !== auth.uid) {
+        throw new https_1.HttpsError('permission-denied', 'Device identity does not match this digital display.');
+    }
+    const dRef = common_js_1.db.collection(displayModel_js_1.COL.displays).doc(displayId);
+    const dDoc = await dRef.get();
+    if (!dDoc.exists) {
+        throw new https_1.HttpsError('not-found', 'Digital display not found.');
+    }
+    const now = new Date().toISOString();
+    const updateData = {
+        deliveryStage: stage,
+        lastSyncAt: firestore_1.FieldValue.serverTimestamp(),
+        updatedAt: firestore_1.FieldValue.serverTimestamp(),
+    };
+    if (stage === 'active') {
+        updateData.activePublicationId = publicationId;
+        updateData.lastActiveAt = firestore_1.FieldValue.serverTimestamp();
+        updateData.lastDeliveryError = null;
+    }
+    else if (stage === 'failed') {
+        updateData.lastDeliveryError = errorMessage;
+    }
+    await dRef.update(updateData);
+    await (0, common_js_1.writeAuditLog)({
+        actorId: auth.uid,
+        action: 'display.delivery_reported',
+        targetId: displayId,
+        targetType: 'display',
+        newState: {
+            stage,
+            publicationId,
+            checksumSha256,
+            errorMessage,
+        },
+    });
+    return {
+        accepted: true,
+        serverReceivedAt: now,
+    };
+});
+exports.reportDeviceHeartbeat = (0, https_1.onCall)(opts, async (request) => {
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+        throw new https_1.HttpsError('unauthenticated', 'Device authentication required.');
+    }
+    const data = request.data || {};
+    let displayId = data.displayId;
+    if (!displayId) {
+        displayId = auth.token?.displayId;
+    }
+    if (!displayId) {
+        const q = await common_js_1.db.collection(displayModel_js_1.COL.secrets).where('activeDeviceUid', '==', auth.uid).limit(1).get();
+        if (q.empty) {
+            throw new https_1.HttpsError('permission-denied', 'Unrecognized device identity.');
+        }
+        displayId = q.docs[0].id;
+    }
+    const sDoc = await common_js_1.db.collection(displayModel_js_1.COL.secrets).doc(displayId).get();
+    if (!sDoc.exists || sDoc.data()?.activeDeviceUid !== auth.uid) {
+        throw new https_1.HttpsError('permission-denied', 'Device identity does not match this digital display.');
+    }
+    const dRef = common_js_1.db.collection(displayModel_js_1.COL.displays).doc(displayId);
+    const dDoc = await dRef.get();
+    if (!dDoc.exists) {
+        throw new https_1.HttpsError('not-found', 'Digital display not found.');
+    }
+    const display = dDoc.data();
+    if (display.lifecycle !== 'active') {
+        throw new https_1.HttpsError('permission-denied', `Digital display is not active (${display.lifecycle}).`);
+    }
+    const reportedState = {
+        appVersion: data.appVersion || '1.0.0',
+        clientKind: data.clientKind || 'player',
+        screenWidth: data.screen?.width || null,
+        screenHeight: data.screen?.height || null,
+        availableStorageBytes: data.diagnostics?.availableStorageBytes || null,
+        uptimeSeconds: data.diagnostics?.uptimeSeconds || null,
+        desiredPublicationId: data.desiredPublicationId || display.desiredPublicationId || null,
+        downloadingPublicationId: data.downloadingPublicationId || null,
+        readyPublicationId: data.readyPublicationId || null,
+        activePublicationId: data.activePublicationId || display.activePublicationId || null,
+        deliveryStage: data.deliveryStage || display.deliveryStage || 'idle',
+        lastSyncAt: data.lastSyncAt || null,
+        storage: data.storage || null,
+        playback: data.playback || null,
+        rendererHealth: data.rendererHealth || 'healthy',
+        lastError: data.lastError || null,
+        errorCount: data.errorCount || 0,
+    };
+    const updatePayload = {
+        lastHeartbeatAt: firestore_1.FieldValue.serverTimestamp(),
+        reported: reportedState,
+    };
+    if (data.activePublicationId) {
+        updatePayload.activePublicationId = data.activePublicationId;
+    }
+    if (data.deliveryStage) {
+        updatePayload.deliveryStage = data.deliveryStage;
+    }
+    await dRef.update(updatePayload);
+    return {
+        accepted: true,
+        serverReceivedAt: new Date().toISOString(),
+        recommendedHeartbeatSeconds: 30,
+    };
+});
+exports.listDisplays = (0, https_1.onCall)(opts, async (request) => {
+    const caller = await (0, common_js_1.getAuthenticatedCaller)(request.auth);
+    let q = common_js_1.db.collection(displayModel_js_1.COL.displays);
+    if (caller.role === 'department_head') {
+        if (!caller.departmentId) {
+            return { displays: [], nextCursor: null, scanLimited: false, thresholds: (0, displayModel_js_1.thresholds)() };
+        }
+        q = q.where('departmentId', '==', caller.departmentId);
+    }
+    else if (request.data?.departmentId) {
+        q = q.where('departmentId', '==', request.data.departmentId);
+    }
+    if (request.data?.siteId) {
+        q = q.where('siteId', '==', request.data.siteId);
+    }
+    const snaps = await q.get();
+    let docs = snaps.docs;
+    const lifecycleFilter = request.data?.lifecycle || 'non_retired';
+    if (lifecycleFilter === 'non_retired') {
+        docs = docs.filter((d) => d.data().lifecycle !== 'retired');
+    }
+    else if (lifecycleFilter !== 'all') {
+        docs = docs.filter((d) => d.data().lifecycle === lifecycleFilter);
+    }
+    const search = request.data?.search?.trim().toLowerCase();
+    if (search) {
+        docs = docs.filter((d) => {
+            const name = (d.data().name || '').toLowerCase();
+            const loc = (d.data().locationDescription || '').toLowerCase();
+            return name.includes(search) || loc.includes(search);
+        });
+    }
+    const views = await (0, displayModel_js_1.buildViews)(docs);
+    let finalViews = views;
+    if (request.data?.connectivity) {
+        finalViews = views.filter((v) => v.connectivity === request.data?.connectivity);
+    }
+    return {
+        displays: finalViews,
+        nextCursor: null,
+        scanLimited: false,
+        thresholds: (0, displayModel_js_1.thresholds)(),
+    };
+});
+exports.getDisplay = (0, https_1.onCall)(opts, async (request) => {
+    const caller = await (0, common_js_1.getAuthenticatedCaller)(request.auth);
+    const displayId = (0, common_js_1.requireId)(request.data?.displayId, 'Display ID');
+    const snap = await (0, displayModel_js_1.loadAuthorizedDisplay)(caller, displayId);
+    const [view] = await (0, displayModel_js_1.buildViews)([snap]);
+    let assignments;
+    let enrollment;
+    if (caller.role === 'admin') {
+        const aSnaps = await common_js_1.db.collection(displayModel_js_1.COL.assignments).where('displayId', '==', displayId).get();
+        assignments = await (0, displayModel_js_1.buildAssignmentViews)(aSnaps.docs);
+        const secretSnap = await common_js_1.db.collection(displayModel_js_1.COL.secrets).doc(displayId).get();
+        const s = secretSnap.data() || {};
+        const pairingExpires = s.pairingCodeExpiresAt ? (0, common_js_1.toIso)(s.pairingCodeExpiresAt) : null;
+        enrollment = {
+            enrolled: !!s.activeDeviceUid,
+            pairingCodeActive: !!s.pairingCodeVerifier && (!pairingExpires || new Date(pairingExpires).getTime() > Date.now()),
+            pairingCodeExpiresAt: pairingExpires,
+        };
+    }
+    return {
+        display: view,
+        assignments,
+        enrollment,
+        thresholds: (0, displayModel_js_1.thresholds)(),
+    };
 });
 //# sourceMappingURL=fleetAdmin.js.map

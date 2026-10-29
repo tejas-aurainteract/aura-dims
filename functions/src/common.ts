@@ -16,6 +16,7 @@ if (admin.apps.length === 0) {
 }
 
 export const db = admin.firestore();
+db.settings({ ignoreUndefinedProperties: true });
 export const REGION = 'asia-south1'; // India (Mumbai) regional target
 
 /** Reserved UID namespace for digital display device identities. */

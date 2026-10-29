@@ -51,7 +51,6 @@ const firestore_1 = require("firebase-admin/firestore");
 const crypto = __importStar(require("node:crypto"));
 const display_schema_1 = require("@aura-dims/display-schema");
 const db = admin.firestore();
-db.settings({ ignoreUndefinedProperties: true });
 const storage = admin.storage();
 const REGION = 'asia-south1';
 // ==============================================================================
@@ -230,19 +229,19 @@ exports.createPlaylist = (0, https_1.onCall)({ region: REGION }, async (request)
     const { title, description, departmentId, orientation, items } = request.data;
     assertDepartmentAccess(caller, departmentId);
     const playlistItems = (items || []).map((it, idx) => {
-        const pItem = {
+        const item = {
             id: crypto.randomUUID(),
             designId: it.designId,
             title: it.title,
             orientation: it.orientation,
-            slideCount: it.slideCount || 1,
-            durationSeconds: it.durationSeconds || 10,
+            slideCount: it.slideCount,
+            durationSeconds: it.durationSeconds,
             order: idx + 1,
         };
         if (it.designRevisionId) {
-            pItem.designRevisionId = it.designRevisionId;
+            item.designRevisionId = it.designRevisionId;
         }
-        return pItem;
+        return item;
     });
     const val = (0, display_schema_1.validatePlaylist)({ title, orientation, items: playlistItems });
     if (!val.valid) {
@@ -295,19 +294,19 @@ exports.updatePlaylist = (0, https_1.onCall)({ region: REGION }, async (request)
         throw new https_1.HttpsError('failed-precondition', `Playlist concurrency conflict. Server revision is ${current.revision}, but your draft was based on revision ${revision}. Please reload latest version.`);
     }
     const playlistItems = (items || []).map((it, idx) => {
-        const pItem = {
+        const item = {
             id: it.id || crypto.randomUUID(),
             designId: it.designId,
             title: it.title,
             orientation: it.orientation,
-            slideCount: it.slideCount || 1,
-            durationSeconds: it.durationSeconds || 10,
+            slideCount: it.slideCount,
+            durationSeconds: it.durationSeconds,
             order: idx + 1,
         };
         if (it.designRevisionId) {
-            pItem.designRevisionId = it.designRevisionId;
+            item.designRevisionId = it.designRevisionId;
         }
-        return pItem;
+        return item;
     });
     const val = (0, display_schema_1.validatePlaylist)({ title, orientation: current.orientation, items: playlistItems });
     if (!val.valid) {

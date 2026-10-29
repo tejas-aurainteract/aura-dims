@@ -143,7 +143,21 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
-  player: {}
+  player:
+    dependencies:
+      '@aura-dims/display-schema':
+        specifier: workspace:*
+        version: link:../packages/display-schema
+      firebase:
+        specifier: ^11.3.1
+        version: 11.10.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.13.4
+        version: 22.20.5
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
 
 packages:
 

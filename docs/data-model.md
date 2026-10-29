@@ -57,21 +57,35 @@ Physical enterprise facilities.
 - **Access Pattern:** Read by authenticated users; managed by System Admin.
 
 ### 2.4 `/displays/{displayId}`
-Digital display hardware inventory.
+Digital display hardware inventory and live delivery/telemetry state.
 - **Fields:**
   - `id`: string (e.g. `'disp-ahd-01'`)
   - `name`: string (e.g. `'Main Lobby Reception'`)
   - `siteId`: string
   - `departmentId`: string
+  - `locationDescription`: string | null
   - `orientation`: `'landscape' | 'portrait'`
-  - `resolution`: `{ width: number, height: number }` (e.g. 1920×1080)
-  - `status`: `'online' | 'offline' | 'unregistered'`
-  - `ipAddress`: string | null
-  - `currentPublicationId`: string | null
+  - `configuredResolution`: `{ width: number, height: number }` (e.g. 1920×1080)
+  - `connectivity`: `'online' | 'offline' | 'never_connected'`
+  - `lifecycle`: `'pending_enrollment' | 'enrolled' | 'active' | 'maintenance' | 'decommissioned'`
+  - `deliveryStage`: `'discovered' | 'downloading' | 'verifying' | 'ready' | 'active' | 'failed'`
+  - `activePublicationId`: string | null (Current verified package playing on loopback renderer)
+  - `desiredPublicationId`: string | null (Targeted publication from winning Asia/Kolkata schedule)
+  - `activePackagePath`: string | null
+  - `lastDeliveryReportAt`: string | null (ISO timestamp)
+  - `lastDeliveryError`: string | null
+  - `lastHeartbeatAt`: string | null (ISO timestamp)
+  - `storageMetrics`: `{ totalCacheBytes: number, freeBytes: number, cacheItemCount: number }` | null
+  - `presentationState`: `{ playlistId?: string, playlistTitle?: string, designId?: string, designTitle?: string, slideId?: string, slideIndex?: number, totalSlides?: number, startedAt?: string, durationSeconds?: number }` | null
+  - `reported`: `{ appVersion: string, playerEngine: string, osProfile: string, localIp: string, ipAddress?: string, lastHeartbeatAt: string, rendererHealth: 'healthy' | 'degraded' | 'recovering' | 'unresponsive', freeDiskBytes: number }` | null
+  - `pairingTokenHash`: string | null (CSPRNG single-use pairing code hash)
+  - `pairingTokenExpiresAt`: string | null (15-minute expiration)
   - `assignedUserIds`: string[] (authorized Department Heads)
-  - `lastPingAt`: Timestamp | null
-  - `enrolledAt`: Timestamp
-- **Access Pattern:** Queried by site or department with pagination.
+  - `enrolledAt`: string | null (ISO timestamp)
+  - `enrolledBy`: string | null (UID)
+  - `createdAt`: string (ISO timestamp)
+  - `updatedAt`: string (ISO timestamp)
+- **Access Pattern:** Queried by site, department, orientation, delivery stage, and connectivity with cursor pagination. Update mutations restricted strictly to Cloud Functions via Firebase Admin SDK.
 
 ### 2.5 `/assignments/{assignmentId}`
 Explicit mappings of Department Heads to specific digital displays.

@@ -32,10 +32,31 @@ import type {
   ListUserAssignmentsResponse,
   DisplayOrientation,
   Resolution,
+  RedeemPairingCodeRequest,
+  RedeemPairingCodeResponse,
+  DeviceSignInRequest,
+  DeviceSignInResponse,
+  GetDevicePublicationRequest,
+  GetDevicePublicationResponse,
+  GetDevicePublicationManifestRequest,
+  GetDevicePublicationManifestResponse,
+  ReportDeviceDeliveryRequest,
+  ReportDeviceDeliveryResponse,
+  DeviceHeartbeatRequest,
+  DeviceHeartbeatResponse,
+  ListDisplaysRequest,
+  ListDisplaysResponse,
+  GetDisplayRequest,
+  GetDisplayResponse,
+  EnrollmentState,
+  DetailedPublicationManifest,
+  PublicationRecord,
+  DisplayReportedState,
+  AssignmentView,
 } from '@aura-dims/display-schema';
-import { db, REGION, assertAdminCaller, writeAuditLog, buildAuditRecord, toIso, requireString, requireId } from './common.js';
+import { db, REGION, assertAdminCaller, getAuthenticatedCaller, writeAuditLog, buildAuditRecord, toIso, requireString, requireId } from './common.js';
 import { getConfig, nextLifecycle, NON_RETIRED_LIFECYCLES } from './operational.js';
-import { generatePairingCode, pairingCodeVerifier } from './credentials.js';
+import { generatePairingCode, pairingCodeVerifier, generateDeviceSecret, deviceSecretVerifier, verifiersEqual, newDeviceUid, hashClientKey, checkRateLimit, recordRateLimitHit, clientAddress } from './credentials.js';
 import {
   COL,
   assignmentId,
@@ -43,6 +64,8 @@ import {
   serializeAssignment,
   buildAssignmentViews,
   revokeIncompatibleForDisplay,
+  thresholds,
+  loadAuthorizedDisplay,
 } from './displayModel.js';
 
 const opts = { cors: true, region: REGION };
@@ -694,3 +717,507 @@ export const listUserAssignments = onCall<ListUserAssignmentsRequest, Promise<Li
   const snaps = await db.collection(COL.assignments).where('uid', '==', uid).limit(500).get();
   return { assignments: await buildAssignmentViews(snaps.docs) };
 });
+
+
+// ---------------------------------------------------------------------------
+// Device protocol & Delivery reporting
+// ---------------------------------------------------------------------------
+
+export const redeemPairingCode = onCall<RedeemPairingCodeRequest, Promise<RedeemPairingCodeResponse>>(
+  opts,
+  async (request) => {
+    const rawCode = request.data?.pairingCode;
+    if (!rawCode || typeof rawCode !== 'string') {
+      throw new HttpsError('invalid-argument', 'Pairing code is required.');
+    }
+    const cleanCode = rawCode.trim().toUpperCase();
+    const verifier = pairingCodeVerifier(cleanCode);
+
+    const clientIp = clientAddress(request.rawRequest);
+    const rateLimitKey = hashClientKey('pairing_attempt', clientIp);
+    await checkRateLimit(rateLimitKey, 300, 10);
+
+    const pRef = db.collection(COL.pairingCodes).doc(verifier);
+    const pSnap = await pRef.get();
+    if (!pSnap.exists) {
+      await recordRateLimitHit(rateLimitKey, 300, 10);
+      throw new HttpsError('not-found', 'Invalid pairing code.');
+    }
+
+    const pData = pSnap.data()!;
+    if (pData.consumedAt) {
+      throw new HttpsError('failed-precondition', 'Pairing code has already been consumed.');
+    }
+    const expiresAt = pData.expiresAt as Timestamp;
+    if (expiresAt.toMillis() < Date.now()) {
+      throw new HttpsError('failed-precondition', 'Pairing code has expired.');
+    }
+
+    const displayId = pData.displayId as string;
+    const dRef = db.collection(COL.displays).doc(displayId);
+    const sRef = db.collection(COL.secrets).doc(displayId);
+
+    const deviceSecret = generateDeviceSecret();
+    const secretHash = deviceSecretVerifier(displayId, deviceSecret);
+    const deviceUid = newDeviceUid();
+
+    await db.runTransaction(async (tx) => {
+      const [dSnap, sSnap] = await Promise.all([tx.get(dRef), tx.get(sRef)]);
+      if (!dSnap.exists) throw new HttpsError('not-found', 'Digital display not found.');
+      const d = dSnap.data()!;
+      if (d.lifecycle !== 'pending_enrollment') {
+        throw new HttpsError('failed-precondition', 'Digital display is not in pending_enrollment state.');
+      }
+      const s = sSnap.data() || {};
+      const nextGen = Number(s.credentialGeneration || 0) + 1;
+
+      tx.update(pRef, { consumedAt: FieldValue.serverTimestamp() });
+      tx.set(
+        sRef,
+        {
+          displayId,
+          activeDeviceUid: deviceUid,
+          credentialVerifier: secretHash,
+          credentialGeneration: nextGen,
+          pairingCodeVerifier: null,
+          pairingCodeExpiresAt: null,
+          enrolledAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      tx.update(dRef, {
+        lifecycle: 'active',
+        enrolledAt: FieldValue.serverTimestamp(),
+        lastHeartbeatAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      tx.create(
+        db.collection('auditEvents').doc(),
+        buildAuditRecord({
+          actorId: deviceUid,
+          action: 'display.enrolled',
+          targetId: displayId,
+          targetType: 'display',
+          newState: { lifecycle: 'active', credentialGeneration: nextGen },
+        })
+      );
+    });
+
+    try {
+      await admin.auth().createUser({
+        uid: deviceUid,
+        displayName: `Device for display ${displayId}`,
+        disabled: false,
+      });
+    } catch (e: any) {
+      if (e.code !== 'auth/uid-already-exists') {
+        console.error('Failed to create device auth user:', e);
+      }
+    }
+
+    await admin.auth().setCustomUserClaims(deviceUid, {
+      role: 'device',
+      displayId,
+      principal: 'device',
+    });
+
+    const customToken = await admin.auth().createCustomToken(deviceUid, {
+      role: 'device',
+      displayId,
+      principal: 'device',
+    });
+
+    return {
+      displayId,
+      deviceSecret,
+      customToken,
+    };
+  }
+);
+
+export const deviceSignIn = onCall<DeviceSignInRequest, Promise<DeviceSignInResponse>>(
+  opts,
+  async (request) => {
+    const { displayId, deviceSecret } = request.data || {};
+    if (!displayId || !deviceSecret) {
+      throw new HttpsError('invalid-argument', 'Missing displayId or deviceSecret.');
+    }
+
+    const clientIp = clientAddress(request.rawRequest);
+    const rateLimitKey = hashClientKey('device_signin', `${displayId}:${clientIp}`);
+    await checkRateLimit(rateLimitKey, 600, 30);
+
+    const [dSnap, sSnap] = await Promise.all([
+      db.collection(COL.displays).doc(displayId).get(),
+      db.collection(COL.secrets).doc(displayId).get(),
+    ]);
+
+    if (!dSnap.exists || !sSnap.exists) {
+      await recordRateLimitHit(rateLimitKey, 600, 30);
+      throw new HttpsError('not-found', 'Digital display not found.');
+    }
+
+    const d = dSnap.data()!;
+    if (d.lifecycle !== 'active') {
+      throw new HttpsError('permission-denied', `Digital display is not active (status: ${d.lifecycle}).`);
+    }
+
+    const s = sSnap.data()!;
+    const expectedHash = s.credentialVerifier as string | undefined;
+    const activeDeviceUid = s.activeDeviceUid as string | undefined;
+
+    if (!expectedHash || !activeDeviceUid) {
+      throw new HttpsError('failed-precondition', 'Digital display is not enrolled.');
+    }
+
+    const providedHash = deviceSecretVerifier(displayId, deviceSecret);
+    if (!verifiersEqual(providedHash, expectedHash)) {
+      await recordRateLimitHit(rateLimitKey, 600, 30);
+      throw new HttpsError('permission-denied', 'Invalid device credentials.');
+    }
+
+    await admin.auth().setCustomUserClaims(activeDeviceUid, {
+      role: 'device',
+      displayId,
+      principal: 'device',
+    });
+
+    const customToken = await admin.auth().createCustomToken(activeDeviceUid, {
+      role: 'device',
+      displayId,
+      principal: 'device',
+    });
+
+    return { customToken };
+  }
+);
+
+export const getDevicePublication = onCall<GetDevicePublicationRequest, Promise<GetDevicePublicationResponse>>(
+  opts,
+  async (request) => {
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'Device authentication required.');
+    }
+
+    const displayId = requireId(request.data?.displayId, 'Display ID');
+    const sDoc = await db.collection(COL.secrets).doc(displayId).get();
+    if (!sDoc.exists || sDoc.data()?.activeDeviceUid !== auth.uid) {
+      throw new HttpsError('permission-denied', 'Device identity does not match this digital display.');
+    }
+
+    const dDoc = await db.collection(COL.displays).doc(displayId).get();
+    if (!dDoc.exists) {
+      throw new HttpsError('not-found', 'Digital display not found.');
+    }
+
+    const display = dDoc.data()!;
+    if (display.lifecycle !== 'active') {
+      throw new HttpsError('permission-denied', `Digital display is ${display.lifecycle}.`);
+    }
+
+    return {
+      displayId,
+      lifecycle: display.lifecycle,
+      desiredPublicationId: display.desiredPublicationId || null,
+      activePublicationId: display.activePublicationId || null,
+      orientation: display.orientation,
+      configuredResolution: display.configuredResolution,
+      serverTimestamp: new Date().toISOString(),
+    };
+  }
+);
+
+export const getDevicePublicationManifest = onCall<GetDevicePublicationManifestRequest, Promise<GetDevicePublicationManifestResponse>>(
+  opts,
+  async (request) => {
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'Device authentication required.');
+    }
+
+    const displayId = requireId(request.data?.displayId, 'Display ID');
+    const publicationId = requireId(request.data?.publicationId, 'Publication ID');
+
+    const sDoc = await db.collection(COL.secrets).doc(displayId).get();
+    if (!sDoc.exists || sDoc.data()?.activeDeviceUid !== auth.uid) {
+      throw new HttpsError('permission-denied', 'Device identity does not match this digital display.');
+    }
+
+    const dDoc = await db.collection(COL.displays).doc(displayId).get();
+    if (!dDoc.exists || dDoc.data()?.lifecycle !== 'active') {
+      throw new HttpsError('permission-denied', 'Digital display is not active.');
+    }
+
+    const pubDoc = await db.collection('publications').doc(publicationId).get();
+    if (!pubDoc.exists) {
+      throw new HttpsError('not-found', `Publication ${publicationId} not found.`);
+    }
+
+    const pub = pubDoc.data() as PublicationRecord;
+    if (pub.displayId !== displayId && dDoc.data()?.desiredPublicationId !== publicationId) {
+      throw new HttpsError('permission-denied', 'Access denied to publications belonging to other digital displays.');
+    }
+
+    const bucket = admin.storage().bucket();
+    const manifestFile = bucket.file(pub.storagePath);
+    const [exists] = await manifestFile.exists();
+    if (!exists) {
+      throw new HttpsError('not-found', 'Publication manifest file not found in storage.');
+    }
+
+    const [content] = await manifestFile.download();
+    const manifest = JSON.parse(content.toString('utf8')) as DetailedPublicationManifest;
+
+    const isEmulator = !!process.env.STORAGE_EMULATOR_HOST || process.env.FUNCTIONS_EMULATOR === 'true';
+    const storageHost = process.env.STORAGE_EMULATOR_HOST || '127.0.0.1:9199';
+    const bucketName = bucket.name || 'demo-aura-dims.appspot.com';
+
+    const assetUrls: Record<string, string> = {};
+    for (const a of manifest.assets) {
+      if (isEmulator) {
+        assetUrls[a.assetId] = `http://${storageHost}/v0/b/${bucketName}/o/${encodeURIComponent(a.storagePath)}?alt=media`;
+      } else {
+        try {
+          const [url] = await bucket.file(a.storagePath).getSignedUrl({
+            action: 'read',
+            expires: Date.now() + 3600 * 1000,
+          });
+          assetUrls[a.assetId] = url;
+        } catch {
+          assetUrls[a.assetId] = `https://storage.googleapis.com/${bucketName}/${a.storagePath}`;
+        }
+      }
+    }
+
+    return { manifest, assetUrls };
+  }
+);
+
+export const reportDeviceDelivery = onCall<ReportDeviceDeliveryRequest, Promise<ReportDeviceDeliveryResponse>>(
+  opts,
+  async (request) => {
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'Device authentication required.');
+    }
+
+    const displayId = requireId(request.data?.displayId, 'Display ID');
+    const publicationId = requireId(request.data?.publicationId, 'Publication ID');
+    const stage = request.data?.stage;
+    const checksumSha256 = request.data?.checksumSha256 || null;
+    const errorMessage = request.data?.errorMessage || null;
+
+    const sDoc = await db.collection(COL.secrets).doc(displayId).get();
+    if (!sDoc.exists || sDoc.data()?.activeDeviceUid !== auth.uid) {
+      throw new HttpsError('permission-denied', 'Device identity does not match this digital display.');
+    }
+
+    const dRef = db.collection(COL.displays).doc(displayId);
+    const dDoc = await dRef.get();
+    if (!dDoc.exists) {
+      throw new HttpsError('not-found', 'Digital display not found.');
+    }
+
+    const now = new Date().toISOString();
+    const updateData: Record<string, any> = {
+      deliveryStage: stage,
+      lastSyncAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+
+    if (stage === 'active') {
+      updateData.activePublicationId = publicationId;
+      updateData.lastActiveAt = FieldValue.serverTimestamp();
+      updateData.lastDeliveryError = null;
+    } else if (stage === 'failed') {
+      updateData.lastDeliveryError = errorMessage;
+    }
+
+    await dRef.update(updateData);
+
+    await writeAuditLog({
+      actorId: auth.uid,
+      action: 'display.delivery_reported',
+      targetId: displayId,
+      targetType: 'display',
+      newState: {
+        stage,
+        publicationId,
+        checksumSha256,
+        errorMessage,
+      },
+    });
+
+    return {
+      accepted: true,
+      serverReceivedAt: now,
+    };
+  }
+);
+
+export const reportDeviceHeartbeat = onCall<DeviceHeartbeatRequest, Promise<DeviceHeartbeatResponse>>(
+  opts,
+  async (request) => {
+    const auth = request.auth;
+    if (!auth || !auth.uid) {
+      throw new HttpsError('unauthenticated', 'Device authentication required.');
+    }
+
+    const data = request.data || ({} as DeviceHeartbeatRequest);
+    let displayId = data.displayId;
+    if (!displayId) {
+      displayId = auth.token?.displayId as string | undefined;
+    }
+    if (!displayId) {
+      const q = await db.collection(COL.secrets).where('activeDeviceUid', '==', auth.uid).limit(1).get();
+      if (q.empty) {
+        throw new HttpsError('permission-denied', 'Unrecognized device identity.');
+      }
+      displayId = q.docs[0].id;
+    }
+
+    const sDoc = await db.collection(COL.secrets).doc(displayId).get();
+    if (!sDoc.exists || sDoc.data()?.activeDeviceUid !== auth.uid) {
+      throw new HttpsError('permission-denied', 'Device identity does not match this digital display.');
+    }
+
+    const dRef = db.collection(COL.displays).doc(displayId);
+    const dDoc = await dRef.get();
+    if (!dDoc.exists) {
+      throw new HttpsError('not-found', 'Digital display not found.');
+    }
+
+    const display = dDoc.data()!;
+    if (display.lifecycle !== 'active') {
+      throw new HttpsError('permission-denied', `Digital display is not active (${display.lifecycle}).`);
+    }
+
+    const reportedState: DisplayReportedState = {
+      appVersion: data.appVersion || '1.0.0',
+      clientKind: data.clientKind || 'player',
+      screenWidth: data.screen?.width || null,
+      screenHeight: data.screen?.height || null,
+      availableStorageBytes: data.diagnostics?.availableStorageBytes || null,
+      uptimeSeconds: data.diagnostics?.uptimeSeconds || null,
+      desiredPublicationId: data.desiredPublicationId || display.desiredPublicationId || null,
+      downloadingPublicationId: data.downloadingPublicationId || null,
+      readyPublicationId: data.readyPublicationId || null,
+      activePublicationId: data.activePublicationId || display.activePublicationId || null,
+      deliveryStage: data.deliveryStage || display.deliveryStage || 'idle',
+      lastSyncAt: data.lastSyncAt || null,
+      storage: data.storage || null,
+      playback: data.playback || null,
+      rendererHealth: data.rendererHealth || 'healthy',
+      lastError: data.lastError || null,
+      errorCount: data.errorCount || 0,
+    };
+
+    const updatePayload: Record<string, any> = {
+      lastHeartbeatAt: FieldValue.serverTimestamp(),
+      reported: reportedState,
+    };
+    if (data.activePublicationId) {
+      updatePayload.activePublicationId = data.activePublicationId;
+    }
+    if (data.deliveryStage) {
+      updatePayload.deliveryStage = data.deliveryStage;
+    }
+
+    await dRef.update(updatePayload);
+
+    return {
+      accepted: true,
+      serverReceivedAt: new Date().toISOString(),
+      recommendedHeartbeatSeconds: 30,
+    };
+  }
+);
+
+export const listDisplays = onCall<ListDisplaysRequest, Promise<ListDisplaysResponse>>(
+  opts,
+  async (request) => {
+    const caller = await getAuthenticatedCaller(request.auth);
+    let q = db.collection(COL.displays) as admin.firestore.Query;
+
+    if (caller.role === 'department_head') {
+      if (!caller.departmentId) {
+        return { displays: [], nextCursor: null, scanLimited: false, thresholds: thresholds() };
+      }
+      q = q.where('departmentId', '==', caller.departmentId);
+    } else if (request.data?.departmentId) {
+      q = q.where('departmentId', '==', request.data.departmentId);
+    }
+
+    if (request.data?.siteId) {
+      q = q.where('siteId', '==', request.data.siteId);
+    }
+
+    const snaps = await q.get();
+    let docs = snaps.docs;
+
+    const lifecycleFilter = request.data?.lifecycle || 'non_retired';
+    if (lifecycleFilter === 'non_retired') {
+      docs = docs.filter((d) => d.data().lifecycle !== 'retired');
+    } else if (lifecycleFilter !== 'all') {
+      docs = docs.filter((d) => d.data().lifecycle === lifecycleFilter);
+    }
+
+    const search = request.data?.search?.trim().toLowerCase();
+    if (search) {
+      docs = docs.filter((d) => {
+        const name = (d.data().name || '').toLowerCase();
+        const loc = (d.data().locationDescription || '').toLowerCase();
+        return name.includes(search) || loc.includes(search);
+      });
+    }
+
+    const views = await buildViews(docs);
+
+    let finalViews = views;
+    if (request.data?.connectivity) {
+      finalViews = views.filter((v) => v.connectivity === request.data?.connectivity);
+    }
+
+    return {
+      displays: finalViews,
+      nextCursor: null,
+      scanLimited: false,
+      thresholds: thresholds(),
+    };
+  }
+);
+
+export const getDisplay = onCall<GetDisplayRequest, Promise<GetDisplayResponse>>(
+  opts,
+  async (request) => {
+    const caller = await getAuthenticatedCaller(request.auth);
+    const displayId = requireId(request.data?.displayId, 'Display ID');
+    const snap = await loadAuthorizedDisplay(caller, displayId);
+    const [view] = await buildViews([snap]);
+
+    let assignments: AssignmentView[] | undefined;
+    let enrollment: EnrollmentState | undefined;
+
+    if (caller.role === 'admin') {
+      const aSnaps = await db.collection(COL.assignments).where('displayId', '==', displayId).get();
+      assignments = await buildAssignmentViews(aSnaps.docs);
+
+      const secretSnap = await db.collection(COL.secrets).doc(displayId).get();
+      const s = secretSnap.data() || {};
+      const pairingExpires = s.pairingCodeExpiresAt ? toIso(s.pairingCodeExpiresAt) : null;
+      enrollment = {
+        enrolled: !!s.activeDeviceUid,
+        pairingCodeActive: !!s.pairingCodeVerifier && (!pairingExpires || new Date(pairingExpires).getTime() > Date.now()),
+        pairingCodeExpiresAt: pairingExpires,
+      };
+    }
+
+    return {
+      display: view!,
+      assignments,
+      enrollment,
+      thresholds: thresholds(),
+    };
+  }
+);
