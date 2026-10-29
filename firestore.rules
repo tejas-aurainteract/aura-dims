@@ -99,16 +99,83 @@ service cloud.firestore {
 
     // Templates Collection: /templates/{templateId}
     match /templates/{templateId} {
-      // 1. Admin can read all templates (global and departmental).
-      // 2. Department Head can read global shared master templates AND templates within their assigned department.
-      // 3. Unauthenticated callers or device identities are denied.
       allow read: if isAuthenticated() && (
         isAdmin() ||
         resource.data.scope == 'global' ||
         (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId())
       );
+      allow write: if false;
+    }
 
-      // Direct client writes are forbidden. Templates are authored and instantiated via Cloud Functions.
+    // Design Revisions Collection: /designRevisions/{revisionId}
+    match /designRevisions/{revisionId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId())
+      );
+      allow write: if false;
+    }
+
+    // Playlists Collection: /playlists/{playlistId}
+    match /playlists/{playlistId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId())
+      );
+      allow write: if false;
+    }
+
+    // Playlist Revisions Collection: /playlistRevisions/{revisionId}
+    match /playlistRevisions/{revisionId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId())
+      );
+      allow write: if false;
+    }
+
+    // Approvals Collection: /approvals/{approvalId}
+    match /approvals/{approvalId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId())
+      );
+      allow write: if false;
+    }
+
+    // Schedules Collection: /schedules/{scheduleId}
+    match /schedules/{scheduleId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId())
+      );
+      allow write: if false;
+    }
+
+    // Publications Collection: /publications/{publicationId}
+    match /publications/{publicationId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId())
+      );
+      allow write: if false;
+    }
+
+    // Digital Displays Collection: /displays/{displayId}
+    match /displays/{displayId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId())
+      );
+      allow write: if false;
+    }
+
+    // Display Assignments Collection: /displayAssignments/{assignmentId}
+    match /displayAssignments/{assignmentId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId())
+      );
       allow write: if false;
     }
 

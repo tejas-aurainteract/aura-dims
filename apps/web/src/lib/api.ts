@@ -61,6 +61,54 @@ import type {
   SetTemplateArchivedResponse,
   SeedStarterTemplatesRequest,
   SeedStarterTemplatesResponse,
+  CreateDesignRevisionRequest,
+  CreateDesignRevisionResponse,
+  ListDesignRevisionsRequest,
+  ListDesignRevisionsResponse,
+  GetDesignRevisionRequest,
+  GetDesignRevisionResponse,
+  CreatePlaylistRequest,
+  CreatePlaylistResponse,
+  UpdatePlaylistRequest,
+  UpdatePlaylistResponse,
+  GetPlaylistRequest,
+  GetPlaylistResponse,
+  ListPlaylistsRequest,
+  ListPlaylistsResponse,
+  SetPlaylistArchivedRequest,
+  SetPlaylistArchivedResponse,
+  CreatePlaylistRevisionRequest,
+  CreatePlaylistRevisionResponse,
+  GetPlaylistRevisionRequest,
+  GetPlaylistRevisionResponse,
+  CreateScheduleRequest,
+  CreateScheduleResponse,
+  UpdateScheduleRequest,
+  UpdateScheduleResponse,
+  GetScheduleRequest,
+  GetScheduleResponse,
+  ListSchedulesRequest,
+  ListSchedulesResponse,
+  SetScheduleStatusRequest,
+  SetScheduleStatusResponse,
+  SubmitForApprovalRequest,
+  SubmitForApprovalResponse,
+  ReviewApprovalRequest,
+  ReviewApprovalResponse,
+  WithdrawApprovalRequest,
+  WithdrawApprovalResponse,
+  ListApprovalsRequest,
+  ListApprovalsResponse,
+  GetApprovalRequest,
+  GetApprovalResponse,
+  PreparePublicationRequest,
+  PreparePublicationResponse,
+  RollbackPublicationRequest,
+  RollbackPublicationResponse,
+  SetUserDirectPublishPermissionRequest,
+  SetUserDirectPublishPermissionResponse,
+  EvaluateSchedulePreviewRequest,
+  EvaluateSchedulePreviewResponse,
 } from '@aura-dims/display-schema';
 
 export const api = {
@@ -219,6 +267,155 @@ export const api = {
 
   seedStarterTemplates: async (req: SeedStarterTemplatesRequest): Promise<SeedStarterTemplatesResponse> => {
     const fn = httpsCallable<SeedStarterTemplatesRequest, SeedStarterTemplatesResponse>(functions, 'seedStarterTemplates');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  // Design Revisions
+  createDesignRevision: async (req: CreateDesignRevisionRequest): Promise<CreateDesignRevisionResponse> => {
+    const fn = httpsCallable<CreateDesignRevisionRequest, CreateDesignRevisionResponse>(functions, 'createDesignRevision');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  listDesignRevisions: async (req: ListDesignRevisionsRequest): Promise<ListDesignRevisionsResponse> => {
+    const fn = httpsCallable<ListDesignRevisionsRequest, ListDesignRevisionsResponse>(functions, 'listDesignRevisions');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  getDesignRevision: async (req: GetDesignRevisionRequest): Promise<GetDesignRevisionResponse> => {
+    const fn = httpsCallable<GetDesignRevisionRequest, GetDesignRevisionResponse>(functions, 'getDesignRevision');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  // Playlists
+  createPlaylist: async (req: CreatePlaylistRequest): Promise<CreatePlaylistResponse> => {
+    const fn = httpsCallable<CreatePlaylistRequest, CreatePlaylistResponse>(functions, 'createPlaylist');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  updatePlaylist: async (req: UpdatePlaylistRequest): Promise<UpdatePlaylistResponse> => {
+    const fn = httpsCallable<UpdatePlaylistRequest, UpdatePlaylistResponse>(functions, 'updatePlaylist');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  getPlaylist: async (req: GetPlaylistRequest): Promise<GetPlaylistResponse> => {
+    const fn = httpsCallable<GetPlaylistRequest, GetPlaylistResponse>(functions, 'getPlaylist');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  listPlaylists: async (req: ListPlaylistsRequest): Promise<ListPlaylistsResponse> => {
+    const fn = httpsCallable<ListPlaylistsRequest, ListPlaylistsResponse>(functions, 'listPlaylists');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  setPlaylistArchivedStatus: async (req: SetPlaylistArchivedRequest): Promise<SetPlaylistArchivedResponse> => {
+    const fn = httpsCallable<SetPlaylistArchivedRequest, SetPlaylistArchivedResponse>(functions, 'setPlaylistArchivedStatus');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  createPlaylistRevision: async (req: CreatePlaylistRevisionRequest): Promise<CreatePlaylistRevisionResponse> => {
+    const fn = httpsCallable<CreatePlaylistRevisionRequest, CreatePlaylistRevisionResponse>(functions, 'createPlaylistRevision');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  getPlaylistRevision: async (req: GetPlaylistRevisionRequest): Promise<GetPlaylistRevisionResponse> => {
+    const fn = httpsCallable<GetPlaylistRevisionRequest, GetPlaylistRevisionResponse>(functions, 'getPlaylistRevision');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  // Schedules
+  createSchedule: async (req: CreateScheduleRequest): Promise<CreateScheduleResponse> => {
+    const fn = httpsCallable<CreateScheduleRequest, CreateScheduleResponse>(functions, 'createSchedule');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  updateSchedule: async (req: UpdateScheduleRequest): Promise<UpdateScheduleResponse> => {
+    const fn = httpsCallable<UpdateScheduleRequest, UpdateScheduleResponse>(functions, 'updateSchedule');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  getSchedule: async (req: GetScheduleRequest): Promise<GetScheduleResponse> => {
+    const fn = httpsCallable<GetScheduleRequest, GetScheduleResponse>(functions, 'getSchedule');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  listSchedules: async (req: ListSchedulesRequest): Promise<ListSchedulesResponse> => {
+    const fn = httpsCallable<ListSchedulesRequest, ListSchedulesResponse>(functions, 'listSchedules');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  setScheduleStatus: async (req: SetScheduleStatusRequest): Promise<SetScheduleStatusResponse> => {
+    const fn = httpsCallable<SetScheduleStatusRequest, SetScheduleStatusResponse>(functions, 'setScheduleStatus');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  // Approvals
+  submitForApproval: async (req: SubmitForApprovalRequest): Promise<SubmitForApprovalResponse> => {
+    const fn = httpsCallable<SubmitForApprovalRequest, SubmitForApprovalResponse>(functions, 'submitForApproval');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  reviewApproval: async (req: ReviewApprovalRequest): Promise<ReviewApprovalResponse> => {
+    const fn = httpsCallable<ReviewApprovalRequest, ReviewApprovalResponse>(functions, 'reviewApproval');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  withdrawApproval: async (req: WithdrawApprovalRequest): Promise<WithdrawApprovalResponse> => {
+    const fn = httpsCallable<WithdrawApprovalRequest, WithdrawApprovalResponse>(functions, 'withdrawApproval');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  listApprovals: async (req: ListApprovalsRequest): Promise<ListApprovalsResponse> => {
+    const fn = httpsCallable<ListApprovalsRequest, ListApprovalsResponse>(functions, 'listApprovals');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  getApproval: async (req: GetApprovalRequest): Promise<GetApprovalResponse> => {
+    const fn = httpsCallable<GetApprovalRequest, GetApprovalResponse>(functions, 'getApproval');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  // Publications & Rollback
+  preparePublication: async (req: PreparePublicationRequest): Promise<PreparePublicationResponse> => {
+    const fn = httpsCallable<PreparePublicationRequest, PreparePublicationResponse>(functions, 'preparePublication');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  rollbackPublication: async (req: RollbackPublicationRequest): Promise<RollbackPublicationResponse> => {
+    const fn = httpsCallable<RollbackPublicationRequest, RollbackPublicationResponse>(functions, 'rollbackPublication');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  setUserDirectPublishPermission: async (req: SetUserDirectPublishPermissionRequest): Promise<SetUserDirectPublishPermissionResponse> => {
+    const fn = httpsCallable<SetUserDirectPublishPermissionRequest, SetUserDirectPublishPermissionResponse>(functions, 'setUserDirectPublishPermission');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  evaluateSchedulePreview: async (req: EvaluateSchedulePreviewRequest): Promise<EvaluateSchedulePreviewResponse> => {
+    const fn = httpsCallable<EvaluateSchedulePreviewRequest, EvaluateSchedulePreviewResponse>(functions, 'evaluateSchedulePreview');
     const result = await fn(req);
     return result.data;
   },

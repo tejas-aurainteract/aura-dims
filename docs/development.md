@@ -125,12 +125,32 @@ pnpm run seed:templates
 
 This script executes idempotently against the emulator, creating or updating global system templates with valid versioned `DesignDocument` payloads and multilingual typography configurations.
 
-### 3.5 Manual Emulator Export
+### 3.5 Digital Displays & Sites Seeding
+To seed enterprise sites (`site-ahmedabad-hq`, `site-vadodara-plant`), active landscape and portrait digital displays, and explicit departmental assignments for local testing:
+
+```bash
+pnpm run seed:displays
+```
+
+This seeds:
+- 2 Enterprise sites in Gujarat (`Asia/Kolkata` timezone).
+- 4 Active digital displays (2 Landscape 1920×1080, 2 Portrait 1080×1920).
+- Explicit display assignments to the HR Department Head (`hr.head@aurainteract.com`).
+
+### 3.6 Manual Emulator Export
 To force an export of emulator state during active testing:
 
 ```bash
 pnpm run emulators:export
 ```
+
+---
+
+## 4. Digital Display Timeline Simulator & Preflight Collision Detection
+
+Milestone 5 includes interactive testing tools accessible directly from the Aura DIMS interface:
+- **Preflight Collision Detection:** Integrated inside `CreateScheduleModal`, this tool evaluates the schedule rule against all existing active schedules across target digital displays in `Asia/Kolkata`, warning operators immediately of equal-priority collisions.
+- **Display Schedule Simulator:** Available on the `/schedules` page via the **Timeline Simulator** button. It runs the deterministic schedule evaluator for any digital display at any instant in `Asia/Kolkata`, visually inspecting whether a scheduled broadcast wins, a collision occurs, or corporate fallback neutral content runs.
 
 ---
 

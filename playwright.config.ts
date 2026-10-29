@@ -21,7 +21,7 @@ export default defineConfig({
   webServer: {
     command: 'pnpm --filter @aura-dims/web dev',
     url: 'http://127.0.0.1:5175',
-    reuseExistingServer: false,
+    reuseExistingServer: true,
     timeout: 30000,
   },
 });

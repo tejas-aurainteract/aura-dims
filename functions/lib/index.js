@@ -41,7 +41,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.seedStarterTemplates = exports.setTemplateArchivedStatus = exports.instantiateTemplate = exports.createTemplate = exports.listTemplates = exports.convertDesignOrientation = exports.listDesigns = exports.setDesignArchivedStatus = exports.duplicateDesign = exports.updateDesign = exports.getDesign = exports.createDesign = exports.cleanupExpiredUploads = exports.listMediaAssets = exports.setMediaArchivedStatus = exports.updateMediaMetadata = exports.getMediaPreviewUrl = exports.finalizeMediaUpload = exports.initiateMediaUpload = exports.setDepartmentStatus = exports.updateDepartment = exports.createDepartment = exports.triggerPasswordReset = exports.setUserActiveStatus = exports.updateUser = exports.provisionUser = exports.apiHealth = exports.healthCheck = void 0;
+exports.rollbackPublication = exports.preparePublication = exports.getApproval = exports.listApprovals = exports.withdrawApproval = exports.reviewApproval = exports.submitForApproval = exports.setScheduleStatus = exports.listSchedules = exports.getSchedule = exports.updateSchedule = exports.createSchedule = exports.getPlaylistRevision = exports.createPlaylistRevision = exports.setPlaylistArchivedStatus = exports.listPlaylists = exports.getPlaylist = exports.updatePlaylist = exports.createPlaylist = exports.getDesignRevision = exports.listDesignRevisions = exports.createDesignRevision = exports.seedStarterTemplates = exports.setTemplateArchivedStatus = exports.instantiateTemplate = exports.createTemplate = exports.listTemplates = exports.convertDesignOrientation = exports.listDesigns = exports.setDesignArchivedStatus = exports.duplicateDesign = exports.updateDesign = exports.getDesign = exports.createDesign = exports.cleanupExpiredUploads = exports.listMediaAssets = exports.setMediaArchivedStatus = exports.updateMediaMetadata = exports.getMediaPreviewUrl = exports.finalizeMediaUpload = exports.initiateMediaUpload = exports.setDepartmentStatus = exports.updateDepartment = exports.createDepartment = exports.triggerPasswordReset = exports.setUserActiveStatus = exports.updateUser = exports.provisionUser = exports.apiHealth = exports.healthCheck = void 0;
+exports.evaluateSchedulePreview = exports.setUserDirectPublishPermission = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-admin/firestore");
@@ -617,4 +618,32 @@ Object.defineProperty(exports, "createTemplate", { enumerable: true, get: functi
 Object.defineProperty(exports, "instantiateTemplate", { enumerable: true, get: function () { return designAdmin_1.instantiateTemplate; } });
 Object.defineProperty(exports, "setTemplateArchivedStatus", { enumerable: true, get: function () { return designAdmin_1.setTemplateArchivedStatus; } });
 Object.defineProperty(exports, "seedStarterTemplates", { enumerable: true, get: function () { return designAdmin_1.seedStarterTemplates; } });
+// ==============================================================================
+// Playlists, Approvals, Schedules & Publication Operations
+// ==============================================================================
+var publishingAdmin_1 = require("./publishingAdmin");
+Object.defineProperty(exports, "createDesignRevision", { enumerable: true, get: function () { return publishingAdmin_1.createDesignRevision; } });
+Object.defineProperty(exports, "listDesignRevisions", { enumerable: true, get: function () { return publishingAdmin_1.listDesignRevisions; } });
+Object.defineProperty(exports, "getDesignRevision", { enumerable: true, get: function () { return publishingAdmin_1.getDesignRevision; } });
+Object.defineProperty(exports, "createPlaylist", { enumerable: true, get: function () { return publishingAdmin_1.createPlaylist; } });
+Object.defineProperty(exports, "updatePlaylist", { enumerable: true, get: function () { return publishingAdmin_1.updatePlaylist; } });
+Object.defineProperty(exports, "getPlaylist", { enumerable: true, get: function () { return publishingAdmin_1.getPlaylist; } });
+Object.defineProperty(exports, "listPlaylists", { enumerable: true, get: function () { return publishingAdmin_1.listPlaylists; } });
+Object.defineProperty(exports, "setPlaylistArchivedStatus", { enumerable: true, get: function () { return publishingAdmin_1.setPlaylistArchivedStatus; } });
+Object.defineProperty(exports, "createPlaylistRevision", { enumerable: true, get: function () { return publishingAdmin_1.createPlaylistRevision; } });
+Object.defineProperty(exports, "getPlaylistRevision", { enumerable: true, get: function () { return publishingAdmin_1.getPlaylistRevision; } });
+Object.defineProperty(exports, "createSchedule", { enumerable: true, get: function () { return publishingAdmin_1.createSchedule; } });
+Object.defineProperty(exports, "updateSchedule", { enumerable: true, get: function () { return publishingAdmin_1.updateSchedule; } });
+Object.defineProperty(exports, "getSchedule", { enumerable: true, get: function () { return publishingAdmin_1.getSchedule; } });
+Object.defineProperty(exports, "listSchedules", { enumerable: true, get: function () { return publishingAdmin_1.listSchedules; } });
+Object.defineProperty(exports, "setScheduleStatus", { enumerable: true, get: function () { return publishingAdmin_1.setScheduleStatus; } });
+Object.defineProperty(exports, "submitForApproval", { enumerable: true, get: function () { return publishingAdmin_1.submitForApproval; } });
+Object.defineProperty(exports, "reviewApproval", { enumerable: true, get: function () { return publishingAdmin_1.reviewApproval; } });
+Object.defineProperty(exports, "withdrawApproval", { enumerable: true, get: function () { return publishingAdmin_1.withdrawApproval; } });
+Object.defineProperty(exports, "listApprovals", { enumerable: true, get: function () { return publishingAdmin_1.listApprovals; } });
+Object.defineProperty(exports, "getApproval", { enumerable: true, get: function () { return publishingAdmin_1.getApproval; } });
+Object.defineProperty(exports, "preparePublication", { enumerable: true, get: function () { return publishingAdmin_1.preparePublication; } });
+Object.defineProperty(exports, "rollbackPublication", { enumerable: true, get: function () { return publishingAdmin_1.rollbackPublication; } });
+Object.defineProperty(exports, "setUserDirectPublishPermission", { enumerable: true, get: function () { return publishingAdmin_1.setUserDirectPublishPermission; } });
+Object.defineProperty(exports, "evaluateSchedulePreview", { enumerable: true, get: function () { return publishingAdmin_1.evaluateSchedulePreview; } });
 //# sourceMappingURL=index.js.map

@@ -196,6 +196,90 @@ flowchart LR
 - Slide elements referencing images or videos store immutable `assetId` references pointing to verified Ready assets in `/assets/{assetId}`.
 - Binaries are never duplicated inside the design JSON document, keeping document payloads compact and cache-friendly. Temporary preview URLs are resolved dynamically via batch queries.
 
+### 2.5 Playlists, Approvals, Scheduling & Publication Architecture
+
+The publication subsystem bridges creative studio drafts to physical digital displays through structured review, deterministic scheduling in `Asia/Kolkata`, collision detection, and cryptographic publication packaging.
+
+```mermaid
+flowchart TD
+    subgraph Authoring["Studio & Playlists"]
+        DraftDesign["Editable Draft Design\n(/designs/{id})"]
+        DesignRev["Immutable Design Revision\n(/designRevisions/{id})\n• Ready Assets • SHA-256\n• Required Fonts • Content Hash"]
+        DraftPlaylist["Ordered Playlist Draft\n(/playlists/{id})\n• Single Orientation\n• Preserved Dwell Times"]
+        PlaylistRev["Immutable Playlist Revision\n(/playlistRevisions/{id})\n• Constituent Design Revisions\n• Deduped Asset Manifest"]
+    end
+
+    subgraph Governance["Governance & Scheduling"]
+        ScheduleRule["Schedule Rule (Asia/Kolkata)\n• One-time / Recurring Mon-Sun\n• Daytime / Overnight Windows\n• Priority 1-10 (10=Emergency)"]
+        TargetDisplays["Target Digital Displays\n• Orientation Match\n• Explicit Department Assignment"]
+        ConflictPreflight{"Conflict Preflight\nEvaluator:\nEqual Priority Collision?"}
+        ApprovalSubmission["Editorial Approval Request\n(/approvals/{id})\nStatus: pending_review"]
+        ApprovalReview{"Admin Review\nor Delegated Direct Publish"}
+    end
+
+    subgraph Packaging["Publication Compilation"]
+        PrepareFn["Cloud Function: preparePublication\n(Idempotent Compiler)"]
+        StorageManifest["Cloud Storage Manifest\npackages/{displayId}/{pubId}/manifest.json\n• SHA-256 Checksums • Asset URLs\n• Bundled Neutral Fallback Slide"]
+        FirestorePub["/publications/{pubId}\nstatus: prepared"]
+        UpdateTargetDisplays["Atomically Update Displays:\ndesiredPublicationId = pubId"]
+    end
+
+    DraftDesign -->|Freeze on Submit| DesignRev
+    DesignRev --> DraftPlaylist
+    DraftPlaylist --> PlaylistRev
+    PlaylistRev --> ScheduleRule
+    TargetDisplays --> ScheduleRule
+    ScheduleRule --> ConflictPreflight
+    ConflictPreflight -->|Pass| ApprovalSubmission
+    ApprovalSubmission --> ApprovalReview
+    ApprovalReview -->|Approved| PrepareFn
+    PrepareFn --> StorageManifest
+    PrepareFn --> FirestorePub
+    FirestorePub --> UpdateTargetDisplays
+```
+
+#### 1. Immutable Design & Playlist Revisions
+- Publications are **never** resolved directly against mutable drafts.
+- On approval submission or publication preparation, designs and playlists are frozen into immutable records (`/designRevisions` and `/playlistRevisions`).
+- A revision captures exact Ready asset references, cryptographic SHA-256 checksums, storage generations, required font families, slide sequences, and a deterministic SHA-256 content hash.
+- Subsequent edits to drafts create new revision counters without modifying previously submitted or approved publications.
+
+#### 2. Single-Orientation Compatibility Enforcement
+- Each playlist enforces strictly one orientation (`landscape` 1920×1080 or `portrait` 1080×1920).
+- Mixed-orientation playlists are rejected at both frontend studio and backend API boundaries.
+- Schedules reject any target digital display whose hardware orientation does not match the playlist orientation.
+
+#### 3. Asia/Kolkata Deterministic Timezone Math
+- All calendar windows, daily recurring schedules, and simulation times evaluate strictly in Indian Standard Time (`Asia/Kolkata`, UTC+05:30).
+- Evaluation logic uses deterministic UTC+05:30 arithmetic (`time + 330 mins`) evaluated with pure UTC component getters (`getUTCFullYear()`, `getUTCHours()`, etc.), guaranteeing 100% identical evaluation on browser clients, Cloud Functions servers, and edge signage runtimes regardless of host operating system timezone or daylight savings settings.
+
+#### 4. Overnight Recurrence Window Evaluation
+- Aura DIMS natively supports shifts and broadcast windows that span midnight (e.g. `22:00` to `06:00` next morning).
+- When `startTime > endTime`, the schedule rule marks `isOvernight = true`.
+- During evaluation:
+  - If current time is `>= startTime`, the rule is active if current day of week is scheduled.
+  - If current time is `< endTime`, the rule is active if *yesterday's* day of week was scheduled.
+
+#### 5. Deterministic Conflict Resolution Algorithm
+- Multiple schedules may target the same digital display simultaneously.
+- Schedulers evaluate candidate rules using standard ranking:
+  1. Priority level (1 to 10; higher priority preempts lower priority).
+  2. For equal priority, one-time scheduled events preempt recurring routines.
+  3. For identical priority and recurrence, more specific date windows take precedence.
+  4. If two distinct schedules share equal priority and collide on any target digital display, the conflict evaluator flags a **Collision Block** and safely falls back to corporate neutral content rather than vibrating or interleaving unpredictably.
+- **Admin Emergency Override (Priority 10):** Reserved exclusively for System Administrators with mandatory expiration timestamps. Priority 10 rules preempt all standard departmental broadcasts immediately.
+
+#### 6. Approval Policy & Delegated Direct Publishing
+- System Administrators can publish directly across all departments without review.
+- Department Heads require Administrator editorial approval by default (`status: 'pending_review'`).
+- Administrators can selectively delegate `canDirectPublish: true` to trusted Department Heads, enabling autonomous publishing within their departmental boundary.
+- Any change to schedule window, priority, playlist revision, or target digital displays invalidates previous approvals and resets status to `draft` or `awaiting_approval`.
+
+#### 7. Honest Operational Statuses
+- Aura DIMS maintains absolute operational transparency:
+  - Valid statuses: `Draft`, `Awaiting approval`, `Approved`, `Preparing`, `Prepared`, `Preparation failed`, `Withdrawn`, `Superseded`.
+  - Zero fabricated operational statuses: The system never claims `Delivered` or `Playing` until physical digital display player acknowledgements are received in Milestone 6.
+
 ---
 
 ## 3. Autonomous Offline Signage Player Architecture

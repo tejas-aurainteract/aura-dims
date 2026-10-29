@@ -242,6 +242,147 @@ describe('Aura DIMS - Security Rules Suite', () => {
           updatedAt: new Date().toISOString(),
         });
 
+        // 11. Design Revisions in Firestore
+        await setDoc(doc(db, 'designRevisions/rev-hr-1'), {
+          id: 'rev-hr-1',
+          designId: 'design-hr-1',
+          revisionNumber: 1,
+          departmentId: 'dept-hr',
+          creatorUid: 'head-hr',
+          orientation: 'landscape',
+          createdAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'designRevisions/rev-ops-1'), {
+          id: 'rev-ops-1',
+          designId: 'design-ops-1',
+          revisionNumber: 1,
+          departmentId: 'dept-ops',
+          creatorUid: 'head-ops',
+          orientation: 'portrait',
+          createdAt: new Date().toISOString(),
+        });
+
+        // 12. Playlists in Firestore
+        await setDoc(doc(db, 'playlists/pl-hr-1'), {
+          id: 'pl-hr-1',
+          name: 'HR Lobby Loop',
+          departmentId: 'dept-hr',
+          orientation: 'landscape',
+          status: 'draft',
+          createdAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'playlists/pl-ops-1'), {
+          id: 'pl-ops-1',
+          name: 'Ops Floor Loop',
+          departmentId: 'dept-ops',
+          orientation: 'portrait',
+          status: 'draft',
+          createdAt: new Date().toISOString(),
+        });
+
+        // 13. Playlist Revisions in Firestore
+        await setDoc(doc(db, 'playlistRevisions/prev-hr-1'), {
+          id: 'prev-hr-1',
+          playlistId: 'pl-hr-1',
+          revisionNumber: 1,
+          departmentId: 'dept-hr',
+          orientation: 'landscape',
+          createdAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'playlistRevisions/prev-ops-1'), {
+          id: 'prev-ops-1',
+          playlistId: 'pl-ops-1',
+          revisionNumber: 1,
+          departmentId: 'dept-ops',
+          orientation: 'portrait',
+          createdAt: new Date().toISOString(),
+        });
+
+        // 14. Approvals in Firestore
+        await setDoc(doc(db, 'approvals/apr-hr-1'), {
+          id: 'apr-hr-1',
+          scheduleId: 'sch-hr-1',
+          playlistRevisionId: 'prev-hr-1',
+          departmentId: 'dept-hr',
+          status: 'pending_review',
+          createdAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'approvals/apr-ops-1'), {
+          id: 'apr-ops-1',
+          scheduleId: 'sch-ops-1',
+          playlistRevisionId: 'prev-ops-1',
+          departmentId: 'dept-ops',
+          status: 'pending_review',
+          createdAt: new Date().toISOString(),
+        });
+
+        // 15. Schedules in Firestore
+        await setDoc(doc(db, 'schedules/sch-hr-1'), {
+          id: 'sch-hr-1',
+          name: 'HR Broadcast Rule',
+          departmentId: 'dept-hr',
+          playlistRevisionId: 'prev-hr-1',
+          status: 'active',
+          createdAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'schedules/sch-ops-1'), {
+          id: 'sch-ops-1',
+          name: 'Ops Broadcast Rule',
+          departmentId: 'dept-ops',
+          playlistRevisionId: 'prev-ops-1',
+          status: 'active',
+          createdAt: new Date().toISOString(),
+        });
+
+        // 16. Publications in Firestore
+        await setDoc(doc(db, 'publications/pub-hr-1'), {
+          id: 'pub-hr-1',
+          scheduleId: 'sch-hr-1',
+          departmentId: 'dept-hr',
+          status: 'prepared',
+          createdAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'publications/pub-ops-1'), {
+          id: 'pub-ops-1',
+          scheduleId: 'sch-ops-1',
+          departmentId: 'dept-ops',
+          status: 'prepared',
+          createdAt: new Date().toISOString(),
+        });
+
+        // 17. Digital Displays & Assignments in Firestore
+        await setDoc(doc(db, 'displays/disp-hr-1'), {
+          id: 'disp-hr-1',
+          name: 'HR Lobby Digital Display',
+          departmentId: 'dept-hr',
+          orientation: 'landscape',
+          status: 'active',
+          createdAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'displays/disp-ops-1'), {
+          id: 'disp-ops-1',
+          name: 'Ops Shopfloor Digital Display',
+          departmentId: 'dept-ops',
+          orientation: 'portrait',
+          status: 'active',
+          createdAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'displayAssignments/asgn-hr-1'), {
+          id: 'asgn-hr-1',
+          displayId: 'disp-hr-1',
+          departmentId: 'dept-hr',
+          userId: 'head-hr',
+          createdAt: new Date().toISOString(),
+        });
+
         // Seed storage files with security rules bypassed
         const storage = context.storage();
         await uploadBytes(
@@ -640,6 +781,211 @@ describe('Aura DIMS - Security Rules Suite', () => {
       await assertFails(
         setDoc(doc(adminCtx.firestore(), 'templates/direct-bypass'), {
           title: 'Direct Client Bypass Template',
+        })
+      );
+    });
+  });
+
+  describe('Design Revisions Collection (/designRevisions)', () => {
+    it('allows Admin to read design revisions across all departments', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'designRevisions/rev-hr-1')));
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'designRevisions/rev-ops-1')));
+    });
+
+    it('allows Department Head to read design revisions from own department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertSucceeds(getDoc(doc(hrHeadCtx.firestore(), 'designRevisions/rev-hr-1')));
+    });
+
+    it('DENIES Department Head from reading design revisions from another department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertFails(getDoc(doc(hrHeadCtx.firestore(), 'designRevisions/rev-ops-1')));
+    });
+
+    it('DENIES direct client writes to /designRevisions (mutations must go through Cloud Functions)', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertFails(
+        setDoc(doc(adminCtx.firestore(), 'designRevisions/rev-direct'), {
+          revisionNumber: 99,
+        })
+      );
+    });
+  });
+
+  describe('Playlists & Playlist Revisions Collections (/playlists & /playlistRevisions)', () => {
+    it('allows Admin to read playlists across all departments', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'playlists/pl-hr-1')));
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'playlists/pl-ops-1')));
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'playlistRevisions/prev-hr-1')));
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'playlistRevisions/prev-ops-1')));
+    });
+
+    it('allows Department Head to read playlists and playlist revisions from own department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertSucceeds(getDoc(doc(hrHeadCtx.firestore(), 'playlists/pl-hr-1')));
+      await assertSucceeds(getDoc(doc(hrHeadCtx.firestore(), 'playlistRevisions/prev-hr-1')));
+    });
+
+    it('DENIES Department Head from reading playlists and revisions from another department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertFails(getDoc(doc(hrHeadCtx.firestore(), 'playlists/pl-ops-1')));
+      await assertFails(getDoc(doc(hrHeadCtx.firestore(), 'playlistRevisions/prev-ops-1')));
+    });
+
+    it('DENIES direct client writes to /playlists and /playlistRevisions', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertFails(
+        setDoc(doc(adminCtx.firestore(), 'playlists/pl-direct'), {
+          name: 'Hacked Playlist',
+        })
+      );
+      await assertFails(
+        setDoc(doc(adminCtx.firestore(), 'playlistRevisions/prev-direct'), {
+          revisionNumber: 2,
+        })
+      );
+    });
+  });
+
+  describe('Editorial Approvals Collection (/approvals)', () => {
+    it('allows Admin to read approval requests across all departments', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'approvals/apr-hr-1')));
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'approvals/apr-ops-1')));
+    });
+
+    it('allows Department Head to read approval requests from own department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertSucceeds(getDoc(doc(hrHeadCtx.firestore(), 'approvals/apr-hr-1')));
+    });
+
+    it('DENIES Department Head from reading approval requests from another department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertFails(getDoc(doc(hrHeadCtx.firestore(), 'approvals/apr-ops-1')));
+    });
+
+    it('DENIES direct client writes to /approvals (must go through Cloud Functions review/submit endpoints)', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertFails(
+        setDoc(doc(adminCtx.firestore(), 'approvals/apr-direct'), {
+          status: 'approved',
+        })
+      );
+      await assertFails(
+        updateDoc(doc(adminCtx.firestore(), 'approvals/apr-hr-1'), {
+          status: 'approved',
+        })
+      );
+    });
+  });
+
+  describe('Schedules & Publications Collections (/schedules & /publications)', () => {
+    it('allows Admin to read schedules and publications across all departments', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'schedules/sch-hr-1')));
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'schedules/sch-ops-1')));
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'publications/pub-hr-1')));
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'publications/pub-ops-1')));
+    });
+
+    it('allows Department Head to read schedules and publications from own department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertSucceeds(getDoc(doc(hrHeadCtx.firestore(), 'schedules/sch-hr-1')));
+      await assertSucceeds(getDoc(doc(hrHeadCtx.firestore(), 'publications/pub-hr-1')));
+    });
+
+    it('DENIES Department Head from reading schedules and publications from another department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertFails(getDoc(doc(hrHeadCtx.firestore(), 'schedules/sch-ops-1')));
+      await assertFails(getDoc(doc(hrHeadCtx.firestore(), 'publications/pub-ops-1')));
+    });
+
+    it('DENIES direct client writes to /schedules and /publications', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertFails(
+        setDoc(doc(adminCtx.firestore(), 'schedules/sch-direct'), {
+          name: 'Direct Bypass Schedule',
+        })
+      );
+      await assertFails(
+        setDoc(doc(adminCtx.firestore(), 'publications/pub-direct'), {
+          status: 'published',
+        })
+      );
+    });
+  });
+
+  describe('Digital Displays and Assignments (/displays & /displayAssignments)', () => {
+    it('allows Admin to read digital displays across all departments', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'displays/disp-hr-1')));
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'displays/disp-ops-1')));
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'displayAssignments/asgn-hr-1')));
+    });
+
+    it('allows Department Head to read digital displays and assignments for own department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertSucceeds(getDoc(doc(hrHeadCtx.firestore(), 'displays/disp-hr-1')));
+      await assertSucceeds(getDoc(doc(hrHeadCtx.firestore(), 'displayAssignments/asgn-hr-1')));
+    });
+
+    it('DENIES Department Head from reading digital displays in another department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertFails(getDoc(doc(hrHeadCtx.firestore(), 'displays/disp-ops-1')));
+    });
+
+    it('DENIES direct client writes to /displays and /displayAssignments', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertFails(
+        setDoc(doc(adminCtx.firestore(), 'displays/disp-direct'), {
+          name: 'Hacked Digital Display',
+        })
+      );
+      await assertFails(
+        setDoc(doc(adminCtx.firestore(), 'displayAssignments/asgn-direct'), {
+          displayId: 'disp-hr-1',
         })
       );
     });

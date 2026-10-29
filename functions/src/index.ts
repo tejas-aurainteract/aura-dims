@@ -737,3 +737,33 @@ export {
   setTemplateArchivedStatus,
   seedStarterTemplates,
 } from './designAdmin';
+
+// ==============================================================================
+// Playlists, Approvals, Schedules & Publication Operations
+// ==============================================================================
+export {
+  createDesignRevision,
+  listDesignRevisions,
+  getDesignRevision,
+  createPlaylist,
+  updatePlaylist,
+  getPlaylist,
+  listPlaylists,
+  setPlaylistArchivedStatus,
+  createPlaylistRevision,
+  getPlaylistRevision,
+  createSchedule,
+  updateSchedule,
+  getSchedule,
+  listSchedules,
+  setScheduleStatus,
+  submitForApproval,
+  reviewApproval,
+  withdrawApproval,
+  listApprovals,
+  getApproval,
+  preparePublication,
+  rollbackPublication,
+  setUserDirectPublishPermission,
+  evaluateSchedulePreview,
+} from './publishingAdmin';

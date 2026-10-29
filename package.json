@@ -17,7 +17,8 @@
     "emulators:start:blank": "firebase emulators:start --project demo-aura-dims",
     "emulators:export": "firebase emulators:export ./firebase/emulators/data --project demo-aura-dims --force",
     "bootstrap:admin": "node --experimental-strip-types scripts/bootstrap-admin.ts",
-    "seed:templates": "node --experimental-strip-types scripts/seed-templates.ts"
+    "seed:templates": "node --experimental-strip-types scripts/seed-templates.ts",
+    "seed:displays": "node --experimental-strip-types scripts/seed-displays.ts"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^4.0.1",

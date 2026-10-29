@@ -26,12 +26,14 @@ import {
   Palette,
   Monitor,
   Smartphone,
+  CheckCircle2,
+  Calendar,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, limit } from 'firebase/firestore';
 import { api } from '@/lib/api';
-import type { MediaAsset, DesignRecord } from '@aura-dims/display-schema';
+import type { MediaAsset, DesignRecord, ApprovalRecord, ScheduleRecord } from '@aura-dims/display-schema';
 
 type QueryState<T> =
   | { status: 'loading' }
@@ -50,6 +52,8 @@ export const DashboardPage: React.FC = () => {
   const [loadingRecentMedia, setLoadingRecentMedia] = useState(true);
   const [recentDesigns, setRecentDesigns] = useState<DesignRecord[]>([]);
   const [loadingRecentDesigns, setLoadingRecentDesigns] = useState(true);
+  const [pendingApprovals, setPendingApprovals] = useState<ApprovalRecord[]>([]);
+  const [activeSchedules, setActiveSchedules] = useState<ScheduleRecord[]>([]);
 
   useEffect(() => {
     // Real Firestore check for digital displays
@@ -128,10 +132,30 @@ export const DashboardPage: React.FC = () => {
       }
     };
 
+    const fetchApprovals = async () => {
+      try {
+        const res = await api.listApprovals({ status: 'pending_review', limit: 5 });
+        setPendingApprovals(res.approvals || []);
+      } catch {
+        // Non-blocking
+      }
+    };
+
+    const fetchSchedules = async () => {
+      try {
+        const res = await api.listSchedules({ status: 'active', limit: 5 });
+        setActiveSchedules(res.schedules || []);
+      } catch {
+        // Non-blocking
+      }
+    };
+
     fetchDisplays();
     fetchContent();
     fetchRecentMedia();
     fetchRecentDesigns();
+    fetchApprovals();
+    fetchSchedules();
   }, []);
 
   const displayName = userProfile?.displayName || currentUser?.displayName || currentUser?.email || 'User';
@@ -189,6 +213,61 @@ export const DashboardPage: React.FC = () => {
             Digital display enrollment, playlist scheduling, and visual layout publishing are being configured for your organization.
             Telemetry metrics, real-time playback statuses, and scheduled content feeds will become active here as physical digital displays are provisioned.
           </p>
+        </div>
+      </div>
+
+      {/* Operations Quick Overview: Approvals & Schedules */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Pending Approvals Card */}
+        <div
+          onClick={() => navigate('/approvals')}
+          className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs hover:border-teal-300 transition-colors cursor-pointer flex items-center justify-between"
+        >
+          <div className="space-y-1">
+            <span className="text-xs font-semibold text-slate-500">Editorial Approvals</span>
+            <div className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+              <span>{pendingApprovals.length}</span>
+              {pendingApprovals.length > 0 && (
+                <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                  Awaiting Review
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400">
+              {pendingApprovals.length === 0
+                ? 'All submissions reviewed'
+                : `${pendingApprovals.length} publication package(s) awaiting review`}
+            </p>
+          </div>
+          <div className="h-12 w-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+            <CheckCircle2 className="h-6 w-6" />
+          </div>
+        </div>
+
+        {/* Active Schedules Card */}
+        <div
+          onClick={() => navigate('/schedules')}
+          className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs hover:border-teal-300 transition-colors cursor-pointer flex items-center justify-between"
+        >
+          <div className="space-y-1">
+            <span className="text-xs font-semibold text-slate-500">Active Schedules</span>
+            <div className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+              <span>{activeSchedules.length}</span>
+              {activeSchedules.length > 0 && (
+                <span className="text-xs font-semibold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                  Broadcasting
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400">
+              {activeSchedules.length === 0
+                ? 'No active schedules configured'
+                : `${activeSchedules.length} active broadcast rule(s) in Asia/Kolkata`}
+            </p>
+          </div>
+          <div className="h-12 w-12 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center shrink-0">
+            <Calendar className="h-6 w-6" />
+          </div>
         </div>
       </div>
 

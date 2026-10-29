@@ -13,13 +13,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, Palette, FolderOpen, LayoutTemplate } from 'lucide-react';
+import { Plus, Palette, FolderOpen, LayoutTemplate, ListMusic } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { Department } from '@aura-dims/display-schema';
 import { useAuth } from '@/contexts/AuthContext';
 
 import { DesignsView } from '@/components/Content/DesignsView';
+import { PlaylistsView } from '@/components/Playlists/PlaylistsView';
 import { MediaLibraryView } from '@/components/Media/MediaLibraryView';
 import { TemplatesView } from '@/components/Content/TemplatesView';
 import { CreateContentChoiceModal } from '@/components/Content/CreateContentChoiceModal';
@@ -108,6 +109,19 @@ export const ContentPage: React.FC = () => {
 
           <button
             type="button"
+            onClick={() => setTab('playlists')}
+            className={`flex items-center gap-2 py-3 px-1 border-b-2 text-xs font-medium transition-colors ${
+              currentTab === 'playlists'
+                ? 'border-teal-600 text-teal-800 font-semibold'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+            }`}
+          >
+            <ListMusic className="h-4 w-4" />
+            <span>Playlists</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setTab('media')}
             className={`flex items-center gap-2 py-3 px-1 border-b-2 text-xs font-medium transition-colors ${
               currentTab === 'media'
@@ -139,6 +153,8 @@ export const ContentPage: React.FC = () => {
         {currentTab === 'designs' && (
           <DesignsView onOpenCreateChoice={() => setIsChoiceModalOpen(true)} />
         )}
+
+        {currentTab === 'playlists' && <PlaylistsView />}
 
         {currentTab === 'media' && <MediaLibraryView />}
 

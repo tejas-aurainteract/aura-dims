@@ -2,17 +2,18 @@
 
 **Company:** Aurainteract Private Limited  
 **Product:** Aura Digital Information Management System (Aura DIMS)  
-**Current Status:** Milestone 4 Complete (Visual Content Creator and Reusable Templates)
+**Current Status:** Milestone 5 Complete (Playlists, Approvals, Scheduling, and Publication Preparation)
 
 ---
 
 ## 1. Milestones Overview
 
 ```
-Milestone 1 (Complete)   ──>   Milestone 2 (Complete)             ──>   Milestone 3 (Complete)             ──>   Milestone 4 (Complete)             ──>   Milestone 5 (Planned)
-Foundation, Emulators,         Authentication, RBAC, User &             Secure Departmental Media                Visual Content Creator,                  Content Approval Workflows,
-Deny-by-default rules,         Department Provisioning, Cloud           Library, Server Validation Pipeline,     Reusable Templates, DOM Renderer,        Playlist Sequencing,
-Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksums, Private Previews.             Autosave & Local Draft Recovery.         Digital Display Distribution.
+Milestone 1 (Complete)   ──>   Milestone 2 (Complete)             ──>   Milestone 3 (Complete)             ──>   Milestone 4 (Complete)             ──>   Milestone 5 (Complete)             ──>   Milestone 6 (Planned)
+Foundation, Emulators,         Authentication, RBAC, User &             Secure Departmental Media                Visual Content Creator,                  Content Approval Workflows,              Digital Display Player Runtime,
+Deny-by-default rules,         Department Provisioning, Cloud           Library, Server Validation Pipeline,     Reusable Templates, DOM Renderer,        Playlist Sequencing,                     Offline Autonomous Playback,
+Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksums, Private Previews.             Autosave & Local Draft Recovery.         Deterministic Asia/Kolkata Scheduling,   Package Downloads, Heartbeats.
+                                                                                                                                                          Publication Manifest Compilation.
 ```
 
 ---
@@ -24,7 +25,7 @@ Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksum
 | **Product Branding "Aura DIMS"** | Complete | Header, Sidebar, Login, and meta tags reflect Aura DIMS identity |
 | **Digital Display Terminology** | Complete | Strictly enforced: devices are always "digital display", never bare screen/TV |
 | **Simplified Navigation Shell** | Complete | Primary routes: Dashboard, Displays, Content, Schedules, Approvals, Users, Settings |
-| **Content Hub & Subtabs** | Complete | `ContentPage` with tabs: Designs, Media Library, Templates; "Create content" action |
+| **Content Hub & Subtabs** | Complete | `ContentPage` with tabs: Designs, Playlists, Media Library, Templates |
 | **Legacy Route Redirects** | Complete | Redirects `/content-library`, `/content-creator`, `/templates`, `/users-and-roles` |
 | **Development-Only Diagnostics** | Complete | Moved to `/dev/diagnostics`; excluded from production builds; unobtrusive header pill |
 | **Firebase Email/Password Auth** | Complete | `apps/web/src/contexts/AuthContext.tsx`, `LoginPage`, `ForgotPasswordPage` |
@@ -34,7 +35,7 @@ Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksum
 | **Role-Based Access Control** | Complete | Roles: `admin` (system-wide) vs `department_head` (departmental boundary) |
 | **Protected Route Guards** | Complete | Distinguishes auth restoring, profile loading, and authorization checks |
 | **Unassigned / Inactive Denials** | Complete | Redirects to `/access-denied` with informative explanation and sign-out action |
-| **Privileged Mutation Cloud Functions** | Complete | 26 callable functions in `functions/src/` with explicit caller authorization |
+| **Privileged Mutation Cloud Functions** | Complete | 44 callable functions in `functions/src/` with explicit caller authorization |
 | **Last-Admin Invariant Protection** | Complete | Transactional invariant prevents demoting or deactivating the last active Admin |
 | **Department Management** | Complete | Admin can create, rename, activate/deactivate departments (`Settings` -> Departments) |
 | **Admin Bootstrap Script** | Complete | `scripts/bootstrap-admin.ts` (`pnpm run bootstrap:admin`) with production refusal |
@@ -55,8 +56,21 @@ Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksum
 | **Local Draft Recovery Cache** | Complete | `localStorage` backup keyed by user and design ID; restore prompt after crash |
 | **8 Starter System Templates** | Complete | Seeded via `scripts/seed-templates.ts` (`pnpm run seed:templates`) across 4 categories and 2 orientations |
 | **Templates Gallery & Instantiation** | Complete | Reusable template gallery with preview and 1-click instantiation into departmental designs |
-| **Security Rules Test Suite** | Complete | 42 unit tests in `tests/rules/security-rules.test.ts` (100% passing) |
-| **Playwright E2E Suite** | Complete | 11 browser smoke, RBAC, media, and editor authoring tests in `tests/e2e/` (100% passing) |
+| **Immutable Design Revisions** | Complete | `/designRevisions` captures validated document, ready assets with SHA-256, fonts, content hash |
+| **Ordered Signage Playlists** | Complete | Single-orientation playlists (`PlaylistsView.tsx`, `CreatePlaylistModal.tsx`) with cumulative duration |
+| **Multi-Design Playlist Preview Simulator** | Complete | `PlaylistPreviewModal.tsx` timed sequential multi-design simulation with transport controls |
+| **Asia/Kolkata Calendar Scheduling** | Complete | UTC+05:30 deterministic scheduler supporting one-time, daily recurring, and overnight windows |
+| **Overnight Recurrence Evaluation** | Complete | Overnight windows (e.g. 22:00 to 06:00) attributing early morning hours to previous day's recurrence |
+| **Preflight Collision Detection** | Complete | Real-time scanner detecting equal-priority schedule overlaps across target digital displays |
+| **Display Schedule Simulator** | Complete | `/schedules` interactive modal simulating winning broadcast at any historical/future instant |
+| **Priority & Conflict Resolution** | Complete | Priority 1-10 (10=Admin Emergency with mandatory expiration), equal-priority neutral fallback |
+| **Editorial Approvals Governance** | Complete | Admin review queue (`/approvals`), review modal with mandatory rejection reasoning, history audit |
+| **Delegated Direct Publishing** | Complete | Admins can delegate `canDirectPublish: true` to trusted Department Heads |
+| **Publication Manifest Compilation** | Complete | Idempotent `preparePublication` Cloud Function compiling versioned manifest to Cloud Storage with SHA-256 |
+| **Dashboard KPI Integrations** | Complete | Live cards for Pending Editorial Approvals and Active Broadcast Schedules |
+| **Digital Displays & Sites Seeder** | Complete | `scripts/seed-displays.ts` (`pnpm run seed:displays`) seeding 2 sites, 4 displays, and HR assignments |
+| **Security Rules Test Suite** | Complete | 62 unit tests in `tests/rules/security-rules.test.ts` (100% passing) |
+| **Playwright E2E Suite** | Complete | 12 browser smoke, RBAC, media, editor, and publishing pipeline tests in `tests/e2e/` (100% passing) |
 
 ---
 
@@ -92,12 +106,12 @@ Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksum
 1. **Security Rules Suite:**
    ```bash
    pnpm run test:rules
-   # 42 passed (42)
+   # 62 passed (62)
    ```
 2. **Playwright End-to-End Suite:**
    ```bash
    pnpm run test:e2e
-   # 11 passed (11)
+   # 12 passed (12)
    ```
 3. **TypeScript Typecheck:**
    ```bash
@@ -119,3 +133,7 @@ Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksum
    - `landscape-editing.png`: Landscape (1920×1080) studio canvas with slide timeline, element inspector, and typography controls.
    - `portrait-editing.png`: Portrait (1080×1920) totem notice studio with complex script Gujarati and Hindi typography.
    - `full-design-preview.png`: Full-screen digital display simulation with timed progression and video playback.
+   - `playlists-gallery.png`: Playlists management hub with single-orientation filters and simulation modal.
+   - `schedules-list.png`: Broadcast schedules console calibrated to Asia/Kolkata with honest publication status pills.
+   - `schedule-timeline-simulator.png`: Interactive digital display timeline evaluator simulating winning broadcast or fallback.
+   - `approvals-review.png`: Editorial governance and approval review queue with audit history.
