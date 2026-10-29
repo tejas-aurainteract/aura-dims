@@ -45,37 +45,44 @@ service cloud.firestore {
 
     // Users Collection: /users/{userId}
     match /users/{userId} {
-      // 1. User can read their own profile.
-      // 2. Admin can read any user profile.
-      // 3. Department Head can only read users within their own department.
-      // 4. Department Head CANNOT read users of other departments.
       allow read: if isAuthenticated() && (
         request.auth.uid == userId ||
         isAdmin() ||
         (isDepartmentHead() && resource.data.departmentId != null && resource.data.departmentId == getCallerDepartmentId())
       );
-
-      // Client writes are completely disallowed.
-      // User provisioning, role assignment, and status modifications must go through Cloud Functions.
       allow write: if false;
     }
 
     // Departments Collection: /departments/{departmentId}
     match /departments/{departmentId} {
-      // Admin reads all departments; users read active departments or their own department.
       allow read: if isAuthenticated() && (
         isAdmin() ||
         (resource.data.status == 'active') ||
         (isDepartmentHead() && resource.data.id == getCallerDepartmentId())
       );
+      allow write: if false;
+    }
 
-      // Client writes are completely disallowed.
+    // Assets Collection: /assets/{assetId}
+    match /assets/{assetId} {
+      // 1. Admin can read any asset across departments.
+      // 2. Department Head can read assets in their own department.
+      // 3. Staging/awaiting_upload assets can be read by their creator or Admin.
+      // 4. Cross-department reads are strictly denied.
+      // 5. Unauthenticated callers or device identities are denied.
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId()) ||
+        (resource.data.status == 'awaiting_upload' && resource.data.ownerId == request.auth.uid)
+      );
+
+      // All client writes are strictly disallowed.
+      // Upload initiation, validation, metadata edits, archiving, and cleanup must be executed through Cloud Functions.
       allow write: if false;
     }
 
     // Audit Events Collection: /auditEvents/{eventId}
     match /auditEvents/{eventId} {
-      // Read-only for Administrators; append-only via backend Cloud Functions.
       allow read: if isAdmin();
       allow write: if false;
     }
@@ -86,8 +93,7 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // All other collections (displays, assets, templates, designs, playlists, schedules, publications, assignments)
-    // remain strictly denied until their respective milestones.
+    // All other collections remain strictly denied until their respective milestones.
     match /{document=**} {
       allow read, write: if false;
     }

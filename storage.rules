@@ -2,14 +2,64 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // Aura DIMS - Deny-By-Default Storage Rules
-    // Aurainteract Private Limited
-    //
-    // All read and write operations are strictly disallowed by default.
-    // Explicit storage authorization policies will be added alongside user authentication and asset upload pipelines.
+    // Aura DIMS - Secure Departmental Storage Rules
+    // Company: Aurainteract Private Limited
+    // Product: Aura Digital Information Management System (Aura DIMS)
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        request.auth.token.role == 'admin' &&
+        request.auth.token.active == true;
+    }
+
+    function isDepartmentHead(deptId) {
+      return isAuthenticated() &&
+        request.auth.token.role == 'department_head' &&
+        request.auth.token.departmentId == deptId &&
+        request.auth.token.active == true;
+    }
+
+    // Staging uploads: staging/{departmentId}/{assetId}/{fileName}
+    match /staging/{departmentId}/{assetId}/{fileName} {
+      // Direct client upload into allocated staging path
+      allow create: if (isAdmin() || isDepartmentHead(departmentId)) &&
+        request.resource.size > 0 &&
+        request.resource.size <= 209715200 && // 200 MB max bound
+        request.resource.contentType in ['image/jpeg', 'image/png', 'video/mp4'];
+
+      // Prevent overwriting existing uploads
+      allow update: if false;
+
+      // Staging reads: only admin or department head
+      allow read: if isAdmin() || isDepartmentHead(departmentId);
+
+      // Deletions managed exclusively by backend processing
+      allow delete: if false;
+    }
+
+    // Permanent verified media: media/{departmentId}/{assetId}/{fileName}
+    match /media/{departmentId}/{assetId}/{fileName} {
+      // Client writes are completely forbidden.
+      // Cloud Functions write verified files using the Firebase Admin SDK.
+      allow write: if false;
+
+      // Authenticated read scoped strictly by department
+      allow read: if isAdmin() || isDepartmentHead(departmentId);
+    }
+
+    // Derived thumbnails: thumbnails/{departmentId}/{assetId}/{fileName}
+    match /thumbnails/{departmentId}/{assetId}/{fileName} {
+      allow write: if false;
+      allow read: if isAdmin() || isDepartmentHead(departmentId);
+    }
+
+    // Deny-by-default for all other storage paths
     match /{allPaths=**} {
       allow read, write: if false;
     }
   }
 }
-

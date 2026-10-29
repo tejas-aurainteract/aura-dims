@@ -150,21 +150,73 @@ export interface EnrollmentState {
   pairingCodeExpiresAt: string | null;
 }
 
+export type MediaAssetType = 'image' | 'video';
+
+export type MediaProcessingStatus =
+  | 'awaiting_upload'
+  | 'uploading'
+  | 'validating'
+  | 'ready'
+  | 'failed'
+  | 'archived';
+
+export interface MediaDimensions {
+  width: number;
+  height: number;
+}
+
+export const MEDIA_CONSTRAINTS = {
+  MAX_IMAGE_SIZE_BYTES: 20 * 1024 * 1024, // 20 MB
+  MAX_VIDEO_SIZE_BYTES: 200 * 1024 * 1024, // 200 MB
+  MAX_VIDEO_DURATION_SECONDS: 600, // 10 minutes
+  MAX_VIDEO_WIDTH: 1920,
+  MAX_VIDEO_HEIGHT: 1920,
+  MAX_VIDEO_PIXELS: 1920 * 1080,
+  MAX_IMAGE_PIXELS: 40_000_000, // 40 Megapixels
+  ALLOWED_IMAGE_MIME_TYPES: ['image/jpeg', 'image/png'] as const,
+  ALLOWED_VIDEO_MIME_TYPES: ['video/mp4'] as const,
+  ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png', 'video/mp4'] as const,
+  ALLOWED_EXTENSIONS: ['.jpg', '.jpeg', '.png', '.mp4'] as const,
+  UPLOAD_INTENT_EXPIRY_MS: 30 * 60 * 1000, // 30 minutes
+  MAX_TITLE_LENGTH: 100,
+  MAX_DESCRIPTION_LENGTH: 500,
+  MAX_TAGS_COUNT: 20,
+  MAX_TAG_LENGTH: 30,
+} as const;
+
 export interface MediaAsset {
   id: string;
-  name: string;
-  type: 'image' | 'video';
-  storagePath: string;
-  downloadUrl?: string;
-  sizeBytes: number;
+  title: string;
+  name?: string;
+  description: string;
+  tags: string[];
+  fileName: string;
+  mediaType: MediaAssetType;
+  type?: MediaAssetType;
   mimeType: string;
+  declaredMimeType?: string;
+  fileSizeBytes: number;
+  sizeBytes?: number;
   checksumSha256: string;
-  dimensions: Resolution;
-  durationSeconds?: number;
-  language: ContentLanguage;
+  dimensions: MediaDimensions;
+  durationSeconds: number | null;
+  videoCodec: string | null;
+  audioCodec: string | null;
   departmentId: string;
-  uploadedBy: string;
+  ownerId: string;
+  uploadedBy?: string;
+  uploaderDisplayName: string | null;
+  storagePath: string;
+  stagingPath?: string;
+  thumbnailPath: string;
+  status: MediaProcessingStatus;
+  failureReason: string | null;
+  intentExpiresAt?: string | null;
+  language?: ContentLanguage;
   createdAt: string;
+  updatedAt: string;
+  validatedAt: string | null;
+  archivedAt: string | null;
 }
 
 export interface PublicationItem {
@@ -467,4 +519,95 @@ export interface DeviceConfigResponse {
   configuredResolution: Resolution;
   lifecycle: DisplayLifecycle;
   recommendedHeartbeatSeconds: number;
+}
+
+
+// ==========================================
+// Milestone: Secure Departmental Media Library APIs
+// ==========================================
+
+export interface InitiateMediaUploadRequest {
+  fileName: string;
+  fileSizeBytes: number;
+  declaredMimeType: string;
+  departmentId?: string;
+  title?: string;
+  description?: string;
+  tags?: string[];
+}
+
+export interface InitiateMediaUploadResponse {
+  assetId: string;
+  stagingPath: string;
+  departmentId: string;
+  expiresAt: string;
+}
+
+export interface FinalizeMediaUploadRequest {
+  assetId: string;
+}
+
+export interface FinalizeMediaUploadResponse {
+  asset: MediaAsset;
+}
+
+export interface GetMediaPreviewUrlRequest {
+  assetId: string;
+  kind?: 'thumbnail' | 'original';
+}
+
+export interface GetMediaPreviewUrlResponse {
+  url: string;
+  expiresAt: string;
+  kind: 'thumbnail' | 'original';
+}
+
+export interface UpdateMediaMetadataRequest {
+  assetId: string;
+  title?: string;
+  description?: string;
+  tags?: string[];
+}
+
+export interface UpdateMediaMetadataResponse {
+  asset: MediaAsset;
+}
+
+export interface SetMediaArchivedRequest {
+  assetId: string;
+  archived: boolean;
+}
+
+export interface SetMediaArchivedResponse {
+  asset: MediaAsset;
+}
+
+export interface ListMediaAssetsRequest {
+  departmentId?: string;
+  mediaType?: 'all' | 'image' | 'video';
+  status?: 'all' | 'ready' | 'validating' | 'failed' | 'archived';
+  search?: string;
+  pageSize?: number;
+  cursor?: string | null;
+  includeArchived?: boolean;
+}
+
+export interface ListMediaAssetsResponse {
+  assets: MediaAsset[];
+  nextCursor: string | null;
+  totalCount?: number;
+}
+
+export interface CleanupExpiredUploadsRequest {
+  dryRun?: boolean;
+}
+
+export interface CleanupExpiredUploadsResponse {
+  scannedCount: number;
+  cleanedCount: number;
+  details: Array<{
+    assetId: string;
+    stagingPath: string;
+    expiredAt: string;
+  }>;
 }

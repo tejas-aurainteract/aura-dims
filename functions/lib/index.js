@@ -41,7 +41,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.setDepartmentStatus = exports.updateDepartment = exports.createDepartment = exports.triggerPasswordReset = exports.setUserActiveStatus = exports.updateUser = exports.provisionUser = exports.apiHealth = exports.healthCheck = void 0;
+exports.cleanupExpiredUploads = exports.listMediaAssets = exports.setMediaArchivedStatus = exports.updateMediaMetadata = exports.getMediaPreviewUrl = exports.finalizeMediaUpload = exports.initiateMediaUpload = exports.setDepartmentStatus = exports.updateDepartment = exports.createDepartment = exports.triggerPasswordReset = exports.setUserActiveStatus = exports.updateUser = exports.provisionUser = exports.apiHealth = exports.healthCheck = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-admin/firestore");
@@ -590,4 +590,15 @@ exports.setDepartmentStatus = (0, https_1.onCall)({ cors: true, region: REGION }
         affectedUserCount: affectedCount,
     };
 });
+// ==============================================================================
+// Media Library Operations
+// ==============================================================================
+var mediaAdmin_1 = require("./mediaAdmin");
+Object.defineProperty(exports, "initiateMediaUpload", { enumerable: true, get: function () { return mediaAdmin_1.initiateMediaUpload; } });
+Object.defineProperty(exports, "finalizeMediaUpload", { enumerable: true, get: function () { return mediaAdmin_1.finalizeMediaUpload; } });
+Object.defineProperty(exports, "getMediaPreviewUrl", { enumerable: true, get: function () { return mediaAdmin_1.getMediaPreviewUrl; } });
+Object.defineProperty(exports, "updateMediaMetadata", { enumerable: true, get: function () { return mediaAdmin_1.updateMediaMetadata; } });
+Object.defineProperty(exports, "setMediaArchivedStatus", { enumerable: true, get: function () { return mediaAdmin_1.setMediaArchivedStatus; } });
+Object.defineProperty(exports, "listMediaAssets", { enumerable: true, get: function () { return mediaAdmin_1.listMediaAssets; } });
+Object.defineProperty(exports, "cleanupExpiredUploads", { enumerable: true, get: function () { return mediaAdmin_1.cleanupExpiredUploads; } });
 //# sourceMappingURL=index.js.map

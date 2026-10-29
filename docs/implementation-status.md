@@ -2,17 +2,17 @@
 
 **Company:** Aurainteract Private Limited  
 **Product:** Aura Digital Information Management System (Aura DIMS)  
-**Current Status:** Milestone 2 Complete (Authentication, Role-Based Access Control & Departmental Governance)
+**Current Status:** Milestone 3 Complete (Secure Departmental Media Library)
 
 ---
 
 ## 1. Milestones Overview
 
 ```
-Milestone 1 (Complete)   ──>   Milestone 2 (Complete)             ──>   Milestone 3 (Planned)
-Foundation, Emulators,         Authentication, RBAC, User &             Digital Display Fleet Enrollment,
-Deny-by-default rules,         Department Provisioning, Cloud           Hardware Heartbeats, Offline
-Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Player Manifest Activation.
+Milestone 1 (Complete)   ──>   Milestone 2 (Complete)             ──>   Milestone 3 (Complete)             ──>   Milestone 4 (Planned)
+Foundation, Emulators,         Authentication, RBAC, User &             Secure Departmental Media                Digital Display Fleet Enrollment,
+Deny-by-default rules,         Department Provisioning, Cloud           Library, Server Validation Pipeline,     Hardware Heartbeats, Offline
+Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksums, Private Previews.             Player Manifest Activation.
 ```
 
 ---
@@ -34,29 +34,41 @@ Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Player M
 | **Role-Based Access Control** | Complete | Roles: `admin` (system-wide) vs `department_head` (departmental boundary) |
 | **Protected Route Guards** | Complete | Distinguishes auth restoring, profile loading, and authorization checks |
 | **Unassigned / Inactive Denials** | Complete | Redirects to `/access-denied` with informative explanation and sign-out action |
-| **Privileged Mutation Cloud Functions** | Complete | 7 callable functions in `functions/src/index.ts` with explicit caller authorization |
+| **Privileged Mutation Cloud Functions** | Complete | 14 callable functions in `functions/src/` with explicit caller authorization |
 | **Last-Admin Invariant Protection** | Complete | Transactional invariant prevents demoting or deactivating the last active Admin |
 | **Department Management** | Complete | Admin can create, rename, activate/deactivate departments (`Settings` -> Departments) |
 | **Admin Bootstrap Script** | Complete | `scripts/bootstrap-admin.ts` (`pnpm run bootstrap:admin`) with production refusal |
-| **Security Rules Test Suite** | Complete | 18 unit tests in `tests/rules/security-rules.test.ts` (100% passing) |
-| **Playwright E2E Suite** | Complete | 9 browser smoke & RBAC tests in `tests/e2e/` (100% passing) |
+| **Departmental Media Library View** | Complete | Grid and list views, search, multidimensional filters, cursor pagination (`MediaLibraryView.tsx`) |
+| **Drag & Drop Upload Modal** | Complete | `UploadMediaModal.tsx` with bounds checks, department selector, progress tracking, and cancel |
+| **Resumable Client Upload** | Complete | `apps/web/src/lib/mediaUpload.ts` uses Storage SDK `uploadBytesResumable` with intent validation |
+| **Server-Controlled Validation Pipeline** | Complete | `finalizeMediaUpload` checks magic bytes, format, duration, dimensions via `sharp` & `ffprobe` |
+| **SHA-256 Integrity Checksums** | Complete | Calculated on finalized assets for offline digital display verification |
+| **Automated Thumbnail & Poster Generation** | Complete | High-performance WebP poster generation using `sharp` (images) and `ffmpeg` (videos) |
+| **Private Authenticated Previews** | Complete | On-demand short-lived signed URLs via `getMediaPreviewUrl`; no public tokens in Firestore |
+| **Media Archiving & Lifecycle** | Complete | Toggle `archived` status without data loss; `cleanupExpiredUploads` for abandoned staging |
+| **Security Rules Test Suite** | Complete | 32 unit tests in `tests/rules/security-rules.test.ts` (100% passing) |
+| **Playwright E2E Suite** | Complete | 10 browser smoke, RBAC, and media tests in `tests/e2e/` (100% passing) |
 
 ---
 
 ## 3. Security Rules & Privileged Boundaries Verification
 
-### 3.1 Security Rules (`firestore.rules`)
-- **Unauthenticated:** Completely denied from reading or writing `/users`, `/departments`, `/auditEvents`.
-- **System Administrator:** Authorized to read all users and departments; client writes are strictly denied (must invoke Cloud Functions).
-- **Department Head:** Authorized to read their own user profile and users belonging to their assigned department. Reading other departments or cross-department users is strictly blocked.
-- **Audit Events:** Append-only through backend Cloud Functions; direct client writes or modifications are blocked.
+### 3.1 Security Rules (`firestore.rules` & `storage.rules`)
+- **Unauthenticated:** Completely denied from reading or writing `/users`, `/departments`, `/auditEvents`, `/assets`, or Storage objects.
+- **System Administrator:** Authorized to read all users, departments, and media assets across all departments. Client direct writes are strictly denied (must invoke Cloud Functions).
+- **Department Head:** Authorized to read their own user profile, departmental team members, and media assets belonging strictly to their assigned department. Cross-department queries are rejected.
+- **Storage Perimeter:** Client upload permitted only into designated `staging/{departmentId}/{assetId}/{fileName}` path with matching department claims and supported media type. Permanent `media/` and `thumbnails/` paths accept writes strictly from Admin SDK Cloud Functions.
 
 ### 3.2 Cloud Functions (v2 in `asia-south1`)
-- `provisionUser`: Creates Firebase Auth user, assigns custom claims, creates Firestore profile, maintains Admin counts, writes audit event.
-- `updateUser`: Modifies name, role, department with Last-Admin guard.
-- `setUserActiveStatus`: Toggles user active/inactive status, revokes refresh tokens immediately upon deactivation, enforces Last-Admin guard.
-- `triggerPasswordReset`: Dispatches password reset link via Admin SDK without client exposure.
-- `createDepartment`, `updateDepartment`, `setDepartmentStatus`: Department lifecycle governance.
+- **Authentication & RBAC:** `provisionUser`, `updateUser`, `setUserActiveStatus`, `triggerPasswordReset`, `createDepartment`, `updateDepartment`, `setDepartmentStatus`.
+- **Media Governance:**
+  - `initiateMediaUpload`: Pre-allocates asset record in `awaiting_upload` status and returns staging path.
+  - `finalizeMediaUpload`: Validates stream bounds, computes SHA-256, generates WebP thumbnail, moves to permanent storage, updates status to `ready`.
+  - `getMediaPreviewUrl`: Generates short-lived private preview URL for authenticated viewers.
+  - `updateMediaMetadata`: Edits title, description, and tags while preserving immutable file facts.
+  - `setMediaArchivedStatus`: Soft-archives or restores media assets without deleting binaries.
+  - `listMediaAssets`: Server-side filtered, cursor-paginated asset query adhering to departmental isolation.
+  - `cleanupExpiredUploads`: Reclaims storage from abandoned staging uploads older than 2 hours.
 
 ---
 
@@ -65,17 +77,17 @@ Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Player M
 1. **Security Rules Suite:**
    ```bash
    pnpm run test:rules
-   # 18 passed (18)
+   # 32 passed (32)
    ```
 2. **Playwright End-to-End Suite:**
    ```bash
    pnpm run test:e2e
-   # 9 passed (9)
+   # 10 passed (10)
    ```
 3. **TypeScript Typecheck:**
    ```bash
    pnpm run typecheck
-   # 4 workspace projects clean (0 errors)
+   # All workspace projects clean (0 errors)
    ```
 4. **Monorepo Build:**
    ```bash
@@ -84,5 +96,7 @@ Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Player M
    ```
 5. **Screenshots Captured:**
    - `login-screen.png`: Clean branded login interface without public signup.
-   - `dashboard-simplified.png`: Executive dashboard without fake metrics or commentary.
+   - `dashboard-simplified.png`: Executive dashboard with Recent Content section and digital display terminology.
    - `users-management.png`: Admin-only user directory with status badges and provisioning modal.
+   - `media-library-grid.png`: Full-featured Media Library in grid view with multidimensional filters.
+   - `media-upload-modal.png`: Accessible drag-and-drop media ingestion dialog with departmental scoping.

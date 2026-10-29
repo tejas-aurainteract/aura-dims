@@ -96,6 +96,55 @@ flowchart TD
 - **Explicit Digital Display Assignments:** A Department Head can only schedule and publish content to digital displays that have been explicitly assigned to them by an Administrator.
 - **Digital Display Device Identity:** Digital display players authenticate using separate, distinct device credentials (device tokens/mTLS) rather than human user credentials.
 
+### 2.3 Secure Departmental Media Ingestion & Validation Pipeline
+
+The Media Library enforces a three-stage upload and validation pattern that ensures zero unchecked binaries enter production storage or display manifest publications:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Department Head / Admin
+    participant Client as Web App (apps/web)
+    participant CF as Cloud Functions (functions/)
+    participant FS as Cloud Firestore
+    participant Storage as Cloud Storage
+
+    User->>Client: Selects file & enters metadata
+    Client->>Client: Client-side validation (MIME, size bounds)
+    Client->>CF: initiateMediaUpload(fileFacts, metadata)
+    CF->>CF: Verify caller role & departmental scope
+    CF->>FS: Create /assets/{assetId} [status: awaiting_upload]
+    CF-->>Client: Return { assetId, stagingPath }
+
+    Client->>Storage: uploadBytesResumable(stagingPath, file)
+    User-->>Client: (Optional: cancel upload task)
+    Client->>CF: finalizeMediaUpload(assetId)
+
+    CF->>FS: Update status -> validating
+    CF->>Storage: Download staging file to isolated /tmp
+    CF->>CF: Inspect magic bytes & metadata (sharp / ffprobe)
+    CF->>CF: Enforce bounds (dimensions, duration, codecs)
+    CF->>CF: Calculate SHA-256 integrity checksum
+    CF->>CF: Generate WebP poster / thumbnail (sharp / ffmpeg)
+    CF->>Storage: Promote file to media/{dept}/{assetId}/{fileName}
+    CF->>Storage: Upload thumbnail to thumbnails/{dept}/{assetId}/thumb.webp
+    CF->>Storage: Delete temporary staging file
+    CF->>FS: Update /assets/{assetId} [status: ready, checksum, specs]
+    CF-->>Client: Return finalized MediaAsset record
+```
+
+#### Media Constraints & Governance Standards
+- **Supported Formats:**
+  - **Images:** JPEG, PNG (MIME types `image/jpeg`, `image/png`). Max file size: 20 MB. Max image resolution: 40 Megapixels.
+  - **Videos:** MP4 with H.264 video codec and optional AAC audio. Max file size: 200 MB. Max duration: 600s (10 min). Max resolution: 1920×1080 (landscape) or 1080×1920 (portrait).
+- **Private Preview Model:**
+  - No public download tokens are persisted in Firestore.
+  - Previews use short-lived authenticated URLs generated on-demand via `getMediaPreviewUrl` (v4 signed URLs in production; direct emulator endpoints in local mode).
+- **Offline Integrity:**
+  - SHA-256 checksums are calculated server-side during finalization and stored with the asset for atomic display player verification.
+- **Staging Lifecycle & Cleanup:**
+  - Upload intents expire after 2 hours. Abandoned staging files and unfinalized intents can be cleaned up via `cleanupExpiredUploads` (supports `dryRun` audit mode).
+
 ---
 
 ## 3. Autonomous Offline Signage Player Architecture

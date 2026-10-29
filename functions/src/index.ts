@@ -705,3 +705,17 @@ export const setDepartmentStatus = onCall<SetDepartmentStatusRequest, Promise<Se
     };
   }
 );
+
+
+// ==============================================================================
+// Media Library Operations
+// ==============================================================================
+export {
+  initiateMediaUpload,
+  finalizeMediaUpload,
+  getMediaPreviewUrl,
+  updateMediaMetadata,
+  setMediaArchivedStatus,
+  listMediaAssets,
+  cleanupExpiredUploads,
+} from './mediaAdmin';

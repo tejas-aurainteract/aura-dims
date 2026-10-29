@@ -7,10 +7,10 @@ import {
 } from '@firebase/rules-unit-testing';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getBytes } from 'firebase/storage';
 
-describe('Aura DIMS - Milestone 2 Security Rules Suite', () => {
+describe('Aura DIMS - Security Rules Suite', () => {
   let testEnv: RulesTestEnvironment;
 
   beforeAll(async () => {
@@ -43,7 +43,7 @@ describe('Aura DIMS - Milestone 2 Security Rules Suite', () => {
       await testEnv.clearFirestore();
       await testEnv.clearStorage();
 
-      // Seed baseline test profiles with admin bypass context
+      // Seed baseline test documents with admin bypass context
       await testEnv.withSecurityRulesDisabled(async (context) => {
         const db = context.firestore();
 
@@ -126,6 +126,75 @@ describe('Aura DIMS - Milestone 2 Security Rules Suite', () => {
           targetId: 'head-hr',
           timestamp: new Date().toISOString(),
         });
+
+        // 8. Media Assets in Firestore
+        await setDoc(doc(db, 'assets/asset-hr-1'), {
+          id: 'asset-hr-1',
+          name: 'hr-handbook.png',
+          fileName: 'hr-handbook.png',
+          fileSizeBytes: 1024 * 50,
+          mimeType: 'image/png',
+          mediaType: 'image',
+          storagePath: 'media/dept-hr/asset-hr-1/hr-handbook.png',
+          thumbnailPath: 'thumbnails/dept-hr/asset-hr-1/thumb.webp',
+          departmentId: 'dept-hr',
+          ownerId: 'head-hr',
+          status: 'ready',
+          title: 'HR Handbook Cover',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'assets/asset-ops-1'), {
+          id: 'asset-ops-1',
+          name: 'ops-floor-plan.png',
+          fileName: 'ops-floor-plan.png',
+          fileSizeBytes: 1024 * 80,
+          mimeType: 'image/png',
+          mediaType: 'image',
+          storagePath: 'media/dept-ops/asset-ops-1/ops-floor-plan.png',
+          thumbnailPath: 'thumbnails/dept-ops/asset-ops-1/thumb.webp',
+          departmentId: 'dept-ops',
+          ownerId: 'head-ops',
+          status: 'ready',
+          title: 'Floor Plan Ops',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'assets/asset-intent-hr'), {
+          id: 'asset-intent-hr',
+          name: 'pending-slide.png',
+          fileName: 'pending-slide.png',
+          fileSizeBytes: 1024 * 20,
+          mimeType: 'image/png',
+          mediaType: 'image',
+          stagingPath: 'staging/dept-hr/asset-intent-hr/pending-slide.png',
+          departmentId: 'dept-hr',
+          ownerId: 'head-hr',
+          status: 'awaiting_upload',
+          title: 'Pending HR Slide',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
+        // Seed storage files with security rules bypassed
+        const storage = context.storage();
+        await uploadBytes(
+          ref(storage, 'media/dept-hr/asset-hr-1/hr-handbook.png'),
+          new Uint8Array([1, 2, 3, 4]),
+          { contentType: 'image/png' }
+        );
+        await uploadBytes(
+          ref(storage, 'media/dept-ops/asset-ops-1/ops-floor-plan.png'),
+          new Uint8Array([5, 6, 7, 8]),
+          { contentType: 'image/png' }
+        );
+        await uploadBytes(
+          ref(storage, 'thumbnails/dept-hr/asset-hr-1/thumb.webp'),
+          new Uint8Array([9, 10]),
+          { contentType: 'image/webp' }
+        );
       });
     }
   });
@@ -149,6 +218,18 @@ describe('Aura DIMS - Milestone 2 Security Rules Suite', () => {
     it('denies unauthenticated read to /auditEvents', async () => {
       const context = testEnv.unauthenticatedContext();
       await assertFails(getDoc(doc(context.firestore(), 'auditEvents/audit-1')));
+    });
+
+    it('denies unauthenticated read to /assets', async () => {
+      const context = testEnv.unauthenticatedContext();
+      await assertFails(getDoc(doc(context.firestore(), 'assets/asset-hr-1')));
+    });
+
+    it('denies unauthenticated write to /assets', async () => {
+      const context = testEnv.unauthenticatedContext();
+      await assertFails(
+        setDoc(doc(context.firestore(), 'assets/tampered'), { title: 'Hack' })
+      );
     });
   });
 
@@ -182,6 +263,26 @@ describe('Aura DIMS - Milestone 2 Security Rules Suite', () => {
         setDoc(doc(adminCtx.firestore(), 'auditEvents/audit-fake'), { action: 'tampered' })
       );
     });
+
+    it('allows Admin to read media assets across any department', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'assets/asset-hr-1')));
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'assets/asset-ops-1')));
+    });
+
+    it('denies Admin direct client writes to /assets (must use Cloud Functions)', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertFails(
+        setDoc(doc(adminCtx.firestore(), 'assets/asset-new'), {
+          title: 'Direct Write By Admin',
+          departmentId: 'dept-hr',
+        })
+      );
+      await assertFails(
+        updateDoc(doc(adminCtx.firestore(), 'assets/asset-hr-1'), { title: 'Direct Edit' })
+      );
+      await assertFails(deleteDoc(doc(adminCtx.firestore(), 'assets/asset-hr-1')));
+    });
   });
 
   describe('Department Head Scoped Access Control', () => {
@@ -209,7 +310,6 @@ describe('Aura DIMS - Milestone 2 Security Rules Suite', () => {
         departmentId: 'dept-hr',
         active: true,
       });
-      // Attempt to read Ops Head profile
       await assertFails(getDoc(doc(hrHeadCtx.firestore(), 'users/head-ops')));
     });
 
@@ -241,25 +341,145 @@ describe('Aura DIMS - Milestone 2 Security Rules Suite', () => {
       });
       await assertFails(getDoc(doc(hrHeadCtx.firestore(), 'departments/dept-archived')));
     });
-  });
 
-  describe('Cloud Storage Perimeter', () => {
-    it('denies unauthenticated uploads', async () => {
-      const ctx = testEnv.unauthenticatedContext();
-      const fileRef = ref(ctx.storage(), 'assets/slide.png');
-      await assertFails(uploadBytes(fileRef, new Uint8Array([1, 2, 3])));
+    it('allows Department Head to read media assets in their active department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertSucceeds(getDoc(doc(hrHeadCtx.firestore(), 'assets/asset-hr-1')));
     });
 
-    it('denies unauthenticated downloads', async () => {
+    it('DENIES Department Head from reading media assets in another department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertFails(getDoc(doc(hrHeadCtx.firestore(), 'assets/asset-ops-1')));
+    });
+
+    it('allows uploading owner to read awaiting_upload staging intent', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertSucceeds(getDoc(doc(hrHeadCtx.firestore(), 'assets/asset-intent-hr')));
+    });
+
+    it('DENIES Department Head direct client writes to /assets (must use Cloud Functions)', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertFails(
+        setDoc(doc(hrHeadCtx.firestore(), 'assets/asset-new'), {
+          title: 'Direct Client Asset',
+          departmentId: 'dept-hr',
+        })
+      );
+      await assertFails(
+        updateDoc(doc(hrHeadCtx.firestore(), 'assets/asset-hr-1'), { title: 'Unauthorized Edit' })
+      );
+      await assertFails(deleteDoc(doc(hrHeadCtx.firestore(), 'assets/asset-hr-1')));
+    });
+  });
+
+  describe('Cloud Storage Perimeter & Departmental Media Isolation', () => {
+    it('denies unauthenticated uploads and downloads', async () => {
       const ctx = testEnv.unauthenticatedContext();
-      const fileRef = ref(ctx.storage(), 'assets/slide.png');
+      const fileRef = ref(ctx.storage(), 'media/dept-hr/asset-hr-1/hr-handbook.png');
+      await assertFails(uploadBytes(fileRef, new Uint8Array([1, 2, 3])));
       await assertFails(getBytes(fileRef));
     });
 
-    it('denies direct client uploads without storage authorization milestone', async () => {
+    it('allows Department Head to upload to allocated staging path with valid intent', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      const fileRef = ref(hrHeadCtx.storage(), 'staging/dept-hr/asset-intent-hr/pending-slide.png');
+      await assertSucceeds(
+        uploadBytes(fileRef, new Uint8Array([1, 2, 3, 4]), { contentType: 'image/png' })
+      );
+    });
+
+    it('DENIES staging upload if content type is unsupported (e.g. application/pdf)', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      const fileRef = ref(hrHeadCtx.storage(), 'staging/dept-hr/asset-intent-hr/pending-slide.png');
+      await assertFails(
+        uploadBytes(fileRef, new Uint8Array([1, 2, 3, 4]), { contentType: 'application/pdf' })
+      );
+    });
+
+    it('DENIES staging upload if target department does not match user token', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      // Trying to upload into dept-ops staging
+      const fileRef = ref(hrHeadCtx.storage(), 'staging/dept-ops/asset-intent-hr/pending-slide.png');
+      await assertFails(
+        uploadBytes(fileRef, new Uint8Array([1, 2, 3, 4]), { contentType: 'image/png' })
+      );
+    });
+
+    it('DENIES direct client write to permanent media/ path (Cloud Functions only)', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      const fileRef = ref(hrHeadCtx.storage(), 'media/dept-hr/asset-hr-1/direct-bypass.png');
+      await assertFails(
+        uploadBytes(fileRef, new Uint8Array([1, 2, 3, 4]), { contentType: 'image/png' })
+      );
+    });
+
+    it('DENIES direct client write to thumbnails/ path (Cloud Functions only)', async () => {
       const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
-      const fileRef = ref(adminCtx.storage(), 'assets/slide.png');
-      await assertFails(uploadBytes(fileRef, new Uint8Array([1, 2, 3])));
+      const fileRef = ref(adminCtx.storage(), 'thumbnails/dept-hr/asset-hr-1/direct-thumb.webp');
+      await assertFails(
+        uploadBytes(fileRef, new Uint8Array([1, 2, 3, 4]), { contentType: 'image/webp' })
+      );
+    });
+
+    it('allows Department Head to read media from their active department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      const fileRef = ref(hrHeadCtx.storage(), 'media/dept-hr/asset-hr-1/hr-handbook.png');
+      await assertSucceeds(getBytes(fileRef));
+    });
+
+    it('DENIES Department Head from reading media from another department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      // Trying to read Ops media
+      const fileRef = ref(hrHeadCtx.storage(), 'media/dept-ops/asset-ops-1/ops-floor-plan.png');
+      await assertFails(getBytes(fileRef));
+    });
+
+    it('allows Admin to read media across any department', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      const hrRef = ref(adminCtx.storage(), 'media/dept-hr/asset-hr-1/hr-handbook.png');
+      const opsRef = ref(adminCtx.storage(), 'media/dept-ops/asset-ops-1/ops-floor-plan.png');
+      await assertSucceeds(getBytes(hrRef));
+      await assertSucceeds(getBytes(opsRef));
     });
   });
 });

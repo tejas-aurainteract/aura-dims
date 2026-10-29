@@ -4,21 +4,24 @@
  * Product: Aura Digital Information Management System (Aura DIMS)
  *
  * Unified Content workspace featuring tabs for:
- * 1. Designs (Visual content layouts)
- * 2. Media Library (Secure asset repository)
- * 3. Templates (Reusable layout templates)
+ * 1. Designs (Visual content layouts - future studio milestone)
+ * 2. Media Library (Secure departmental asset repository - fully implemented)
+ * 3. Templates (Reusable layout templates - future templates milestone)
  *
  * Includes the "Create content" primary action.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Plus, Palette, FolderOpen, LayoutTemplate } from 'lucide-react';
 import { EmptyState } from '@/components/EmptyState';
+import { MediaLibraryView } from '@/components/Media/MediaLibraryView';
+import { UploadMediaModal } from '@/components/Media/UploadMediaModal';
 
 export const ContentPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const currentTab = searchParams.get('tab') || 'designs';
+  const currentTab = searchParams.get('tab') || 'media';
+  const [isQuickUploadOpen, setIsQuickUploadOpen] = useState(false);
 
   const setTab = (tab: string) => {
     setSearchParams({ tab });
@@ -38,8 +41,12 @@ export const ContentPage: React.FC = () => {
         <button
           type="button"
           onClick={() => {
-            setTab('designs');
-            alert('Visual Content Creator is planned for future content authoring milestone.');
+            if (currentTab === 'media') {
+              setIsQuickUploadOpen(true);
+            } else {
+              setTab('designs');
+              alert('Visual Content Creator is planned for the next content authoring milestone.');
+            }
           }}
           className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors self-start sm:self-auto"
         >
@@ -111,22 +118,7 @@ export const ContentPage: React.FC = () => {
           />
         )}
 
-        {currentTab === 'media' && (
-          <EmptyState
-            title="Media Asset Library"
-            moduleName="Media Library"
-            description="Centralized, secure repository for images, video assets, and document graphics. Features automatic SHA-256 checksum generation for digital display player verification, format transcoding, and multilingual metadata."
-            icon={FolderOpen}
-            futureCapabilities={[
-              'Image formats: PNG, JPG, WebP with dimensional validation',
-              'Video formats: MP4 (H.264), WebM optimized for digital display hardware',
-              'Automatic SHA-256 integrity checksumming for offline playback verification',
-              'Multilingual tags (English, Gujarati, and Hindi)',
-              'Departmental asset segmentation and permission scoping',
-              'Asset usage tracking across templates, designs, and playlists',
-            ]}
-          />
-        )}
+        {currentTab === 'media' && <MediaLibraryView />}
 
         {currentTab === 'templates' && (
           <EmptyState
@@ -145,7 +137,18 @@ export const ContentPage: React.FC = () => {
           />
         )}
       </div>
+
+      {/* Quick Upload Modal triggered from Top Header */}
+      <UploadMediaModal
+        isOpen={isQuickUploadOpen}
+        onClose={() => setIsQuickUploadOpen(false)}
+        departments={[]}
+        onUploadSuccess={() => {
+          // Re-render handled by MediaLibraryView
+          setIsQuickUploadOpen(false);
+          setTab('media');
+        }}
+      />
     </div>
   );
 };
-

@@ -43,6 +43,11 @@ The Firebase Command Line Interface orchestrates local emulation.
   npm install -g firebase-tools
   ```
 
+### 1.4 Media Ingestion & Processing Binaries
+Server-side validation and thumbnail generation for the departmental Media Library use:
+- **`sharp`**: Native high-performance image processing library for JPEG/PNG metadata inspection, dimension verification, and WebP thumbnail generation.
+- **`@ffmpeg-installer/ffmpeg` & `@ffprobe-installer/ffprobe`**: Self-contained static binaries executed via `child_process.execFile` with argument-array safety (zero shell interpolation) to validate MP4 H.264 streams, verify duration bounds, and extract video poster frames. No external system FFmpeg install is required.
+
 ---
 
 ## 2. Environment Configuration

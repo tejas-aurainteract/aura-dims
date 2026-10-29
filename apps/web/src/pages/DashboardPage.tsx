@@ -5,7 +5,8 @@
  *
  * Implements simplified dashboard strictly using real authorized data.
  * Does not display fake metrics, assumed site names, or misleading zero counts.
- * Displays a compact setup state explaining modules under configuration.
+ * Displays a compact setup state explaining modules under configuration and
+ * a Recent Content section displaying real authorized ready media.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -21,10 +22,16 @@ import {
   Building2,
   Shield,
   Clock,
+  FolderOpen,
+  FileImage,
+  FileVideo,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, limit } from 'firebase/firestore';
+import { api } from '@/lib/api';
+import type { MediaAsset } from '@aura-dims/display-schema';
 
 type QueryState<T> =
   | { status: 'loading' }
@@ -39,6 +46,8 @@ export const DashboardPage: React.FC = () => {
 
   const [displaysState, setDisplaysState] = useState<QueryState<{ count: number }>>({ status: 'loading' });
   const [contentState, setContentState] = useState<QueryState<{ count: number }>>({ status: 'loading' });
+  const [recentMedia, setRecentMedia] = useState<MediaAsset[]>([]);
+  const [loadingRecentMedia, setLoadingRecentMedia] = useState(true);
 
   useEffect(() => {
     // Real Firestore check for digital displays
@@ -85,8 +94,25 @@ export const DashboardPage: React.FC = () => {
       }
     };
 
+    // Fetch real authorized recent ready media
+    const fetchRecentMedia = async () => {
+      setLoadingRecentMedia(true);
+      try {
+        const res = await api.listMediaAssets({
+          status: 'ready',
+          pageSize: 4,
+        });
+        setRecentMedia(res.assets || []);
+      } catch {
+        // Non-blocking for dashboard
+      } finally {
+        setLoadingRecentMedia(false);
+      }
+    };
+
     fetchDisplays();
     fetchContent();
+    fetchRecentMedia();
   }, []);
 
   const displayName = userProfile?.displayName || currentUser?.displayName || currentUser?.email || 'User';
@@ -108,11 +134,11 @@ export const DashboardPage: React.FC = () => {
         <div className="flex items-center gap-2.5">
           <button
             type="button"
-            onClick={() => navigate('/content')}
+            onClick={() => navigate('/content?tab=media')}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors"
           >
             <Plus className="h-4 w-4" />
-            <span>Create content</span>
+            <span>Upload media</span>
           </button>
           <button
             type="button"
@@ -154,7 +180,7 @@ export const DashboardPage: React.FC = () => {
         )}
       </div>
 
-      {/* Compact Operational Setup Notice (Real status, not fake operational numbers) */}
+      {/* Compact Operational Setup Notice */}
       <div className="bg-slate-900 text-slate-100 rounded-2xl p-6 shadow-sm">
         <div className="flex items-start gap-4">
           <div className="h-10 w-10 rounded-xl bg-teal-500/20 text-teal-400 flex items-center justify-center shrink-0 border border-teal-500/30">
@@ -182,7 +208,7 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Real Firestore Status Modules (Distinguishing Loading, Empty, Permission Denied, Service Unavailable, Populated) */}
+      {/* Real Firestore Status Modules */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Module 1: Digital Display Fleet Status */}
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
@@ -297,6 +323,78 @@ export const DashboardPage: React.FC = () => {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Section: Recent Content (Real Authorized Ready Media) */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Recent Content</h3>
+            <p className="text-xs text-slate-500">
+              Verified media ready for digital display playlists • Departmental repository
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/content?tab=media')}
+            className="text-xs font-semibold text-teal-700 hover:text-teal-800 self-start sm:self-auto"
+          >
+            View Media Library &rarr;
+          </button>
+        </div>
+
+        {loadingRecentMedia ? (
+          <div className="py-8 flex items-center justify-center gap-2 text-xs text-slate-400">
+            <Loader2 className="h-4 w-4 animate-spin text-teal-600" />
+            <span>Loading recent media assets...</span>
+          </div>
+        ) : recentMedia.length === 0 ? (
+          <div className="py-6 text-center text-slate-500 space-y-2">
+            <FolderOpen className="h-8 w-8 text-slate-300 mx-auto" />
+            <p className="text-xs">No media assets in your library yet.</p>
+            <button
+              type="button"
+              onClick={() => navigate('/content?tab=media')}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 text-teal-700 border border-teal-200 text-xs font-semibold hover:bg-teal-100 transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Upload to Media Library</span>
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            {recentMedia.map((asset) => {
+              const isImg = asset.mediaType === 'image';
+              return (
+                <div
+                  key={asset.id}
+                  onClick={() => navigate('/content?tab=media')}
+                  className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 hover:bg-slate-50 hover:border-teal-300 transition-colors cursor-pointer space-y-2"
+                >
+                  <div className="aspect-video w-full rounded-lg bg-slate-900 flex items-center justify-center text-slate-600 relative overflow-hidden">
+                    {isImg ? <FileImage className="h-6 w-6" /> : <FileVideo className="h-6 w-6" />}
+                    <div className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-md bg-emerald-600/90 text-white text-[9px] font-bold flex items-center gap-0.5">
+                      <ShieldCheck className="h-2.5 w-2.5" />
+                      <span>Ready</span>
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900 truncate">{asset.title || asset.name}</h4>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1">
+                      <span className="uppercase font-semibold">{asset.mediaType}</span>
+                      <span>
+                        {new Date(asset.createdAt).toLocaleDateString('en-IN', {
+                          day: 'numeric',
+                          month: 'short',
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

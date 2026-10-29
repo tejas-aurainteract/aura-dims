@@ -84,22 +84,41 @@ Explicit mappings of Department Heads to specific digital displays.
 - **Access Pattern:** Read by assigned user; created/revoked exclusively via Admin Cloud Function.
 
 ### 2.6 `/assets/{assetId}`
-Media library metadata.
+Media library asset metadata and governance records.
 - **Fields:**
-  - `id`: string
-  - `name`: string
-  - `type`: `'image' | 'video'`
-  - `storagePath`: string
-  - `sizeBytes`: number
-  - `mimeType`: string
-  - `checksumSha256`: string
-  - `dimensions`: `{ width: number, height: number }`
-  - `durationSeconds`: number | null
-  - `language`: `'en' | 'gu' | 'hi'`
-  - `departmentId`: string
-  - `uploadedBy`: string
-  - `createdAt`: Timestamp
-- **Access Pattern:** Filtered by `departmentId` and `type` with cursor pagination.
+  - `id`: string (UUID or server-allocated asset identifier)
+  - `name`: string (Display name or normalized filename)
+  - `fileName`: string (Original uploaded file name with extension)
+  - `fileSizeBytes`: number (File size in bytes; max 20 MB for images, 200 MB for videos)
+  - `mimeType`: string (`image/jpeg` | `image/png` | `video/mp4`)
+  - `mediaType`: `'image' | 'video'`
+  - `storagePath`: string (Permanent storage path: `media/{departmentId}/{assetId}/{fileName}`)
+  - `thumbnailPath`: string | null (Derived thumbnail path: `thumbnails/{departmentId}/{assetId}/thumb.webp`)
+  - `stagingPath`: string | null (Allocated upload staging path, cleared upon finalization)
+  - `checksumSha256`: string | null (SHA-256 cryptographic checksum for offline digital display verification)
+  - `dimensions`: `{ width: number, height: number }` | null (Image or video dimensions)
+  - `durationSeconds`: number | null (Video duration in seconds; max 600 seconds)
+  - `videoCodec`: string | null (Validated video stream codec, e.g. `'h264'`)
+  - `audioCodec`: string | null (Validated audio stream codec, e.g. `'aac'` or null for silent)
+  - `departmentId`: string (Organizational departmental boundary)
+  - `ownerId`: string (UID of uploading user)
+  - `uploaderDisplayName`: string | null (Display name of uploader)
+  - `status`: `'awaiting_upload' | 'validating' | 'ready' | 'failed' | 'archived'`
+  - `failureReason`: string | null (Diagnostic feedback if server-side validation rejected the asset)
+  - `title`: string (Descriptive title; max 120 chars)
+  - `description`: string (Descriptive text; max 1000 chars)
+  - `tags`: string[] (Categorization tags; max 10 tags, 30 chars each)
+  - `intentExpiresAt`: string | null (ISO timestamp for staging upload intent expiration; default 2 hours)
+  - `createdAt`: string (ISO timestamp)
+  - `updatedAt`: string (ISO timestamp)
+- **Access Pattern & Indexes:**
+  - Compound indexed queries in `firestore.indexes.json`:
+    - `(departmentId ASC, createdAt DESC)`
+    - `(departmentId ASC, mediaType ASC, createdAt DESC)`
+    - `(departmentId ASC, status ASC, createdAt DESC)`
+    - `(status ASC, intentExpiresAt ASC)`
+  - Direct client writes are forbidden (`allow write: if false;`); mutations execute via Cloud Functions.
+  - Read access is strictly scoped: Admin has global access; Department Head is restricted to their assigned department.
 
 ### 2.7 `/templates/{templateId}`
 Reusable layout structures.
