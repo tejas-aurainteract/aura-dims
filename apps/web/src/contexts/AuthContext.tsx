@@ -154,6 +154,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         case 'auth/user-disabled':
           friendlyMessage = 'This account has been disabled by an administrator.';
           break;
+        case 'auth/configuration-not-found':
+          friendlyMessage = 'Firebase Authentication is not enabled or Email/Password sign-in is not activated in the Firebase Console for this project.';
+          break;
         default:
           friendlyMessage = authError.message || friendlyMessage;
       }
