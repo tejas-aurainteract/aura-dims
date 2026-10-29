@@ -56,27 +56,32 @@ export const SchedulesListView: React.FC = () => {
   const fetchSchedules = async () => {
     setLoading(true);
     setError(null);
+
     try {
       const res = await api.listSchedules({
         departmentId: isAdmin ? undefined : userProfile?.departmentId || undefined,
         status: statusFilter === 'all' ? undefined : statusFilter,
       });
-      setSchedules(res.schedules);
-
-      // Also fetch digital displays for simulation
-      const { collection, getDocs, query, where } = await import('firebase/firestore');
-      const { db } = await import('@/lib/firebase');
-      let dq = query(collection(db, 'displays'), where('lifecycle', '==', 'active'));
-      if (!isAdmin && userProfile?.departmentId) {
-        dq = query(dq, where('departmentId', '==', userProfile.departmentId));
-      }
-      const dSnap = await getDocs(dq);
-      const disps: DigitalDisplay[] = [];
-      dSnap.forEach((d) => disps.push({ id: d.id, ...(d.data() as any) }));
-      setDisplays(disps);
+      setSchedules(res.schedules || []);
     } catch (err: any) {
       console.error('[Aura DIMS] Failed to fetch schedules:', err);
-      setError(err?.message || 'Failed to load schedules.');
+      const isInternal = err?.message === 'internal' || err?.code === 'functions/internal';
+      setError(
+        isInternal
+          ? 'Unable to load schedules from the server. This may occur if Firestore composite indexes are still deploying or network connectivity is unstable. Please click Retry.'
+          : err?.message || 'Failed to load schedules.'
+      );
+      setLoading(false);
+      return;
+    }
+
+    // Separately fetch digital displays for simulation without blocking schedule list rendering
+    try {
+      const dRes = await api.listDisplays({});
+      const activeDisplays = (dRes.displays || []).filter((d) => d.lifecycle === 'active');
+      setDisplays(activeDisplays);
+    } catch (dispErr) {
+      console.warn('[Aura DIMS] Non-blocking: Could not fetch digital displays for schedule simulator:', dispErr);
     } finally {
       setLoading(false);
     }

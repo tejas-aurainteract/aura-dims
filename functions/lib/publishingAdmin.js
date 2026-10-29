@@ -348,26 +348,43 @@ exports.getPlaylist = (0, https_1.onCall)({ region: REGION }, async (request) =>
     return { playlist };
 });
 exports.listPlaylists = (0, https_1.onCall)({ region: REGION }, async (request) => {
-    const caller = await getAuthenticatedCaller(request.auth);
-    const { departmentId, orientation, includeArchived, limit: queryLimit } = (request.data || {});
-    let query = db.collection('playlists');
-    if (caller.role === 'department_head') {
-        query = query.where('departmentId', '==', caller.departmentId);
+    try {
+        const caller = await getAuthenticatedCaller(request.auth);
+        const { departmentId, orientation, includeArchived, limit: queryLimit } = (request.data || {});
+        let query = db.collection('playlists');
+        if (caller.role === 'department_head') {
+            query = query.where('departmentId', '==', caller.departmentId);
+        }
+        else if (departmentId) {
+            query = query.where('departmentId', '==', departmentId);
+        }
+        if (orientation) {
+            query = query.where('orientation', '==', orientation);
+        }
+        let playlists = [];
+        const fetchLimit = queryLimit && queryLimit > 0 ? queryLimit : 50;
+        try {
+            const orderedQuery = query.orderBy('updatedAt', 'desc').limit(fetchLimit);
+            const snapshot = await orderedQuery.get();
+            snapshot.forEach((doc) => playlists.push(doc.data()));
+        }
+        catch (queryErr) {
+            console.warn('[listPlaylists] Ordered query failed (index building/missing), falling back to in-memory sort:', queryErr?.message || queryErr);
+            const snapshot = await query.limit(fetchLimit).get();
+            snapshot.forEach((doc) => playlists.push(doc.data()));
+            playlists.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+        }
+        if (!includeArchived) {
+            playlists = playlists.filter((p) => !p.isArchived);
+        }
+        return { playlists };
     }
-    else if (departmentId) {
-        query = query.where('departmentId', '==', departmentId);
+    catch (err) {
+        console.error('[listPlaylists] Execution error:', err);
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        throw new https_1.HttpsError('internal', err?.message || 'Failed to list playlists.');
     }
-    if (orientation) {
-        query = query.where('orientation', '==', orientation);
-    }
-    query = query.orderBy('updatedAt', 'desc').limit(queryLimit && queryLimit > 0 ? queryLimit : 50);
-    const snapshot = await query.get();
-    let playlists = [];
-    snapshot.forEach((doc) => playlists.push(doc.data()));
-    if (!includeArchived) {
-        playlists = playlists.filter((p) => !p.isArchived);
-    }
-    return { playlists };
 });
 exports.setPlaylistArchivedStatus = (0, https_1.onCall)({ region: REGION }, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
@@ -703,26 +720,43 @@ exports.getSchedule = (0, https_1.onCall)({ region: REGION }, async (request) =>
     return { schedule };
 });
 exports.listSchedules = (0, https_1.onCall)({ region: REGION }, async (request) => {
-    const caller = await getAuthenticatedCaller(request.auth);
-    const { departmentId, displayId, status, limit: queryLimit } = (request.data || {});
-    let query = db.collection('schedules');
-    if (caller.role === 'department_head') {
-        query = query.where('departmentId', '==', caller.departmentId);
+    try {
+        const caller = await getAuthenticatedCaller(request.auth);
+        const { departmentId, displayId, status, limit: queryLimit } = (request.data || {});
+        let query = db.collection('schedules');
+        if (caller.role === 'department_head') {
+            query = query.where('departmentId', '==', caller.departmentId);
+        }
+        else if (departmentId) {
+            query = query.where('departmentId', '==', departmentId);
+        }
+        if (status) {
+            query = query.where('status', '==', status);
+        }
+        let schedules = [];
+        const fetchLimit = queryLimit && queryLimit > 0 ? queryLimit : 50;
+        try {
+            const orderedQuery = query.orderBy('updatedAt', 'desc').limit(fetchLimit);
+            const snap = await orderedQuery.get();
+            snap.forEach((doc) => schedules.push(doc.data()));
+        }
+        catch (queryErr) {
+            console.warn('[listSchedules] Ordered query failed (index building/missing), falling back to in-memory sort:', queryErr?.message || queryErr);
+            const snap = await query.limit(fetchLimit).get();
+            snap.forEach((doc) => schedules.push(doc.data()));
+            schedules.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+        }
+        if (displayId) {
+            schedules = schedules.filter((s) => s.targetDisplayIds && Array.isArray(s.targetDisplayIds) && s.targetDisplayIds.includes(displayId));
+        }
+        return { schedules };
     }
-    else if (departmentId) {
-        query = query.where('departmentId', '==', departmentId);
+    catch (err) {
+        console.error('[listSchedules] Execution error:', err);
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        throw new https_1.HttpsError('internal', err?.message || 'Failed to list schedules.');
     }
-    if (status) {
-        query = query.where('status', '==', status);
-    }
-    query = query.orderBy('updatedAt', 'desc').limit(queryLimit && queryLimit > 0 ? queryLimit : 50);
-    const snap = await query.get();
-    let schedules = [];
-    snap.forEach((doc) => schedules.push(doc.data()));
-    if (displayId) {
-        schedules = schedules.filter((s) => s.targetDisplayIds.includes(displayId));
-    }
-    return { schedules };
 });
 exports.setScheduleStatus = (0, https_1.onCall)({ region: REGION }, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
@@ -930,23 +964,40 @@ exports.withdrawApproval = (0, https_1.onCall)({ region: REGION }, async (reques
     return { approval: updatedApproval, schedule: updatedSchedule };
 });
 exports.listApprovals = (0, https_1.onCall)({ region: REGION }, async (request) => {
-    const caller = await getAuthenticatedCaller(request.auth);
-    const { departmentId, status, limit: queryLimit } = (request.data || {});
-    let query = db.collection('approvals');
-    if (caller.role === 'department_head') {
-        query = query.where('departmentId', '==', caller.departmentId);
+    try {
+        const caller = await getAuthenticatedCaller(request.auth);
+        const { departmentId, status, limit: queryLimit } = (request.data || {});
+        let query = db.collection('approvals');
+        if (caller.role === 'department_head') {
+            query = query.where('departmentId', '==', caller.departmentId);
+        }
+        else if (departmentId) {
+            query = query.where('departmentId', '==', departmentId);
+        }
+        if (status) {
+            query = query.where('status', '==', status);
+        }
+        let approvals = [];
+        const fetchLimit = queryLimit && queryLimit > 0 ? queryLimit : 50;
+        try {
+            const orderedQuery = query.orderBy('createdAt', 'desc').limit(fetchLimit);
+            const snap = await orderedQuery.get();
+            snap.forEach((doc) => approvals.push(doc.data()));
+        }
+        catch (queryErr) {
+            console.warn('[listApprovals] Ordered query failed (index building/missing), falling back to in-memory sort:', queryErr?.message || queryErr);
+            const snap = await query.limit(fetchLimit).get();
+            snap.forEach((doc) => approvals.push(doc.data()));
+            approvals.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        }
+        return { approvals };
     }
-    else if (departmentId) {
-        query = query.where('departmentId', '==', departmentId);
+    catch (err) {
+        console.error('[listApprovals] Execution error:', err);
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        throw new https_1.HttpsError('internal', err?.message || 'Failed to list approvals.');
     }
-    if (status) {
-        query = query.where('status', '==', status);
-    }
-    query = query.orderBy('createdAt', 'desc').limit(queryLimit && queryLimit > 0 ? queryLimit : 50);
-    const snap = await query.get();
-    const approvals = [];
-    snap.forEach((doc) => approvals.push(doc.data()));
-    return { approvals };
 });
 exports.getApproval = (0, https_1.onCall)({ region: REGION }, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
