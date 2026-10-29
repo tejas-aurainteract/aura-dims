@@ -22,6 +22,7 @@ import { AccessDeniedPage } from '@/pages/AccessDeniedPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { DisplaysPage } from '@/pages/DisplaysPage';
 import { ContentPage } from '@/pages/ContentPage';
+import { DesignEditorPage } from '@/pages/DesignEditorPage';
 import { SchedulesPage } from '@/pages/SchedulesPage';
 import { ApprovalsPage } from '@/pages/ApprovalsPage';
 import { UsersPage } from '@/pages/UsersPage';
@@ -39,6 +40,16 @@ export const App: React.FC = () => {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/access-denied" element={<AccessDeniedPage />} />
+
+          {/* Full-Screen Visual Design Editor */}
+          <Route
+            path="/content/editor/:designId"
+            element={
+              <ProtectedRoute>
+                <DesignEditorPage />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Authenticated Application Shell */}
           <Route

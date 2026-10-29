@@ -2,17 +2,17 @@
 
 **Company:** Aurainteract Private Limited  
 **Product:** Aura Digital Information Management System (Aura DIMS)  
-**Current Status:** Milestone 3 Complete (Secure Departmental Media Library)
+**Current Status:** Milestone 4 Complete (Visual Content Creator and Reusable Templates)
 
 ---
 
 ## 1. Milestones Overview
 
 ```
-Milestone 1 (Complete)   ──>   Milestone 2 (Complete)             ──>   Milestone 3 (Complete)             ──>   Milestone 4 (Planned)
-Foundation, Emulators,         Authentication, RBAC, User &             Secure Departmental Media                Digital Display Fleet Enrollment,
-Deny-by-default rules,         Department Provisioning, Cloud           Library, Server Validation Pipeline,     Hardware Heartbeats, Offline
-Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksums, Private Previews.             Player Manifest Activation.
+Milestone 1 (Complete)   ──>   Milestone 2 (Complete)             ──>   Milestone 3 (Complete)             ──>   Milestone 4 (Complete)             ──>   Milestone 5 (Planned)
+Foundation, Emulators,         Authentication, RBAC, User &             Secure Departmental Media                Visual Content Creator,                  Content Approval Workflows,
+Deny-by-default rules,         Department Provisioning, Cloud           Library, Server Validation Pipeline,     Reusable Templates, DOM Renderer,        Playlist Sequencing,
+Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksums, Private Previews.             Autosave & Local Draft Recovery.         Digital Display Distribution.
 ```
 
 ---
@@ -34,7 +34,7 @@ Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksum
 | **Role-Based Access Control** | Complete | Roles: `admin` (system-wide) vs `department_head` (departmental boundary) |
 | **Protected Route Guards** | Complete | Distinguishes auth restoring, profile loading, and authorization checks |
 | **Unassigned / Inactive Denials** | Complete | Redirects to `/access-denied` with informative explanation and sign-out action |
-| **Privileged Mutation Cloud Functions** | Complete | 14 callable functions in `functions/src/` with explicit caller authorization |
+| **Privileged Mutation Cloud Functions** | Complete | 26 callable functions in `functions/src/` with explicit caller authorization |
 | **Last-Admin Invariant Protection** | Complete | Transactional invariant prevents demoting or deactivating the last active Admin |
 | **Department Management** | Complete | Admin can create, rename, activate/deactivate departments (`Settings` -> Departments) |
 | **Admin Bootstrap Script** | Complete | `scripts/bootstrap-admin.ts` (`pnpm run bootstrap:admin`) with production refusal |
@@ -46,29 +46,44 @@ Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksum
 | **Automated Thumbnail & Poster Generation** | Complete | High-performance WebP poster generation using `sharp` (images) and `ffmpeg` (videos) |
 | **Private Authenticated Previews** | Complete | On-demand short-lived signed URLs via `getMediaPreviewUrl`; no public tokens in Firestore |
 | **Media Archiving & Lifecycle** | Complete | Toggle `archived` status without data loss; `cleanupExpiredUploads` for abandoned staging |
-| **Security Rules Test Suite** | Complete | 32 unit tests in `tests/rules/security-rules.test.ts` (100% passing) |
-| **Playwright E2E Suite** | Complete | 10 browser smoke, RBAC, and media tests in `tests/e2e/` (100% passing) |
+| **Visual Content Creator Studio** | Complete | Full-screen studio at `/content/editor/:designId` with toolbar, layers, properties panel |
+| **DOM-Based Logical Canvas** | Complete | Scaled canvas for Landscape (1920×1080) and Portrait (1080×1920) with 5% safe display guides |
+| **Multilingual Typography Support** | Complete | Bundled self-hosted `@fontsource/inter`, `@fontsource/noto-sans-gujarati`, and `@fontsource/noto-sans-devanagari` |
+| **Multi-Slide Management** | Complete | Slide thumbnail strip with miniature previews, add, duplicate, delete, reorder, duration |
+| **Single Slide & Full Design Preview** | Complete | Timed autoplay progression simulation with progress bars and video integration |
+| **Debounced Autosave & Concurrency** | Complete | 2.5s debounced autosave, visual status pills, monotonic `revision` conflict resolution |
+| **Local Draft Recovery Cache** | Complete | `localStorage` backup keyed by user and design ID; restore prompt after crash |
+| **8 Starter System Templates** | Complete | Seeded via `scripts/seed-templates.ts` (`pnpm run seed:templates`) across 4 categories and 2 orientations |
+| **Templates Gallery & Instantiation** | Complete | Reusable template gallery with preview and 1-click instantiation into departmental designs |
+| **Security Rules Test Suite** | Complete | 42 unit tests in `tests/rules/security-rules.test.ts` (100% passing) |
+| **Playwright E2E Suite** | Complete | 11 browser smoke, RBAC, media, and editor authoring tests in `tests/e2e/` (100% passing) |
 
 ---
 
 ## 3. Security Rules & Privileged Boundaries Verification
 
 ### 3.1 Security Rules (`firestore.rules` & `storage.rules`)
-- **Unauthenticated:** Completely denied from reading or writing `/users`, `/departments`, `/auditEvents`, `/assets`, or Storage objects.
-- **System Administrator:** Authorized to read all users, departments, and media assets across all departments. Client direct writes are strictly denied (must invoke Cloud Functions).
-- **Department Head:** Authorized to read their own user profile, departmental team members, and media assets belonging strictly to their assigned department. Cross-department queries are rejected.
+- **Unauthenticated:** Completely denied from reading or writing `/users`, `/departments`, `/auditEvents`, `/assets`, `/designs`, `/templates`, or Storage objects.
+- **System Administrator:** Authorized to read all users, departments, media assets, designs, and templates across all departments. Client direct writes are strictly denied (must invoke Cloud Functions).
+- **Department Head:** Authorized to read their own user profile, departmental team members, media assets, and visual designs belonging strictly to their assigned department. Cross-department queries are rejected. Reusable templates are accessible if global or department-assigned.
 - **Storage Perimeter:** Client upload permitted only into designated `staging/{departmentId}/{assetId}/{fileName}` path with matching department claims and supported media type. Permanent `media/` and `thumbnails/` paths accept writes strictly from Admin SDK Cloud Functions.
 
 ### 3.2 Cloud Functions (v2 in `asia-south1`)
 - **Authentication & RBAC:** `provisionUser`, `updateUser`, `setUserActiveStatus`, `triggerPasswordReset`, `createDepartment`, `updateDepartment`, `setDepartmentStatus`.
-- **Media Governance:**
-  - `initiateMediaUpload`: Pre-allocates asset record in `awaiting_upload` status and returns staging path.
-  - `finalizeMediaUpload`: Validates stream bounds, computes SHA-256, generates WebP thumbnail, moves to permanent storage, updates status to `ready`.
-  - `getMediaPreviewUrl`: Generates short-lived private preview URL for authenticated viewers.
-  - `updateMediaMetadata`: Edits title, description, and tags while preserving immutable file facts.
-  - `setMediaArchivedStatus`: Soft-archives or restores media assets without deleting binaries.
-  - `listMediaAssets`: Server-side filtered, cursor-paginated asset query adhering to departmental isolation.
-  - `cleanupExpiredUploads`: Reclaims storage from abandoned staging uploads older than 2 hours.
+- **Media Governance:** `initiateMediaUpload`, `finalizeMediaUpload`, `getMediaPreviewUrl`, `updateMediaMetadata`, `setMediaArchivedStatus`, `listMediaAssets`, `cleanupExpiredUploads`.
+- **Design & Template Governance:**
+  - `createDesign`: Validates canvas orientation, creates design record and document.
+  - `getDesign`: Role and departmental authorization check, returns design with document.
+  - `updateDesign`: Validates document schema, checks monotonic `revision` for conflict resolution, updates slide count and timestamp.
+  - `duplicateDesign`: Clones design document under a new unique identifier with "(Copy)" suffix.
+  - `setDesignArchivedStatus`: Soft-archives or restores visual design without data loss.
+  - `listDesigns`: Server-side filtered, cursor-paginated design query strictly respecting departmental isolation.
+  - `convertDesignOrientation`: Anchors and scales canvas dimensions between Landscape and Portrait.
+  - `listTemplates`: Queries available system and departmental templates.
+  - `createTemplate`: Promotes a visual design into a reusable template.
+  - `instantiateTemplate`: Deep clones a template's design document into a new editable departmental design.
+  - `setTemplateArchivedStatus`: Soft-archives or restores reusable template.
+  - `seedStarterTemplates`: Idempotently seeds standard corporate signage starter templates.
 
 ---
 
@@ -77,12 +92,12 @@ Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksum
 1. **Security Rules Suite:**
    ```bash
    pnpm run test:rules
-   # 32 passed (32)
+   # 42 passed (42)
    ```
 2. **Playwright End-to-End Suite:**
    ```bash
    pnpm run test:e2e
-   # 10 passed (10)
+   # 11 passed (11)
    ```
 3. **TypeScript Typecheck:**
    ```bash
@@ -96,7 +111,11 @@ Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksum
    ```
 5. **Screenshots Captured:**
    - `login-screen.png`: Clean branded login interface without public signup.
-   - `dashboard-simplified.png`: Executive dashboard with Recent Content section and digital display terminology.
+   - `dashboard-simplified.png`: Executive dashboard with Recent Visual Designs & Media Assets.
    - `users-management.png`: Admin-only user directory with status badges and provisioning modal.
    - `media-library-grid.png`: Full-featured Media Library in grid view with multidimensional filters.
    - `media-upload-modal.png`: Accessible drag-and-drop media ingestion dialog with departmental scoping.
+   - `templates-gallery.png`: Reusable starter templates gallery categorized by orientation.
+   - `landscape-editing.png`: Landscape (1920×1080) studio canvas with slide timeline, element inspector, and typography controls.
+   - `portrait-editing.png`: Portrait (1080×1920) totem notice studio with complex script Gujarati and Hindi typography.
+   - `full-design-preview.png`: Full-screen digital display simulation with timed progression and video playback.

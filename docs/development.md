@@ -116,7 +116,16 @@ pnpm run bootstrap:admin --email admin@aurainteract.com --password "AuraAdmin#20
 > [!CAUTION]
 > The bootstrap script strictly refuses execution against live Google Cloud or non-emulator environments. For production provisioning, an authorized bootstrap Cloud Run job or Admin console is used with Cloud KMS credentials.
 
-### 3.4 Manual Emulator Export
+### 3.4 Starter Templates Seeding
+To populate or refresh the 8 built-in starter templates (Corporate Announcement, Metrics Dashboard, Emergency Notice, and Brand Showcase across Landscape and Portrait orientations) in the local emulator:
+
+```bash
+pnpm run seed:templates
+```
+
+This script executes idempotently against the emulator, creating or updating global system templates with valid versioned `DesignDocument` payloads and multilingual typography configurations.
+
+### 3.5 Manual Emulator Export
 To force an export of emulator state during active testing:
 
 ```bash

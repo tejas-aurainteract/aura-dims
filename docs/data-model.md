@@ -121,30 +121,75 @@ Media library asset metadata and governance records.
   - Read access is strictly scoped: Admin has global access; Department Head is restricted to their assigned department.
 
 ### 2.7 `/templates/{templateId}`
-Reusable layout structures.
+Reusable starter layouts and organizational template structures.
 - **Fields:**
-  - `id`: string
-  - `name`: string
+  - `id`: string (UUID or slug like `'announcement-landscape'`)
+  - `title`: string (Descriptive template name; max 120 chars)
+  - `description`: string (Descriptive overview; max 1000 chars)
+  - `category`: `'announcements' | 'metrics' | 'notices' | 'branding' | 'general'`
   - `orientation`: `'landscape' | 'portrait'`
-  - `departmentId`: string | null (null = global system template)
-  - `regions`: Array<{ id: string, type: 'video' | 'text' | 'image', bounds: object }>
-  - `languages`: Array<'en' | 'gu' | 'hi'>
-  - `createdBy`: string
-  - `createdAt`: Timestamp
-- **Access Pattern:** Read by Department Heads when starting new content designs.
+  - `dimensions`: `{ width: number, height: number }` (1920×1080 or 1080×1920)
+  - `thumbnailUrl`: string | null (Preview thumbnail URL)
+  - `supportedLanguages`: Array<'en' | 'gu' | 'hi'>
+  - `departmentId`: string | null (null = global system template accessible to all departments)
+  - `document`: `DesignDocument` (Canonical versioned design document definition)
+  - `isArchived`: boolean (soft-archive toggle)
+  - `isSystemTemplate`: boolean (true for built-in starter templates)
+  - `createdBy`: string (UID or `'system'`)
+  - `createdAt`: string (ISO timestamp)
+  - `updatedAt`: string (ISO timestamp)
+- **Access Pattern & Indexes:**
+  - Read: Authenticated users can read global system templates (`departmentId == null`) and templates assigned to their department. Admin can read all templates.
+  - Write: Direct client writes denied (`allow write: if false;`). Created and archived via Cloud Functions.
+  - Compound indexed queries in `firestore.indexes.json`:
+    - `(isArchived ASC, createdAt DESC)`
+    - `(departmentId ASC, isArchived ASC, createdAt DESC)`
+    - `(category ASC, isArchived ASC, createdAt DESC)`
 
 ### 2.8 `/designs/{designId}`
-Editable drafts created within the visual content creator.
+Editable slide compositions and visual signage designs created in the studio.
 - **Fields:**
-  - `id`: string
-  - `name`: string
+  - `id`: string (UUID)
+  - `title`: string (Display title; max 120 chars)
   - `orientation`: `'landscape' | 'portrait'`
-  - `departmentId`: string
-  - `layers`: Array<{ id: string, zIndex: number, type: string, props: object }>
-  - `isDraft`: boolean (true while editing)
-  - `createdBy`: string
-  - `updatedAt`: Timestamp
-- **Access Pattern:** Read and written exclusively by owning author or Department Head.
+  - `dimensions`: `{ width: number, height: number }` (1920×1080 or 1080×1920)
+  - `departmentId`: string (Organizational departmental boundary)
+  - `ownerId`: string (UID of author)
+  - `ownerDisplayName`: string | null
+  - `document`: `DesignDocument` (The complete versioned design document)
+    - `version`: `'1.0'`
+    - `canvas`: `{ width: number, height: number, orientation: 'landscape' | 'portrait' }`
+    - `slides`: Array<`DesignSlide`>
+      - `id`: string (Stable UUID)
+      - `durationSeconds`: number (Slide dwell time; 1s to 300s, default 10s)
+      - `background`: `{ type: 'solid' | 'gradient' | 'image', value: string, assetId?: string }`
+      - `elements`: Array<`CanvasElement`> (Ordered list of slide elements)
+        - `id`: string (Stable UUID)
+        - `type`: `'text' | 'shape' | 'image' | 'video'`
+        - `x`: number (Logical pixel X position)
+        - `y`: number (Logical pixel Y position)
+        - `width`: number (Logical pixel width)
+        - `height`: number (Logical pixel height)
+        - `rotation`: number (Degrees 0 to 359)
+        - `opacity`: number (0 to 1)
+        - `zIndex`: number (Layer ordering index)
+        - Type-specific properties:
+          - *Text:* `content`, `fontSize`, `fontFamily` (`'Inter' | 'Noto Sans Gujarati' | 'Noto Sans Devanagari'`), `fontWeight`, `fontStyle`, `color`, `textAlign`, `verticalAlign`, `language` (`'en' | 'gu' | 'hi'`)
+          - *Shape:* `shapeType` (`'rectangle' | 'circle' | 'line'`), `fillColor`, `strokeColor`, `strokeWidth`, `borderRadius`
+          - *Image / Video:* `assetId` (Immutable pointer to `/assets/{assetId}`), `objectFit` (`'contain' | 'cover' | 'fill'`), `mediaType`, `durationSeconds`, `dimensions`
+  - `slideCount`: number (Total number of slides; max 50 slides per design)
+  - `revision`: number (Optimistic concurrency version number, incremented monotonically on every update)
+  - `isArchived`: boolean (Soft-archive toggle)
+  - `templateSourceId`: string | null (ID of template if instantiated from one)
+  - `createdAt`: string (ISO timestamp)
+  - `updatedAt`: string (ISO timestamp)
+- **Access Pattern & Indexes:**
+  - Read: Scoped to department for Department Heads; global for System Administrators.
+  - Write: Direct client writes denied (`allow write: if false;`). Mutations executed exclusively through Cloud Functions with caller role verification and revision concurrency conflict checking.
+  - Compound indexed queries in `firestore.indexes.json`:
+    - `(departmentId ASC, isArchived ASC, updatedAt DESC)`
+    - `(isArchived ASC, updatedAt DESC)`
+    - `(departmentId ASC, orientation ASC, isArchived ASC, updatedAt DESC)`
 
 ### 2.9 `/playlists/{playlistId}`
 Ordered sequence of content slides and display timings.

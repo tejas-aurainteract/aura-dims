@@ -719,3 +719,21 @@ export {
   listMediaAssets,
   cleanupExpiredUploads,
 } from './mediaAdmin';
+
+// ==============================================================================
+// Visual Content Creator & Reusable Templates Operations
+// ==============================================================================
+export {
+  createDesign,
+  getDesign,
+  updateDesign,
+  duplicateDesign,
+  setDesignArchivedStatus,
+  listDesigns,
+  convertDesignOrientation,
+  listTemplates,
+  createTemplate,
+  instantiateTemplate,
+  setTemplateArchivedStatus,
+  seedStarterTemplates,
+} from './designAdmin';

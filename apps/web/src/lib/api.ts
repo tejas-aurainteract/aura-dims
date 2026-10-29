@@ -37,6 +37,30 @@ import type {
   ListMediaAssetsResponse,
   CleanupExpiredUploadsRequest,
   CleanupExpiredUploadsResponse,
+  CreateDesignRequest,
+  CreateDesignResponse,
+  GetDesignRequest,
+  GetDesignResponse,
+  UpdateDesignRequest,
+  UpdateDesignResponse,
+  DuplicateDesignRequest,
+  DuplicateDesignResponse,
+  SetDesignArchivedRequest,
+  SetDesignArchivedResponse,
+  ListDesignsRequest,
+  ListDesignsResponse,
+  ConvertDesignOrientationRequest,
+  ConvertDesignOrientationResponse,
+  ListTemplatesRequest,
+  ListTemplatesResponse,
+  CreateTemplateRequest,
+  CreateTemplateResponse,
+  InstantiateTemplateRequest,
+  InstantiateTemplateResponse,
+  SetTemplateArchivedRequest,
+  SetTemplateArchivedResponse,
+  SeedStarterTemplatesRequest,
+  SeedStarterTemplatesResponse,
 } from '@aura-dims/display-schema';
 
 export const api = {
@@ -121,6 +145,80 @@ export const api = {
 
   cleanupExpiredUploads: async (req: CleanupExpiredUploadsRequest): Promise<CleanupExpiredUploadsResponse> => {
     const fn = httpsCallable<CleanupExpiredUploadsRequest, CleanupExpiredUploadsResponse>(functions, 'cleanupExpiredUploads');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  // Design Operations
+  createDesign: async (req: CreateDesignRequest): Promise<CreateDesignResponse> => {
+    const fn = httpsCallable<CreateDesignRequest, CreateDesignResponse>(functions, 'createDesign');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  getDesign: async (req: GetDesignRequest): Promise<GetDesignResponse> => {
+    const fn = httpsCallable<GetDesignRequest, GetDesignResponse>(functions, 'getDesign');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  updateDesign: async (req: UpdateDesignRequest): Promise<UpdateDesignResponse> => {
+    const fn = httpsCallable<UpdateDesignRequest, UpdateDesignResponse>(functions, 'updateDesign');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  duplicateDesign: async (req: DuplicateDesignRequest): Promise<DuplicateDesignResponse> => {
+    const fn = httpsCallable<DuplicateDesignRequest, DuplicateDesignResponse>(functions, 'duplicateDesign');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  setDesignArchivedStatus: async (req: SetDesignArchivedRequest): Promise<SetDesignArchivedResponse> => {
+    const fn = httpsCallable<SetDesignArchivedRequest, SetDesignArchivedResponse>(functions, 'setDesignArchivedStatus');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  listDesigns: async (req: ListDesignsRequest): Promise<ListDesignsResponse> => {
+    const fn = httpsCallable<ListDesignsRequest, ListDesignsResponse>(functions, 'listDesigns');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  convertDesignOrientation: async (req: ConvertDesignOrientationRequest): Promise<ConvertDesignOrientationResponse> => {
+    const fn = httpsCallable<ConvertDesignOrientationRequest, ConvertDesignOrientationResponse>(functions, 'convertDesignOrientation');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  // Template Operations
+  listTemplates: async (req: ListTemplatesRequest): Promise<ListTemplatesResponse> => {
+    const fn = httpsCallable<ListTemplatesRequest, ListTemplatesResponse>(functions, 'listTemplates');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  createTemplate: async (req: CreateTemplateRequest): Promise<CreateTemplateResponse> => {
+    const fn = httpsCallable<CreateTemplateRequest, CreateTemplateResponse>(functions, 'createTemplate');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  instantiateTemplate: async (req: InstantiateTemplateRequest): Promise<InstantiateTemplateResponse> => {
+    const fn = httpsCallable<InstantiateTemplateRequest, InstantiateTemplateResponse>(functions, 'instantiateTemplate');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  setTemplateArchivedStatus: async (req: SetTemplateArchivedRequest): Promise<SetTemplateArchivedResponse> => {
+    const fn = httpsCallable<SetTemplateArchivedRequest, SetTemplateArchivedResponse>(functions, 'setTemplateArchivedStatus');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  seedStarterTemplates: async (req: SeedStarterTemplatesRequest): Promise<SeedStarterTemplatesResponse> => {
+    const fn = httpsCallable<SeedStarterTemplatesRequest, SeedStarterTemplatesResponse>(functions, 'seedStarterTemplates');
     const result = await fn(req);
     return result.data;
   },

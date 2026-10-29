@@ -178,6 +178,70 @@ describe('Aura DIMS - Security Rules Suite', () => {
           updatedAt: new Date().toISOString(),
         });
 
+        // 9. Designs in Firestore
+        await setDoc(doc(db, 'designs/design-hr-1'), {
+          id: 'design-hr-1',
+          title: 'HR Welcome Presentation',
+          departmentId: 'dept-hr',
+          ownerId: 'head-hr',
+          orientation: 'landscape',
+          status: 'draft',
+          revision: 1,
+          slideCount: 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'designs/design-ops-1'), {
+          id: 'design-ops-1',
+          title: 'Ops Shift Schedule',
+          departmentId: 'dept-ops',
+          ownerId: 'head-ops',
+          orientation: 'portrait',
+          status: 'draft',
+          revision: 1,
+          slideCount: 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
+        // 10. Templates in Firestore
+        await setDoc(doc(db, 'templates/template-global-1'), {
+          id: 'template-global-1',
+          title: 'Global Notice Board',
+          scope: 'global',
+          departmentId: null,
+          orientation: 'landscape',
+          category: 'notice',
+          status: 'active',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'templates/template-hr-1'), {
+          id: 'template-hr-1',
+          title: 'HR Department Poster',
+          scope: 'department',
+          departmentId: 'dept-hr',
+          orientation: 'portrait',
+          category: 'poster',
+          status: 'active',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'templates/template-ops-1'), {
+          id: 'template-ops-1',
+          title: 'Ops Machinery Notice',
+          scope: 'department',
+          departmentId: 'dept-ops',
+          orientation: 'landscape',
+          category: 'announcement',
+          status: 'active',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
         // Seed storage files with security rules bypassed
         const storage = context.storage();
         await uploadBytes(
@@ -480,6 +544,104 @@ describe('Aura DIMS - Security Rules Suite', () => {
       const opsRef = ref(adminCtx.storage(), 'media/dept-ops/asset-ops-1/ops-floor-plan.png');
       await assertSucceeds(getBytes(hrRef));
       await assertSucceeds(getBytes(opsRef));
+    });
+  });
+
+  describe('Visual Designs Collection (/designs)', () => {
+    it('allows Admin to read designs across all departments', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'designs/design-hr-1')));
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'designs/design-ops-1')));
+    });
+
+    it('allows Department Head to read designs from own department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertSucceeds(getDoc(doc(hrHeadCtx.firestore(), 'designs/design-hr-1')));
+    });
+
+    it('DENIES Department Head from reading designs from another department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertFails(getDoc(doc(hrHeadCtx.firestore(), 'designs/design-ops-1')));
+    });
+
+    it('DENIES unauthenticated and inactive users from reading designs', async () => {
+      const unauthCtx = testEnv.unauthenticatedContext();
+      await assertFails(getDoc(doc(unauthCtx.firestore(), 'designs/design-hr-1')));
+
+      const inactiveCtx = testEnv.authenticatedContext('inactive-user', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: false,
+      });
+      await assertFails(getDoc(doc(inactiveCtx.firestore(), 'designs/design-hr-1')));
+    });
+
+    it('DENIES direct client writes to /designs (mutations must go through Cloud Functions)', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertFails(
+        setDoc(doc(adminCtx.firestore(), 'designs/direct-bypass'), {
+          title: 'Direct Client Bypass',
+        })
+      );
+      await assertFails(
+        updateDoc(doc(adminCtx.firestore(), 'designs/design-hr-1'), {
+          title: 'Hacked Title',
+        })
+      );
+      await assertFails(deleteDoc(doc(adminCtx.firestore(), 'designs/design-hr-1')));
+    });
+  });
+
+  describe('Reusable Templates Collection (/templates)', () => {
+    it('allows Admin to read templates across all scopes and departments', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'templates/template-global-1')));
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'templates/template-hr-1')));
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'templates/template-ops-1')));
+    });
+
+    it('allows Department Head to read global templates', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertSucceeds(getDoc(doc(hrHeadCtx.firestore(), 'templates/template-global-1')));
+    });
+
+    it('allows Department Head to read own departmental templates', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertSucceeds(getDoc(doc(hrHeadCtx.firestore(), 'templates/template-hr-1')));
+    });
+
+    it('DENIES Department Head from reading templates of another department', async () => {
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertFails(getDoc(doc(hrHeadCtx.firestore(), 'templates/template-ops-1')));
+    });
+
+    it('DENIES direct client writes to /templates (mutations must go through Cloud Functions)', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertFails(
+        setDoc(doc(adminCtx.firestore(), 'templates/direct-bypass'), {
+          title: 'Direct Client Bypass Template',
+        })
+      );
     });
   });
 });

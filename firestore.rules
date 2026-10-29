@@ -81,6 +81,37 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Designs Collection: /designs/{designId}
+    match /designs/{designId} {
+      // 1. Admin can read designs across all departments.
+      // 2. Department Head can read designs strictly in their active assigned department.
+      // 3. Cross-department reads are strictly denied.
+      // 4. Unauthenticated callers or device identities are denied.
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId())
+      );
+
+      // Direct client writes are forbidden. Mutations, revisions, schema validation,
+      // and asset reference integrity are managed via Cloud Functions.
+      allow write: if false;
+    }
+
+    // Templates Collection: /templates/{templateId}
+    match /templates/{templateId} {
+      // 1. Admin can read all templates (global and departmental).
+      // 2. Department Head can read global shared master templates AND templates within their assigned department.
+      // 3. Unauthenticated callers or device identities are denied.
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.scope == 'global' ||
+        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId())
+      );
+
+      // Direct client writes are forbidden. Templates are authored and instantiated via Cloud Functions.
+      allow write: if false;
+    }
+
     // Audit Events Collection: /auditEvents/{eventId}
     match /auditEvents/{eventId} {
       allow read: if isAdmin();

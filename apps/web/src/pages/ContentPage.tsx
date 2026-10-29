@@ -4,28 +4,57 @@
  * Product: Aura Digital Information Management System (Aura DIMS)
  *
  * Unified Content workspace featuring tabs for:
- * 1. Designs (Visual content layouts - future studio milestone)
- * 2. Media Library (Secure departmental asset repository - fully implemented)
- * 3. Templates (Reusable layout templates - future templates milestone)
+ * 1. Designs (Visual content layouts - fully functional visual studio)
+ * 2. Media Library (Secure departmental asset repository)
+ * 3. Templates (Reusable digital display layout templates)
  *
  * Includes the "Create content" primary action.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Plus, Palette, FolderOpen, LayoutTemplate } from 'lucide-react';
-import { EmptyState } from '@/components/EmptyState';
+import { db } from '@/lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
+import { Department } from '@aura-dims/display-schema';
+import { useAuth } from '@/contexts/AuthContext';
+
+import { DesignsView } from '@/components/Content/DesignsView';
 import { MediaLibraryView } from '@/components/Media/MediaLibraryView';
+import { TemplatesView } from '@/components/Content/TemplatesView';
+import { CreateContentChoiceModal } from '@/components/Content/CreateContentChoiceModal';
 import { UploadMediaModal } from '@/components/Media/UploadMediaModal';
 
 export const ContentPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const currentTab = searchParams.get('tab') || 'media';
-  const [isQuickUploadOpen, setIsQuickUploadOpen] = useState(false);
+  const currentTab = searchParams.get('tab') || 'designs';
+  const { userProfile } = useAuth();
+
+  const [isChoiceModalOpen, setIsChoiceModalOpen] = useState(false);
+  const [isMediaUploadOpen, setIsMediaUploadOpen] = useState(false);
+  const [departments, setDepartments] = useState<Department[]>([]);
 
   const setTab = (tab: string) => {
     setSearchParams({ tab });
   };
+
+  useEffect(() => {
+    const loadDepartments = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'departments'));
+        const depts: Department[] = [];
+        snap.forEach((doc) => {
+          depts.push({ id: doc.id, ...(doc.data() as any) });
+        });
+        setDepartments(depts);
+      } catch (err) {
+        console.warn('[Aura DIMS] Could not fetch departments:', err);
+      }
+    };
+    if (userProfile?.role === 'admin') {
+      loadDepartments();
+    }
+  }, [userProfile?.role]);
 
   return (
     <div className="space-y-6">
@@ -38,21 +67,27 @@ export const ContentPage: React.FC = () => {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            if (currentTab === 'media') {
-              setIsQuickUploadOpen(true);
-            } else {
-              setTab('designs');
-              alert('Visual Content Creator is planned for the next content authoring milestone.');
-            }
-          }}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors self-start sm:self-auto"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Create content</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          {currentTab === 'media' ? (
+            <button
+              type="button"
+              onClick={() => setIsMediaUploadOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Upload media</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsChoiceModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Create content</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Tabs Navigation */}
@@ -102,50 +137,31 @@ export const ContentPage: React.FC = () => {
       {/* Tab Panels */}
       <div>
         {currentTab === 'designs' && (
-          <EmptyState
-            title="Visual Content Creator Studio"
-            moduleName="Designs"
-            description="Interactive multi-layer canvas editor for authoring digital display slides. Supports typography, shapes, video regions, layered positioning, asset embedding, and multi-language text rendering."
-            icon={Palette}
-            futureCapabilities={[
-              'Canvas authoring for Landscape (16:9) and Portrait (9:16) aspect ratios',
-              'Z-index layer management (bring forward, send backward, lock, hide)',
-              'Rich typography with Gujarati, Hindi, and English font families',
-              'Dedicated video regions with auto-loop and mute constraints',
-              'Separation of editable drafts from published immutable versions',
-              'Live pixel-accurate preview simulation of digital displays',
-            ]}
-          />
+          <DesignsView onOpenCreateChoice={() => setIsChoiceModalOpen(true)} />
         )}
 
         {currentTab === 'media' && <MediaLibraryView />}
 
         {currentTab === 'templates' && (
-          <EmptyState
-            title="Display Layout Templates"
-            moduleName="Templates"
-            description="Pre-built and reusable layout templates for safety briefings, factory shift updates, visitor welcomes, emergency notices, and operational announcements across digital displays."
-            icon={LayoutTemplate}
-            futureCapabilities={[
-              'Landscape templates (1920×1080) for hallways, cafeterias, and lobbies',
-              'Portrait templates (1080×1920) for kiosks and entrance totems',
-              'Corporate branding locks (Aurainteract logos, color themes, headers)',
-              'Dynamic placeholder fields (date, site name, shift supervisor)',
-              'Multilingual template variants for English, Gujarati, and Hindi',
-              'Template cloning, archiving, and departmental sharing',
-            ]}
-          />
+          <TemplatesView departments={departments} />
         )}
       </div>
 
-      {/* Quick Upload Modal triggered from Top Header */}
+      {/* Create Content Choice Modal */}
+      <CreateContentChoiceModal
+        isOpen={isChoiceModalOpen}
+        onClose={() => setIsChoiceModalOpen(false)}
+        onSelectTemplatesTab={() => setTab('templates')}
+        departments={departments}
+      />
+
+      {/* Upload Media Modal */}
       <UploadMediaModal
-        isOpen={isQuickUploadOpen}
-        onClose={() => setIsQuickUploadOpen(false)}
-        departments={[]}
+        isOpen={isMediaUploadOpen}
+        onClose={() => setIsMediaUploadOpen(false)}
+        departments={departments}
         onUploadSuccess={() => {
-          // Re-render handled by MediaLibraryView
-          setIsQuickUploadOpen(false);
+          setIsMediaUploadOpen(false);
           setTab('media');
         }}
       />

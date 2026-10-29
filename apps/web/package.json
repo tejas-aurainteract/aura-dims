@@ -15,6 +15,9 @@
   },
   "dependencies": {
     "@aura-dims/display-schema": "workspace:*",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/noto-sans-devanagari": "^5.3.0",
+    "@fontsource/noto-sans-gujarati": "^5.3.0",
     "clsx": "^2.1.1",
     "firebase": "^11.3.1",
     "lucide-react": "^0.475.0",
@@ -36,4 +39,3 @@
     "vitest": "^3.0.6"
   }
 }
-

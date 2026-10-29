@@ -145,6 +145,57 @@ sequenceDiagram
 - **Staging Lifecycle & Cleanup:**
   - Upload intents expire after 2 hours. Abandoned staging files and unfinalized intents can be cleaned up via `cleanupExpiredUploads` (supports `dryRun` audit mode).
 
+### 2.4 Visual Content Creator & Reusable Templates Architecture
+
+The Visual Content Creator delivers an enterprise signage authoring studio that guarantees visual fidelity across arbitrary display aspect ratios, prevents accidental loss of unpublished work, and provides seamless typography across supported Indian languages.
+
+```mermaid
+flowchart LR
+    subgraph ClientEditor["Web Client Studio (apps/web)"]
+        CanvasEngine["Logical Canvas Engine\n(1920×1080 / 1080×1920)\nDOM Renderer + Transform Scale"]
+        AutosaveMgr["Debounced Autosave Manager\n(2.5s window + Revision Track)"]
+        RecoveryCache[("Browser Recovery Cache\nlocalStorage: aura_dims_draft_*")]
+    end
+
+    subgraph FontStack["Bundled Font System"]
+        InterFont["Inter (English)"]
+        GujaratiFont["Noto Sans Gujarati"]
+        DevanagariFont["Noto Sans Devanagari (Hindi)"]
+    end
+
+    subgraph Backend["Cloud Functions (asia-south1)"]
+        UpdateDesignFn["updateDesign(designId, document, revision)"]
+        ConflictDetection{"Revision Check:\nExpected == Stored?"}
+        IncrementRevision["Monotonic Revision++\nPersist to Firestore"]
+        ConflictError["Error: CONFLICT\n(Return Latest Record)"]
+    end
+
+    CanvasEngine --- FontStack
+    CanvasEngine -->|State Change| AutosaveMgr
+    AutosaveMgr -->|Local Backup| RecoveryCache
+    AutosaveMgr -->|Save Mutation| UpdateDesignFn
+    UpdateDesignFn --> ConflictDetection
+    ConflictDetection -->|Yes| IncrementRevision
+    ConflictDetection -->|No (Stale)| ConflictError
+```
+
+#### 1. DOM-Based Scaled Canvas Rendering
+- **Why DOM over Canvas 2D/WebGL:** Indian languages (Devanagari for Hindi and Gujarati) require sophisticated OpenType HarfBuzz shaping, complex conjuncts, and vowel mark (matra) positioning. Native browser DOM typography engines render these flawlessly without font rasterization glitches or IME input breakage.
+- **Fixed Logical Coordinate System:** All elements are stored in fixed logical coordinate space: 1920×1080 (Landscape) or 1080×1920 (Portrait).
+- **Scale Factor & Safe Zones:** Canvas viewports calculate a uniform scaling factor `scale = Math.min(availW / canvasW, availH / canvasH)`. A 5% safe-margin guide overlay indicates the inner 90% boundary to safeguard content against hardware television overscan and physical bezel cropping on digital displays.
+
+#### 2. Self-Hosted Font Bundling
+- Typography packages `@fontsource/inter`, `@fontsource/noto-sans-gujarati`, and `@fontsource/noto-sans-devanagari` are bundled locally into the web application.
+- Digital displays operating in isolated offline enterprise intranet environments render English, Gujarati, and Hindi slides with zero external CDN dependencies.
+
+#### 3. Concurrency Protection & Local Crash Recovery
+- **Optimistic Concurrency Control:** Every design document maintains an integer `revision`. Each `updateDesign` call passes the expected revision. If another user or tab updated the design in the interim, the backend returns a `CONFLICT` error with the current server record. The editor presents a side-by-side conflict dialog allowing the author to *Reload Server Version* or *Save as a New Copy*.
+- **Local Storage Draft Recovery:** When unsaved edits occur, the serialized state is mirrored to `localStorage` under `aura_dims_draft_${userId}_${designId}`. If the browser tab crashes or network disconnects, the user is offered an instant restoration on next session.
+
+#### 4. Media Asset Immutability in Designs
+- Slide elements referencing images or videos store immutable `assetId` references pointing to verified Ready assets in `/assets/{assetId}`.
+- Binaries are never duplicated inside the design JSON document, keeping document payloads compact and cache-friendly. Temporary preview URLs are resolved dynamically via batch queries.
+
 ---
 
 ## 3. Autonomous Offline Signage Player Architecture

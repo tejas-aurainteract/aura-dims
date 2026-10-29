@@ -5,27 +5,29 @@ const ARTIFACT_DIR = 'C:/Users/meshw/.gemini/antigravity/brain/b6363ab7-edf1-4cc
 
 test.describe('Aura DIMS - Milestone 2 End-to-End Suite', () => {
   test('redirects unauthenticated user to login and renders branded interface without public signup', async ({ page }) => {
-    // Attempt accessing root dashboard
+    // Attempt visiting protected dashboard route directly
     await page.goto('/');
 
-    // Must be redirected to /login
+    // Must redirect to /login
     await expect(page).toHaveURL(/\/login/);
 
-    // Verify brand identity
+    // Verify company branding and product identity
     await expect(page.getByRole('heading', { name: 'Aura DIMS' })).toBeVisible();
-    await expect(page.getByText('Aura Digital Information Management System').first()).toBeVisible();
-    await expect(page.getByText('Aurainteract Private Limited').first()).toBeVisible();
+    await expect(page.getByText('Aurainteract Private Limited')).toBeVisible();
+    await expect(page.getByText(/Aura Digital Information Management System/i)).toBeVisible();
 
-    // Verify absence of public signup
-    await expect(page.getByRole('link', { name: /sign up|register|create account/i })).toHaveCount(0);
-    await expect(page.getByText(/public registration is disabled/i)).toBeVisible();
+    // Verify public self-registration is strictly disabled
+    await expect(page.getByText(/Public registration is disabled/i)).toBeVisible();
+    await expect(page.locator('a[href*="register"], a[href*="signup"]')).toHaveCount(0);
 
-    // Verify form fields
-    await expect(page.locator('input[type="email"]')).toBeVisible();
-    await expect(page.locator('input[type="password"]')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+    // Verify local emulator helper instructions
+    await expect(page.getByText('Local Emulator Environment')).toBeVisible();
+    await expect(page.getByText('admin@aurainteract.com')).toBeVisible();
 
-    // Capture screenshot of the Login interface
+    // Verify Forgot Password navigation link
+    await expect(page.getByRole('link', { name: /Forgot password/i })).toBeVisible();
+
+    // Capture screenshot of Login screen
     await page.screenshot({ path: path.join(ARTIFACT_DIR, 'login-screen.png'), fullPage: true });
   });
 
@@ -122,12 +124,14 @@ test.describe('Aura DIMS - Milestone 2 End-to-End Suite', () => {
     await page.locator('input[type="password"]').fill('AuraAdmin#2026');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
+    await expect(page).toHaveURL(/\/(#.*)?$/);
+
     // Test Content tabs
     await page.getByRole('link', { name: 'Content' }).click();
     await expect(page).toHaveURL(/\/content/);
-    await expect(page.getByRole('button', { name: 'Designs' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Media Library' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Templates' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Designs', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Media Library', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Templates', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Create content' })).toBeVisible();
 
     // Test legacy redirects
@@ -149,6 +153,8 @@ test.describe('Aura DIMS - Milestone 2 End-to-End Suite', () => {
     await page.locator('input[type="email"]').fill('admin@aurainteract.com');
     await page.locator('input[type="password"]').fill('AuraAdmin#2026');
     await page.getByRole('button', { name: 'Sign in' }).click();
+
+    await expect(page).toHaveURL(/\/(#.*)?$/);
 
     await page.getByRole('link', { name: 'Settings' }).click();
     await expect(page).toHaveURL(/\/settings/);

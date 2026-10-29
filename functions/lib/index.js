@@ -41,7 +41,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.cleanupExpiredUploads = exports.listMediaAssets = exports.setMediaArchivedStatus = exports.updateMediaMetadata = exports.getMediaPreviewUrl = exports.finalizeMediaUpload = exports.initiateMediaUpload = exports.setDepartmentStatus = exports.updateDepartment = exports.createDepartment = exports.triggerPasswordReset = exports.setUserActiveStatus = exports.updateUser = exports.provisionUser = exports.apiHealth = exports.healthCheck = void 0;
+exports.seedStarterTemplates = exports.setTemplateArchivedStatus = exports.instantiateTemplate = exports.createTemplate = exports.listTemplates = exports.convertDesignOrientation = exports.listDesigns = exports.setDesignArchivedStatus = exports.duplicateDesign = exports.updateDesign = exports.getDesign = exports.createDesign = exports.cleanupExpiredUploads = exports.listMediaAssets = exports.setMediaArchivedStatus = exports.updateMediaMetadata = exports.getMediaPreviewUrl = exports.finalizeMediaUpload = exports.initiateMediaUpload = exports.setDepartmentStatus = exports.updateDepartment = exports.createDepartment = exports.triggerPasswordReset = exports.setUserActiveStatus = exports.updateUser = exports.provisionUser = exports.apiHealth = exports.healthCheck = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-admin/firestore");
@@ -601,4 +601,20 @@ Object.defineProperty(exports, "updateMediaMetadata", { enumerable: true, get: f
 Object.defineProperty(exports, "setMediaArchivedStatus", { enumerable: true, get: function () { return mediaAdmin_1.setMediaArchivedStatus; } });
 Object.defineProperty(exports, "listMediaAssets", { enumerable: true, get: function () { return mediaAdmin_1.listMediaAssets; } });
 Object.defineProperty(exports, "cleanupExpiredUploads", { enumerable: true, get: function () { return mediaAdmin_1.cleanupExpiredUploads; } });
+// ==============================================================================
+// Visual Content Creator & Reusable Templates Operations
+// ==============================================================================
+var designAdmin_1 = require("./designAdmin");
+Object.defineProperty(exports, "createDesign", { enumerable: true, get: function () { return designAdmin_1.createDesign; } });
+Object.defineProperty(exports, "getDesign", { enumerable: true, get: function () { return designAdmin_1.getDesign; } });
+Object.defineProperty(exports, "updateDesign", { enumerable: true, get: function () { return designAdmin_1.updateDesign; } });
+Object.defineProperty(exports, "duplicateDesign", { enumerable: true, get: function () { return designAdmin_1.duplicateDesign; } });
+Object.defineProperty(exports, "setDesignArchivedStatus", { enumerable: true, get: function () { return designAdmin_1.setDesignArchivedStatus; } });
+Object.defineProperty(exports, "listDesigns", { enumerable: true, get: function () { return designAdmin_1.listDesigns; } });
+Object.defineProperty(exports, "convertDesignOrientation", { enumerable: true, get: function () { return designAdmin_1.convertDesignOrientation; } });
+Object.defineProperty(exports, "listTemplates", { enumerable: true, get: function () { return designAdmin_1.listTemplates; } });
+Object.defineProperty(exports, "createTemplate", { enumerable: true, get: function () { return designAdmin_1.createTemplate; } });
+Object.defineProperty(exports, "instantiateTemplate", { enumerable: true, get: function () { return designAdmin_1.instantiateTemplate; } });
+Object.defineProperty(exports, "setTemplateArchivedStatus", { enumerable: true, get: function () { return designAdmin_1.setTemplateArchivedStatus; } });
+Object.defineProperty(exports, "seedStarterTemplates", { enumerable: true, get: function () { return designAdmin_1.seedStarterTemplates; } });
 //# sourceMappingURL=index.js.map
