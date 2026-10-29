@@ -18,7 +18,13 @@ import { getStorage, connectStorageEmulator, type FirebaseStorage } from 'fireba
 import { getFunctions, connectFunctionsEmulator, httpsCallable, type Functions } from 'firebase/functions';
 
 // Read configuration strictly from environment variables
-const useEmulator = import.meta.env.VITE_USE_FIREBASE_EMULATOR !== 'false';
+// In development & testing environments, default to emulators unless explicitly set to 'false'.
+// In production builds (e.g. Vercel deployment), default to live cloud services unless explicitly set to 'true'.
+const isDevOrTest = import.meta.env.DEV || import.meta.env.MODE === 'test';
+const useEmulator = isDevOrTest
+  ? import.meta.env.VITE_USE_FIREBASE_EMULATOR !== 'false'
+  : import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true';
+
 // In emulator mode, strictly target demo-aura-dims per AGENTS.md rule 2
 const projectId = useEmulator
   ? 'demo-aura-dims'
