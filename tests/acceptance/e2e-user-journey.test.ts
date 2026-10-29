@@ -602,9 +602,6 @@ describe('Aura DIMS - 18-Step Real User Journey Acceptance Suite', () => {
       const downloadUrl = assetUrls[asset.assetId];
       expect(downloadUrl).toBeTruthy();
       const resp = await fetch(downloadUrl);
-      if (!resp.ok) {
-        console.error('[Acceptance Step 12 Fetch Failed]', downloadUrl, resp.status, await resp.text().catch(() => ''));
-      }
       expect(resp.ok).toBe(true);
       const buf = Buffer.from(await resp.arrayBuffer());
       const hash = crypto.createHash('sha256').update(buf).digest('hex');
@@ -679,7 +676,7 @@ describe('Aura DIMS - 18-Step Real User Journey Acceptance Suite', () => {
         freeDiskBytes: 10000000000,
       },
     });
-    expect(hbRes.success).toBe(true);
+    expect(hbRes.accepted).toBe(true);
   });
 
   // ---------------------------------------------------------------------------
@@ -699,7 +696,7 @@ describe('Aura DIMS - 18-Step Real User Journey Acceptance Suite', () => {
 
     // Verify slide assets exist in local cache without touching network
     const cacheDir = path.join(localDataDir, 'cache');
-    for (const asset of localActivePackage.assetManifest) {
+    for (const asset of localActivePackage.assets) {
       const cachedPath = path.join(cacheDir, asset.checksumSha256);
       expect(fs.existsSync(cachedPath)).toBe(true);
     }

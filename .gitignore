@@ -22,6 +22,7 @@ database-debug.log*
 !.env.example
 
 # Test & Coverage
+test-tmp/
 coverage/
 test-results/
 playwright-report/

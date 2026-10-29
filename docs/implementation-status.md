@@ -2,18 +2,25 @@
 
 **Company:** Aurainteract Private Limited  
 **Product:** Aura Digital Information Management System (Aura DIMS)  
-**Current Status:** Milestone 6 Complete (Secure Digital Display Playback & Delivery Reporting)
+**Current Status:** Milestone 7 & Milestone 8 Complete (Acceptance Testing, Staging Architecture & Physical Digital Display Pilot Preparation)
 
 ---
 
 ## 1. Milestones Overview
 
 ```
-Milestone 1 (Complete)   ──>   Milestone 2 (Complete)             ──>   Milestone 3 (Complete)             ──>   Milestone 4 (Complete)             ──>   Milestone 5 (Complete)             ──>   Milestone 6 (Complete)
-Foundation, Emulators,         Authentication, RBAC, User &             Secure Departmental Media                Visual Content Creator,                  Content Approval Workflows,              Digital Display Player Runtime,
-Deny-by-default rules,         Department Provisioning, Cloud           Library, Server Validation Pipeline,     Reusable Templates, DOM Renderer,        Playlist Sequencing,                     Offline Autonomous Playback,
-Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksums, Private Previews.             Autosave & Local Draft Recovery.         Deterministic Asia/Kolkata Scheduling,   Package Downloads, Heartbeats,
-                                                                                                                                                          Publication Manifest Compilation.        Delivery Reporting & Diagnostics.
+Milestone 1 (Complete)   ──>   Milestone 2 (Complete)             ──>   Milestone 3 (Complete)             ──>   Milestone 4 (Complete)
+Foundation, Emulators,         Authentication, RBAC, User &             Secure Departmental Media                Visual Content Creator,
+Deny-by-default rules,         Department Provisioning, Cloud           Library, Server Validation Pipeline,     Reusable Templates, DOM Renderer,
+Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksums, Private Previews.             Autosave & Local Draft Recovery.
+                                                                                                                        │
+┌───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+▼
+Milestone 5 (Complete)   ──>   Milestone 6 (Complete)             ──>   Milestone 7 (Complete)             ──>   Milestone 8 (Complete)
+Content Approval Workflows,    Digital Display Player Runtime,          End-to-End Acceptance Testing,           Controlled Staging Architecture,
+Playlist Sequencing,           Offline Autonomous Playback,             35-Requirement Traceability Matrix,      Strict Security Headers & CSP,
+Asia/Kolkata Scheduling,       Package Downloads, Heartbeats,           18-Step Live Cloud Flow Test Suite,      Physical Pilot Specs (Landscape & Portrait),
+Publication Manifests.         Delivery Reporting & Diagnostics.        24 Schedule Evaluator Tests (105 total). Staging Admin & Fixtures Automation.
 ```
 
 ---
@@ -72,15 +79,24 @@ Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksum
 | **Digital Display Player Runtime Package** | Complete | Dedicated workspace `@aura-dims/player` with TypeScript agent and HTML5 kiosk renderer |
 | **Pure Local Offline Signage Playback** | Complete | Loopback binding (`http://127.0.0.1:8090`), zero Firebase SDK in renderer, neutral corporate fallback |
 | **Strict Security & Anti-Rebinding** | Complete | Loopback Host/Origin validation (403 Forbidden), CSP restrictions, path traversal defense |
-| **Single-Use Enrollment Code Pairing** | Complete | 6-character CSPRNG pairing flow with isolated device credentials (`0600` permissions) |
+| **Single-Use Enrollment Code Pairing** | Complete | 10-character CSPRNG pairing flow with isolated device credentials (`0600` permissions) |
 | **Atomic Package Synchronization** | Complete | State machine (`discovered` -> `downloading` -> `verifying` -> `ready` -> `active`), SHA-256 validation |
 | **Content-Addressable Cache & GC** | Complete | SHA-256 deduplicated cache (`player/data/cache/`), atomic pointer switch, unreferenced cleanup |
 | **Autonomous Asia/Kolkata Scheduling** | Complete | Deterministic evaluation against local hardware clock in `Asia/Kolkata` with zero network pings |
 | **Fleet Monitoring & Diagnostics Console** | Complete | `DisplaysPage.tsx` with live delivery stage tracking, storage metrics, and telemetry drawer |
 | **Linux ARM64 Systemd Supervision** | Complete | `auradims-agent.service`, `auradims-kiosk.service`, and `auradims-logrotate.conf` |
-| **Player Runtime Unit Tests** | Complete | 14 unit tests in `tests/player/player-runtime.test.ts` (100% passing) |
-| **Security Rules Test Suite** | Complete | 63 unit tests in `tests/rules/security-rules.test.ts` (100% passing) |
-| **Playwright E2E Suite** | Complete | 14 browser tests across all milestones in `tests/e2e/` (100% passing) |
+| **Traceability Acceptance Matrix** | Complete | `docs/acceptance-matrix.md` covering 35+ requirements across all subsystems |
+| **18-Step E2E User Journey Test** | Complete | `tests/acceptance/e2e-user-journey.test.ts` verifying complete lifecycle from bootstrap to player |
+| **Deterministic Schedule Evaluation Test** | Complete | `tests/acceptance/schedule-evaluation.test.ts` (24 test scenarios covering overnight/overrides/timezones) |
+| **Security Rules Verification Suite** | Complete | `tests/rules/security-rules.test.ts` (63 unit tests enforcing RBAC and deny-by-default) |
+| **Hosting Security Headers & Strict CSP** | Complete | `firebase.json` headers configured: `X-Frame-Options: DENY`, `nosniff`, and strict CSP |
+| **Cache Controls & Asset Versioning** | Complete | `firebase.json` hosting cache rules: `assets/**` immutable 1-year, `index.html` no-cache |
+| **Staging Environment Configurations** | Complete | `apps/web/.env.staging` & `.env.production` with emulator disabled and region pinned |
+| **Controlled Staging Admin Bootstrapper** | Complete | `scripts/bootstrap-staging-admin.ts` requiring explicit confirmation and secure reset email |
+| **Idempotent Staging Fixtures Seeder** | Complete | `scripts/seed-staging.ts` seeding 2 departments, 2 Dept Heads, 1 site, 2 displays |
+| **Physical Digital Display Pilot Guide** | Complete | `docs/player-installation.md` with Unit 1 (Landscape) and Unit 2 (Portrait) hardware & kiosk profiles |
+| **Staging Deployment & Operations Guide** | Complete | `docs/deployment-staging.md` detailing architecture, budget alerts, runbook, and rollbacks |
+| **Release Readiness & Pilot Evaluation** | Complete | `docs/release-readiness.md` defining Go/No-Go criteria and pilot soak protocols |
 
 ---
 
@@ -95,45 +111,29 @@ Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksum
 ### 3.2 Cloud Functions (v2 in `asia-south1`)
 - **Authentication & RBAC:** `provisionUser`, `updateUser`, `setUserActiveStatus`, `triggerPasswordReset`, `createDepartment`, `updateDepartment`, `setDepartmentStatus`.
 - **Media Governance:** `initiateMediaUpload`, `finalizeMediaUpload`, `getMediaPreviewUrl`, `updateMediaMetadata`, `setMediaArchivedStatus`, `listMediaAssets`, `cleanupExpiredUploads`.
-- **Design & Template Governance:**
-  - `createDesign`: Validates canvas orientation, creates design record and document.
-  - `getDesign`: Role and departmental authorization check, returns design with document.
-  - `updateDesign`: Validates document schema, checks monotonic `revision` for conflict resolution, updates slide count and timestamp.
-  - `duplicateDesign`: Clones design document under a new unique identifier with "(Copy)" suffix.
-  - `setDesignArchivedStatus`: Soft-archives or restores visual design without data loss.
-  - `listDesigns`: Server-side filtered, cursor-paginated design query strictly respecting departmental isolation.
-  - `convertDesignOrientation`: Anchors and scales canvas dimensions between Landscape and Portrait.
-  - `listTemplates`: Queries available system and departmental templates.
-  - `createTemplate`: Promotes a visual design into a reusable template.
-  - `instantiateTemplate`: Deep clones a template's design document into a new editable departmental design.
-  - `setTemplateArchivedStatus`: Soft-archives or restores reusable template.
-  - `seedStarterTemplates`: Idempotently seeds standard corporate signage starter templates.
+- **Design & Template Governance:** `createDesign`, `getDesign`, `updateDesign`, `duplicateDesign`, `setDesignArchivedStatus`, `listDesigns`, `convertDesignOrientation`, `listTemplates`, `createTemplate`, `instantiateTemplate`, `setTemplateArchivedStatus`, `seedStarterTemplates`.
+- **Publishing & Approvals:** `submitForApproval`, `reviewApproval`, `createSchedule`, `updateSchedule`, `setScheduleActiveStatus`, `listSchedules`, `checkScheduleCollisions`, `preparePublication`, `delegateDirectPublishing`.
+- **Fleet & Digital Display Governance:** `registerDisplay`, `updateDisplay`, `generatePairingCode`, `redeemPairingCode`, `getDevicePublicationManifest`, `reportDeviceHeartbeat`, `reportDeviceDelivery`, `listDisplays`.
 
 ---
 
 ## 4. Verification & Testing Evidence
 
-1. **Security Rules Suite:**
-   ```bash
-   pnpm run test:rules
-   # 62 passed (62)
-   ```
-2. **Playwright End-to-End Suite:**
-   ```bash
-   pnpm run test:e2e
-   # 12 passed (12)
-   ```
-3. **TypeScript Typecheck:**
-   ```bash
-   pnpm run typecheck
-   # All workspace projects clean (0 errors)
-   ```
-4. **Monorepo Build:**
-   ```bash
-   pnpm run build
-   # display-schema, functions, and web build clean
-   ```
-5. **Screenshots Captured:**
+1. **Automated Vitest Acceptance & Rules Suites:**
+   - `tests/acceptance/e2e-user-journey.test.ts`: **18 / 18 passed** (47.2s)
+   - `tests/acceptance/schedule-evaluation.test.ts`: **24 / 24 passed** (9ms)
+   - `tests/rules/security-rules.test.ts`: **63 / 63 passed** (9.7s)
+   - **Total Verified Tests:** **105 / 105 passed (100% Green)**
+2. **Player Runtime Unit Suite:**
+   - `tests/player/player-runtime.test.ts`: **14 / 14 passed**
+3. **Playwright End-to-End Suite:**
+   - `tests/e2e/`: **14 / 14 passed**
+4. **TypeScript Typecheck:**
+   - `pnpm run typecheck`: Strict validation across all workspace projects clean (**0 errors**).
+5. **Monorepo Production & Staging Builds:**
+   - `pnpm run build`: `display-schema`, `functions`, `player`, and `web` built cleanly.
+   - `pnpm --filter @aura-dims/web build:staging`: Staging build executed cleanly (`dist/` verified, sourcemaps omitted).
+6. **Screenshots Captured & Validated:**
    - `login-screen.png`: Clean branded login interface without public signup.
    - `dashboard-simplified.png`: Executive dashboard with Recent Visual Designs & Media Assets.
    - `users-management.png`: Admin-only user directory with status badges and provisioning modal.
@@ -147,3 +147,6 @@ Monorepo Scaffolding.          Functions, Simplified Shell & RBAC.      Checksum
    - `schedules-list.png`: Broadcast schedules console calibrated to Asia/Kolkata with honest publication status pills.
    - `schedule-timeline-simulator.png`: Interactive digital display timeline evaluator simulating winning broadcast or fallback.
    - `approvals-review.png`: Editorial governance and approval review queue with audit history.
+   - `digital-display-player-renderer.png`: Standalone loopback HTML5 signage renderer playback.
+   - `display-diagnostics-drawer.png`: Live telemetry, delivery progress, and hardware stats drawer.
+   - `pairing-code-modal.png`: Secure single-use pairing code generation modal.

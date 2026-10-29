@@ -19,7 +19,13 @@
     "bootstrap:admin": "node --experimental-strip-types scripts/bootstrap-admin.ts",
     "seed:displays": "node --experimental-strip-types scripts/seed-displays.ts",
     "player:dev": "node --experimental-strip-types player/src/agent/index.ts --open",
-    "player:agent": "node --experimental-strip-types player/src/agent/index.ts"
+    "player:agent": "node --experimental-strip-types player/src/agent/index.ts",
+    "deploy:staging:rules": "firebase deploy --only firestore:rules,storage:rules -P staging",
+    "deploy:staging:indexes": "firebase deploy --only firestore:indexes -P staging",
+    "deploy:staging:functions": "firebase deploy --only functions -P staging",
+    "deploy:staging:hosting": "pnpm --filter @aura-dims/web build:staging && firebase deploy --only hosting -P staging",
+    "deploy:staging": "pnpm run typecheck && pnpm run test:rules && pnpm --filter @aura-dims/functions build && pnpm --filter @aura-dims/web build:staging && firebase deploy -P staging",
+    "rollback:staging:hosting": "firebase hosting:rollback -P staging"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^4.0.1",
