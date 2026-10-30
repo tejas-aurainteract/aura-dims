@@ -588,18 +588,18 @@ export const api = {
  */
 export function getApiErrorMessage(err: any, fallback = 'Operation failed'): string {
   if (!err) return fallback;
-  const code = err.code || '';
-  const msg = err.message || '';
-  if (code === 'functions/internal' || msg === 'internal') {
+  const code = (err.code || '').toLowerCase();
+  const msg = (err.message || '').toLowerCase();
+  if (code.includes('internal') || msg === 'internal') {
     return 'Cloud backend service unavailable. If running in live cloud mode, ensure Cloud Functions are deployed and Blaze billing is active on project aura-dims.';
   }
-  if (code === 'functions/permission-denied' || msg.includes('permission-denied')) {
+  if (code.includes('permission-denied') || msg.includes('permission-denied')) {
     return 'Access denied: your account is not authorized to perform this operation.';
   }
-  if (code === 'functions/unauthenticated' || msg.includes('unauthenticated')) {
+  if (code.includes('unauthenticated') || msg.includes('unauthenticated')) {
     return 'Authentication expired or invalid. Please sign in again.';
   }
-  if (code === 'functions/unavailable' || msg.includes('unavailable') || msg.includes('Failed to fetch')) {
+  if (code.includes('unavailable') || msg.includes('unavailable') || msg.includes('failed to fetch')) {
     return 'Network or service unavailable. Please check your internet connection or retry shortly.';
   }
   return msg || fallback;
