@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "concurrently -k -n \"EMULATORS,WEB\" -c \"yellow,cyan\" \"pnpm run emulators:start\" \"pnpm --filter @aura-dims/web dev\"",
     "build": "pnpm --filter @aura-dims/display-schema build && pnpm --filter @aura-dims/functions build && pnpm --filter @aura-dims/player build && pnpm --filter @aura-dims/web build",
+    "build:functions": "pnpm --filter @aura-dims/display-schema build && pnpm --filter @aura-dims/display-schema pack --pack-destination functions && pnpm --filter @aura-dims/functions build",
     "typecheck": "pnpm -r run typecheck",
     "lint": "pnpm -r run lint",
     "test": "pnpm run test:rules && pnpm --filter @aura-dims/web test:unit",

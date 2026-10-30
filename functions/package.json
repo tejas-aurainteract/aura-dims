@@ -15,7 +15,7 @@
     "node": "24"
   },
   "dependencies": {
-    "@aura-dims/display-schema": "workspace:*",
+    "@aura-dims/display-schema": "file:./aura-dims-display-schema-0.1.0.tgz",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ffprobe-installer/ffprobe": "^2.1.2",
     "firebase-admin": "^13.1.0",

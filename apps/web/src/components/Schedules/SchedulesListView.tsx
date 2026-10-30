@@ -22,6 +22,7 @@ import {
   Smartphone,
   Pencil,
   Ban,
+  RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { api, getApiErrorMessage } from '@/lib/api';
@@ -32,6 +33,7 @@ import type {
 } from '@aura-dims/display-schema';
 import { CreateScheduleModal } from './CreateScheduleModal';
 import { DisplayScheduleSimulatorModal } from './DisplayScheduleSimulatorModal';
+import { PublicationRolloutModal } from '@/components/Rollout/PublicationRolloutModal';
 
 export const SchedulesListView: React.FC = () => {
   const { userProfile } = useAuth();
@@ -51,6 +53,7 @@ export const SchedulesListView: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleRecord | null>(null);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
+  const [selectedRolloutPublication, setSelectedRolloutPublication] = useState<{ id: string; title: string } | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   const fetchSchedules = async () => {
@@ -390,6 +393,19 @@ export const SchedulesListView: React.FC = () => {
                     </button>
                   )}
 
+                  {/* Rollout Progress button if a publication exists */}
+                  {s.publishedPublicationId && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRolloutPublication({ id: s.publishedPublicationId!, title: s.title })}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold rounded-xl transition-colors"
+                      title="Inspect real-time target delivery and sync progress"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5 text-teal-600" />
+                      <span>Rollout Progress</span>
+                    </button>
+                  )}
+
                   {/* Submit for approval if draft */}
                   {s.status === 'draft' && !canDirectPublish && (
                     <button
@@ -459,6 +475,16 @@ export const SchedulesListView: React.FC = () => {
         <DisplayScheduleSimulatorModal
           displays={displays}
           onClose={() => setIsSimulatorOpen(false)}
+        />
+      )}
+
+      {/* Publication Rollout Modal */}
+      {selectedRolloutPublication && (
+        <PublicationRolloutModal
+          isOpen={!!selectedRolloutPublication}
+          publicationId={selectedRolloutPublication.id}
+          scheduleTitle={selectedRolloutPublication.title}
+          onClose={() => setSelectedRolloutPublication(null)}
         />
       )}
     </div>

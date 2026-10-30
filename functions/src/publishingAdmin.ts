@@ -294,11 +294,19 @@ export const listDesignRevisions = onCall(
       query = query.where('departmentId', '==', departmentId);
     }
 
-    query = query.orderBy('createdAt', 'desc').limit(queryLimit && queryLimit > 0 ? queryLimit : 50);
-
-    const snapshot = await query.get();
+    const fetchLimit = queryLimit && queryLimit > 0 ? queryLimit : 50;
     const revisions: DesignRevision[] = [];
-    snapshot.forEach((doc) => revisions.push(doc.data() as DesignRevision));
+
+    try {
+      const orderedQuery = query.orderBy('createdAt', 'desc').limit(fetchLimit);
+      const snapshot = await orderedQuery.get();
+      snapshot.forEach((doc) => revisions.push(doc.data() as DesignRevision));
+    } catch (queryErr: any) {
+      console.warn('[listDesignRevisions] Ordered query failed (index building/missing), falling back to in-memory sort:', queryErr?.message || queryErr);
+      const snapshot = await query.limit(fetchLimit).get();
+      snapshot.forEach((doc) => revisions.push(doc.data() as DesignRevision));
+      revisions.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    }
 
     return { revisions };
   }

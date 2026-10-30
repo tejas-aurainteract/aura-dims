@@ -109,8 +109,8 @@ importers:
   functions:
     dependencies:
       '@aura-dims/display-schema':
-        specifier: workspace:*
-        version: link:../packages/display-schema
+        specifier: file:./aura-dims-display-schema-0.1.0.tgz
+        version: file:functions/aura-dims-display-schema-0.1.0.tgz
       '@ffmpeg-installer/ffmpeg':
         specifier: ^1.1.0
         version: 1.1.0
@@ -167,6 +167,10 @@ packages:
 
   '@apidevtools/json-schema-ref-parser@9.1.2':
     resolution: {integrity: sha512-r1w81DpR+KyRWd3f+rk6TNqMgedmAxZP5v5KWlXQWlgMUUtyEJch0DKEci1SorPMiSeM8XPl7MZ3miJ60JIpQg==}
+
+  '@aura-dims/display-schema@file:functions/aura-dims-display-schema-0.1.0.tgz':
+    resolution: {integrity: sha512-CaP7FWw1w7bfkaQPTHBFLN+Vwyr3PxavXYvSXVDn1/A6QSq11z+Qk26M5DWa5T7+8Y9i86ltUypUUj0ZLAwNUw==, tarball: file:functions/aura-dims-display-schema-0.1.0.tgz}
+    version: 0.1.0
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -4239,6 +4243,8 @@ snapshots:
       '@types/json-schema': 7.0.15
       call-me-maybe: 1.0.2
       js-yaml: 4.3.2
+
+  '@aura-dims/display-schema@file:functions/aura-dims-display-schema-0.1.0.tgz': {}
 
   '@babel/code-frame@7.29.7':
     dependencies:

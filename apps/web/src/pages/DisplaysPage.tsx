@@ -24,6 +24,14 @@ import {
   MapPin,
   Building,
   Activity,
+  Download,
+  Layers,
+  UserCheck,
+  ClipboardCheck,
+  HardDrive,
+  CheckSquare,
+  Square,
+  AlertCircle,
 } from 'lucide-react';
 import { collection, onSnapshot, getDocs, query, where, type Query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -34,6 +42,11 @@ import type {
   DisplayView,
   DisplayOrientation,
 } from '@aura-dims/display-schema';
+import { BulkImportModal } from '@/components/Rollout/BulkImportModal';
+import { BulkAssignmentModal } from '@/components/Rollout/BulkAssignmentModal';
+import { CommissioningDrawer } from '@/components/Rollout/CommissioningDrawer';
+import { RolloutInventoryView } from '@/components/Rollout/RolloutInventoryView';
+import { downloadDisplaysCsv } from '@/components/Rollout/displayExport';
 
 export const DisplaysPage: React.FC = () => {
   const { userProfile } = useAuth();
@@ -45,11 +58,23 @@ export const DisplaysPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Tabs: Operational Fleet vs Rollout Inventory (Admin-only)
+  const [activeTab, setActiveTab] = useState<'fleet' | 'rollout'>('fleet');
+
   // Filters & Search
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [orientationFilter, setOrientationFilter] = useState<'all' | 'landscape' | 'portrait'>('all');
-  const [connectivityFilter, setConnectivityFilter] = useState<'all' | 'online' | 'offline' | 'never_connected'>('all');
-  const [deliveryFilter, setDeliveryFilter] = useState<'all' | 'active' | 'syncing' | 'failed' | 'lag'>('all');
+  const [fleetFilter, setFleetFilter] = useState<
+    'all' | 'online' | 'offline' | 'never_connected' | 'suspended' | 'lag' | 'sync_failed' | 'renderer_error' | 'low_storage' | 'uncommissioned'
+  >('all');
+
+  // Bulk Selection & Operations
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkImportOpen, setBulkImportOpen] = useState<boolean>(false);
+  const [bulkAssignOpen, setBulkAssignOpen] = useState<boolean>(false);
+
+  // Commissioning Drawer
+  const [commissioningDisplay, setCommissioningDisplay] = useState<DisplayView | null>(null);
 
   // Modals state
   const [registerModalOpen, setRegisterModalOpen] = useState<boolean>(false);
@@ -138,6 +163,12 @@ export const DisplaysPage: React.FC = () => {
         createdBy: d.createdBy || '',
         createdAt: d.createdAt ? (typeof d.createdAt.toDate === 'function' ? d.createdAt.toDate().toISOString() : String(d.createdAt)) : '',
         updatedAt: d.updatedAt ? (typeof d.updatedAt.toDate === 'function' ? d.updatedAt.toDate().toISOString() : String(d.updatedAt)) : '',
+        commissioningStatus: d.commissioningStatus || 'planned',
+        commissionedAt: d.commissionedAt ? (typeof d.commissionedAt.toDate === 'function' ? d.commissionedAt.toDate().toISOString() : String(d.commissionedAt)) : null,
+        commissionedBy: d.commissionedBy || null,
+        installationRef: d.installationRef || null,
+        installationOwner: d.installationOwner || null,
+        assignedUserIds: d.assignedUserIds || [],
       };
     };
 
@@ -191,7 +222,7 @@ export const DisplaysPage: React.FC = () => {
     return () => unsubscribe();
   }, [isAdmin, userProfile?.departmentId, sites, departments]);
 
-  // Filtered displays
+  // Filtered displays with actionable fleet operations filters
   const filteredDisplays = useMemo(() => {
     return displays.filter((d) => {
       // Search
@@ -200,29 +231,59 @@ export const DisplaysPage: React.FC = () => {
         const matchesName = d.name.toLowerCase().includes(term);
         const matchesLoc = d.locationDescription.toLowerCase().includes(term);
         const matchesSite = (d.siteName || '').toLowerCase().includes(term);
-        if (!matchesName && !matchesLoc && !matchesSite) return false;
+        const matchesRef = (d.installationRef || '').toLowerCase().includes(term);
+        if (!matchesName && !matchesLoc && !matchesSite && !matchesRef) return false;
       }
 
       // Orientation
       if (orientationFilter !== 'all' && d.orientation !== orientationFilter) return false;
 
-      // Connectivity
-      if (connectivityFilter !== 'all' && d.connectivity !== connectivityFilter) return false;
-
-      // Delivery Status
-      if (deliveryFilter === 'active') {
-        if (d.deliveryStage !== 'active') return false;
-      } else if (deliveryFilter === 'syncing') {
-        if (!['downloading', 'verifying', 'ready'].includes(d.deliveryStage || '')) return false;
-      } else if (deliveryFilter === 'failed') {
-        if (d.deliveryStage !== 'failed') return false;
-      } else if (deliveryFilter === 'lag') {
+      // Actionable Fleet Filter
+      if (fleetFilter === 'online' && d.connectivity !== 'online') return false;
+      if (fleetFilter === 'offline' && d.connectivity !== 'offline') return false;
+      if (fleetFilter === 'never_connected' && d.connectivity !== 'never_connected') return false;
+      if (fleetFilter === 'suspended' && d.lifecycle !== 'suspended') return false;
+      if (fleetFilter === 'lag') {
         if (!d.desiredPublicationId || d.desiredPublicationId === d.activePublicationId) return false;
+      }
+      if (fleetFilter === 'sync_failed' && d.deliveryStage !== 'failed') return false;
+      if (fleetFilter === 'renderer_error') {
+        const hasError = !!d.lastDeliveryError || d.deliveryStage === 'failed';
+        if (!hasError) return false;
+      }
+      if (fleetFilter === 'low_storage') {
+        const freeBytes = d.reported?.storage?.freeBytes ?? Infinity;
+        if (freeBytes >= 1024 * 1024 * 1024) return false; // Less than 1GB free
+      }
+      if (fleetFilter === 'uncommissioned') {
+        if (d.commissioningStatus === 'commissioned') return false;
       }
 
       return true;
     });
-  }, [displays, searchTerm, orientationFilter, connectivityFilter, deliveryFilter]);
+  }, [displays, searchTerm, orientationFilter, fleetFilter]);
+
+  // Selected displays for bulk assignment
+  const selectedDisplays = useMemo(() => {
+    return displays.filter((d) => selectedIds.has(d.id));
+  }, [displays, selectedIds]);
+
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedIds.size === filteredDisplays.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredDisplays.map((d) => d.id)));
+    }
+  };
 
   // Fleet KPI Aggregates
   const kpis = useMemo(() => {
@@ -308,330 +369,533 @@ export const DisplaysPage: React.FC = () => {
           </p>
         </div>
 
-        {isAdmin && (
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
-            onClick={() => {
-              setRegisterModalOpen(true);
-              setFormError(null);
-            }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white font-medium shadow-sm transition-colors text-sm"
+            onClick={() => downloadDisplaysCsv(displays)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium border border-slate-700 transition-colors text-xs"
+            title="Download sanitized CSV export of all digital displays"
           >
-            <Plus className="w-4 h-4" />
-            Register Digital Display
+            <Download className="w-3.5 h-3.5 text-teal-400" />
+            Export CSV
           </button>
-        )}
+
+          {isAdmin && (
+            <>
+              <button
+                onClick={() => setBulkImportOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium border border-slate-700 transition-colors text-xs"
+              >
+                <Plus className="w-3.5 h-3.5 text-teal-400" />
+                Bulk CSV Import
+              </button>
+
+              <button
+                onClick={() => {
+                  setRegisterModalOpen(true);
+                  setFormError(null);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white font-medium shadow-sm transition-colors text-xs"
+              >
+                <Plus className="w-4 h-4" />
+                Register Digital Display
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* KPI Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-          <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Registered Fleet</span>
-          <div className="flex items-baseline justify-between mt-2">
-            <span className="text-2xl font-bold text-white">{kpis.total}</span>
-            <Tv className="w-5 h-5 text-slate-500" />
-          </div>
-          <span className="text-xs text-slate-500 mt-1 block">Configured digital displays</span>
-        </div>
-
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-          <span className="text-xs font-medium text-emerald-400 uppercase tracking-wider">Online Displays</span>
-          <div className="flex items-baseline justify-between mt-2">
-            <span className="text-2xl font-bold text-emerald-400">{kpis.online}</span>
-            <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+      {/* Admin Sub-navigation Tabs */}
+      {isAdmin && (
+        <div className="flex items-center gap-2 border-b border-slate-800">
+          <button
+            onClick={() => setActiveTab('fleet')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+              activeTab === 'fleet'
+                ? 'border-teal-500 text-teal-300'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            <Tv className="w-4 h-4" />
+            <span>Operational Fleet</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-slate-800 text-slate-300">
+              {displays.length}
             </span>
-          </div>
-          <span className="text-xs text-slate-500 mt-1 block">Heartbeat &lt; 3 mins</span>
-        </div>
+          </button>
 
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-          <span className="text-xs font-medium text-amber-400 uppercase tracking-wider">Offline Displays</span>
-          <div className="flex items-baseline justify-between mt-2">
-            <span className="text-2xl font-bold text-amber-400">{kpis.offline}</span>
-            <Clock className="w-5 h-5 text-amber-500/70" />
-          </div>
-          <span className="text-xs text-slate-500 mt-1 block">Autonomous offline playback</span>
-        </div>
-
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-          <span className="text-xs font-medium text-teal-400 uppercase tracking-wider">Active Presentation</span>
-          <div className="flex items-baseline justify-between mt-2">
-            <span className="text-2xl font-bold text-teal-400">{kpis.activePlayback}</span>
-            <Play className="w-5 h-5 text-teal-500" />
-          </div>
-          <span className="text-xs text-slate-500 mt-1 block">Targeted package verified</span>
-        </div>
-
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-          <span className="text-xs font-medium text-rose-400 uppercase tracking-wider">Version Sync Lag</span>
-          <div className="flex items-baseline justify-between mt-2">
-            <span className="text-2xl font-bold text-rose-400">{kpis.versionLag}</span>
-            <RefreshCw className="w-5 h-5 text-rose-500" />
-          </div>
-          <span className="text-xs text-slate-500 mt-1 block">Desired ≠ Active package</span>
-        </div>
-      </div>
-
-      {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row gap-3 bg-slate-900/40 p-3 rounded-xl border border-slate-800/80">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search digital display name, location, or site..."
-            className="w-full bg-slate-950/80 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-teal-500"
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Orientation Filter */}
-          <select
-            value={orientationFilter}
-            onChange={(e) => setOrientationFilter(e.target.value as any)}
-            className="bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-teal-500"
+          <button
+            onClick={() => setActiveTab('rollout')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+              activeTab === 'rollout'
+                ? 'border-teal-500 text-teal-300'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
           >
-            <option value="all">All Orientations</option>
-            <option value="landscape">Landscape (1920×1080)</option>
-            <option value="portrait">Portrait (1080×1920)</option>
-          </select>
+            <Layers className="w-4 h-4" />
+            <span>Rollout Inventory (~20 Displays)</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-teal-500/20 text-teal-300">
+              Wave 0–4
+            </span>
+          </button>
+        </div>
+      )}
 
-          {/* Connectivity Filter */}
-          <select
-            value={connectivityFilter}
-            onChange={(e) => setConnectivityFilter(e.target.value as any)}
-            className="bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-teal-500"
-          >
-            <option value="all">All Connectivity</option>
-            <option value="online">Online</option>
-            <option value="offline">Offline</option>
-            <option value="never_connected">Never Connected</option>
-          </select>
-
-          {/* Delivery Filter */}
-          <select
-            value={deliveryFilter}
-            onChange={(e) => setDeliveryFilter(e.target.value as any)}
-            className="bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-teal-500"
-          >
-            <option value="all">All Delivery States</option>
-            <option value="active">Active Presentation</option>
-            <option value="syncing">Syncing (Download/Verify)</option>
-            <option value="lag">Version Lag (Pending Sync)</option>
-            <option value="failed">Failed Verification</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Digital Displays Grid / List */}
-      {loading ? (
-        <div className="text-center py-16">
-          <div className="inline-block animate-spin w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full mb-3"></div>
-          <p className="text-slate-400 text-sm">Streaming digital display fleet telemetry...</p>
-        </div>
-      ) : error ? (
-        <div className="p-6 bg-rose-950/20 border border-rose-800/50 rounded-xl text-rose-300 text-sm text-center">
-          {error}
-        </div>
-      ) : filteredDisplays.length === 0 ? (
-        <div className="text-center py-16 border border-dashed border-slate-800 rounded-2xl bg-slate-900/20">
-          <Tv className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-          <h3 className="text-base font-semibold text-slate-300">No digital displays matched your criteria</h3>
-          <p className="text-sm text-slate-500 max-w-sm mx-auto mt-1">
-            Try adjusting your search terms or filter selections.
-          </p>
-        </div>
+      {/* Tab: Rollout Inventory */}
+      {activeTab === 'rollout' && isAdmin ? (
+        <RolloutInventoryView
+          sites={sites}
+          departments={departments}
+          onOpenBulkImport={() => setBulkImportOpen(true)}
+        />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filteredDisplays.map((display) => (
-            <div
-              key={display.id}
-              className="bg-slate-900/70 border border-slate-800 hover:border-slate-700/80 transition-all rounded-xl p-5 flex flex-col justify-between shadow-sm relative group"
-            >
-              {/* Header Badges */}
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-2">
-                    {/* Connectivity badge */}
-                    {display.connectivity === 'online' ? (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                        Online
-                      </span>
-                    ) : display.connectivity === 'offline' ? (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-950/80 text-amber-400 border border-amber-800/60">
-                        <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                        Offline
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700">
-                        <span className="w-2 h-2 rounded-full bg-slate-500"></span>
-                        Unpaired
-                      </span>
-                    )}
+        /* Tab: Operational Fleet */
+        <>
+          {/* KPI Stat Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Registered Fleet</span>
+              <div className="flex items-baseline justify-between mt-2">
+                <span className="text-2xl font-bold text-white">{kpis.total}</span>
+                <Tv className="w-5 h-5 text-slate-500" />
+              </div>
+              <span className="text-xs text-slate-500 mt-1 block">Operational digital displays</span>
+            </div>
 
-                    {/* Orientation badge */}
-                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-800/80 text-slate-300 border border-slate-700/60">
-                      {display.orientation === 'landscape' ? 'Landscape 16:9' : 'Portrait 9:16'}
-                    </span>
-                  </div>
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <span className="text-xs font-medium text-emerald-400 uppercase tracking-wider">Online Displays</span>
+              <div className="flex items-baseline justify-between mt-2">
+                <span className="text-2xl font-bold text-emerald-400">{kpis.online}</span>
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                </span>
+              </div>
+              <span className="text-xs text-slate-500 mt-1 block">Heartbeat &lt; 3 mins</span>
+            </div>
 
-                  {/* Lifecycle badge */}
-                  {display.lifecycle === 'pending_enrollment' ? (
-                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-950/80 text-indigo-400 border border-indigo-800/60">
-                      Pending Enrollment
-                    </span>
-                  ) : display.lifecycle === 'suspended' ? (
-                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-rose-950/80 text-rose-400 border border-rose-800/60">
-                      Suspended
-                    </span>
-                  ) : null}
-                </div>
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <span className="text-xs font-medium text-amber-400 uppercase tracking-wider">Offline Displays</span>
+              <div className="flex items-baseline justify-between mt-2">
+                <span className="text-2xl font-bold text-amber-400">{kpis.offline}</span>
+                <Clock className="w-5 h-5 text-amber-500/70" />
+              </div>
+              <span className="text-xs text-slate-500 mt-1 block">Autonomous offline playback</span>
+            </div>
 
-                {/* Display Title & Location */}
-                <h3 className="text-base font-bold text-white group-hover:text-teal-400 transition-colors">
-                  {display.name}
-                </h3>
-                <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-1">
-                  <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                  <span className="truncate">{display.locationDescription || 'Location not specified'}</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-0.5">
-                  <Building className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{display.siteName} • {display.departmentName}</span>
-                </div>
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <span className="text-xs font-medium text-teal-400 uppercase tracking-wider">Active Presentation</span>
+              <div className="flex items-baseline justify-between mt-2">
+                <span className="text-2xl font-bold text-teal-400">{kpis.activePlayback}</span>
+                <Play className="w-5 h-5 text-teal-500" />
+              </div>
+              <span className="text-xs text-slate-500 mt-1 block">Targeted package verified</span>
+            </div>
 
-                {/* Telemetry & Delivery Progress Bar */}
-                <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2.5">
-                  {/* Delivery Status Badge */}
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400">Delivery Status:</span>
-                    {display.deliveryStage === 'active' ? (
-                      <span className="inline-flex items-center gap-1 text-teal-400 font-medium">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        Active Presentation
-                      </span>
-                    ) : display.deliveryStage === 'downloading' ? (
-                      <span className="inline-flex items-center gap-1 text-blue-400 font-medium">
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        Downloading Assets
-                      </span>
-                    ) : display.deliveryStage === 'verifying' ? (
-                      <span className="inline-flex items-center gap-1 text-yellow-400 font-medium">
-                        <Shield className="w-3.5 h-3.5 animate-pulse" />
-                        Verifying SHA-256
-                      </span>
-                    ) : display.deliveryStage === 'failed' ? (
-                      <span className="inline-flex items-center gap-1 text-rose-400 font-medium" title={display.lastDeliveryError || 'Unknown error'}>
-                        <AlertTriangle className="w-3.5 h-3.5" />
-                        Verification Failed
-                      </span>
-                    ) : (
-                      <span className="text-slate-500 font-medium">Idle / Standby</span>
-                    )}
-                  </div>
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+              <span className="text-xs font-medium text-rose-400 uppercase tracking-wider">Version Sync Lag</span>
+              <div className="flex items-baseline justify-between mt-2">
+                <span className="text-2xl font-bold text-rose-400">{kpis.versionLag}</span>
+                <RefreshCw className="w-5 h-5 text-rose-500" />
+              </div>
+              <span className="text-xs text-slate-500 mt-1 block">Desired ≠ Active package</span>
+            </div>
+          </div>
 
-                  {/* Version Match / Lag */}
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400">Publication Version:</span>
-                    {display.desiredPublicationId ? (
-                      <span className="font-mono text-slate-300">
-                        {display.activePublicationId ? (
-                          display.desiredPublicationId === display.activePublicationId ? (
-                            <span className="text-emerald-400">v.{display.activePublicationId.slice(-6)} (Synced)</span>
-                          ) : (
-                            <span className="text-amber-400">
-                              v.{display.activePublicationId.slice(-6)} → v.{display.desiredPublicationId.slice(-6)} (Lag)
+          {/* Filter and Search Bar */}
+          <div className="flex flex-col sm:flex-row gap-3 bg-slate-900/40 p-3 rounded-xl border border-slate-800/80">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search digital display name, ref, location, or site..."
+                className="w-full bg-slate-950/80 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-teal-500"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Orientation Filter */}
+              <select
+                value={orientationFilter}
+                onChange={(e) => setOrientationFilter(e.target.value as any)}
+                className="bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-teal-500"
+              >
+                <option value="all">All Orientations</option>
+                <option value="landscape">Landscape (1920×1080)</option>
+                <option value="portrait">Portrait (1080×1920)</option>
+              </select>
+
+              {/* Actionable Fleet Filter */}
+              <select
+                value={fleetFilter}
+                onChange={(e) => setFleetFilter(e.target.value as any)}
+                className="bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-teal-500"
+              >
+                <option value="all">All Fleet Statuses</option>
+                <option value="online">Online (Heartbeat &lt; 3m)</option>
+                <option value="offline">Offline (Autonomous Playback)</option>
+                <option value="never_connected">Never Connected</option>
+                <option value="suspended">Suspended</option>
+                <option value="lag">Behind Desired Version (Lag)</option>
+                <option value="sync_failed">Verification / Download Failed</option>
+                <option value="renderer_error">Renderer / Playback Error</option>
+                <option value="low_storage">Low Storage (&lt;1GB Free)</option>
+                <option value="uncommissioned">Awaiting Commissioning (&lt;12 Checks)</option>
+              </select>
+
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={handleSelectAll}
+                  className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors"
+                >
+                  {selectedIds.size === filteredDisplays.length && filteredDisplays.length > 0
+                    ? 'Deselect All'
+                    : 'Select All'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Digital Displays Grid / List */}
+          {loading ? (
+            <div className="text-center py-16">
+              <div className="inline-block animate-spin w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full mb-3"></div>
+              <p className="text-slate-400 text-sm">Streaming digital display fleet telemetry...</p>
+            </div>
+          ) : error ? (
+            <div className="p-6 bg-rose-950/20 border border-rose-800/50 rounded-xl text-rose-300 text-sm text-center">
+              {error}
+            </div>
+          ) : filteredDisplays.length === 0 ? (
+            <div className="text-center py-16 border border-dashed border-slate-800 rounded-2xl bg-slate-900/20">
+              <Tv className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+              <h3 className="text-base font-semibold text-slate-300">No digital displays matched your criteria</h3>
+              <p className="text-sm text-slate-500 max-w-sm mx-auto mt-1">
+                Try adjusting your search terms or filter selections.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {filteredDisplays.map((display) => {
+                const isSelected = selectedIds.has(display.id);
+                const nowMs = Date.now();
+                const lastHbMs = display.lastHeartbeatAt ? new Date(display.lastHeartbeatAt).getTime() : 0;
+                const isStale = lastHbMs > 0 && nowMs - lastHbMs > 15 * 60 * 1000;
+                const freeBytes = display.reported?.storage?.freeBytes;
+                const isLowStorage = freeBytes !== undefined && freeBytes < 1024 * 1024 * 1024;
+                const isCommissioned = display.commissioningStatus === 'commissioned';
+
+                return (
+                  <div
+                    key={display.id}
+                    className={`bg-slate-900/70 border transition-all rounded-xl p-5 flex flex-col justify-between shadow-sm relative group ${
+                      isSelected
+                        ? 'border-teal-500/80 ring-1 ring-teal-500/50 bg-slate-900/90'
+                        : 'border-slate-800 hover:border-slate-700/80'
+                    }`}
+                  >
+                    {/* Header Badges */}
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-2">
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSelect(display.id)}
+                              className="text-slate-400 hover:text-white"
+                            >
+                              {isSelected ? (
+                                <CheckSquare className="w-4 h-4 text-teal-400" />
+                              ) : (
+                                <Square className="w-4 h-4 text-slate-600" />
+                              )}
+                            </button>
+                          )}
+
+                          {/* Connectivity badge */}
+                          {display.connectivity === 'online' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">
+                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                              Online
                             </span>
-                          )
-                        ) : (
-                          <span className="text-blue-400">Target v.{display.desiredPublicationId.slice(-6)}</span>
-                        )}
-                      </span>
-                    ) : (
-                      <span className="text-slate-500">None Targeted</span>
-                    )}
-                  </div>
+                          ) : display.connectivity === 'offline' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-950/80 text-amber-400 border border-amber-800/60">
+                              <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                              Offline
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+                              <span className="w-2 h-2 rounded-full bg-slate-500"></span>
+                              Unpaired
+                            </span>
+                          )}
 
-                  {/* Current Playing Content */}
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400">Playing Now:</span>
-                    <span className="text-slate-300 truncate max-w-[170px]" title={display.reported?.playback?.currentSlideId || 'Fallback'}>
-                      {display.reported?.playback?.currentPlaylistId
-                        ? `Slide ${display.reported?.playback?.currentSlideId || 'Active'}`
-                        : 'Corporate Neutral Fallback'}
-                    </span>
-                  </div>
+                          {/* Orientation badge */}
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-800/80 text-slate-300 border border-slate-700/60">
+                            {display.orientation === 'landscape' ? 'Landscape 16:9' : 'Portrait 9:16'}
+                          </span>
+                        </div>
 
-                  {/* Local Storage Metric */}
-                  {display.reported?.storage && (
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-[11px] text-slate-400">
-                        <span>Device Storage:</span>
-                        <span>
-                          {((display.reported.storage.freeBytes || 0) / (1024 * 1024 * 1024)).toFixed(1)} GB free / {((display.reported.storage.totalBytes || 0) / (1024 * 1024 * 1024)).toFixed(1)} GB
-                        </span>
+                        {/* Commissioning status badge */}
+                        <div>
+                          {isCommissioned ? (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 inline-flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Commissioned
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setCommissioningDisplay(display)}
+                              className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-950/80 text-amber-400 hover:bg-amber-900/80 border border-amber-800/60 inline-flex items-center gap-1 transition-colors"
+                            >
+                              <ClipboardCheck className="w-3 h-3" />
+                              Commissioning
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                        <div
-                          className="bg-teal-500 h-full rounded-full"
-                          style={{
-                            width: `${Math.min(
-                              100,
-                              Math.round(
-                                ((display.reported.storage.usedBytes || 0) /
-                                  (display.reported.storage.totalBytes || 1)) *
-                                  100
-                              )
-                            )}%`,
-                          }}
-                        ></div>
+
+                      {/* Display Title & Installation Ref */}
+                      <div>
+                        {display.installationRef && (
+                          <span className="font-mono text-[10px] text-teal-400 bg-teal-500/10 px-1.5 py-0.5 rounded border border-teal-500/20 mr-1.5">
+                            {display.installationRef}
+                          </span>
+                        )}
+                        <h3 className="text-base font-bold text-white group-hover:text-teal-400 transition-colors inline">
+                          {display.name}
+                        </h3>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-1">
+                        <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span className="truncate">{display.locationDescription || 'Location not specified'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-0.5">
+                        <Building className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{display.siteName} • {display.departmentName}</span>
+                      </div>
+
+                      {/* Diagnostic Warning Pills */}
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {isStale && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">
+                            <Clock className="w-3 h-3" />
+                            Stale Telemetry (&gt;15m)
+                          </span>
+                        )}
+                        {isLowStorage && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 font-medium">
+                            <HardDrive className="w-3 h-3" />
+                            Low Storage (&lt;1GB)
+                          </span>
+                        )}
+                        {display.lastDeliveryError && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 font-medium" title={display.lastDeliveryError}>
+                            <AlertCircle className="w-3 h-3" />
+                            Delivery / Sync Error
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Telemetry & Delivery Progress Bar */}
+                      <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2.5">
+                        {/* Delivery Status Badge */}
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400">Delivery Status:</span>
+                          {display.deliveryStage === 'active' ? (
+                            <span className="inline-flex items-center gap-1 text-teal-400 font-medium">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Active Presentation
+                            </span>
+                          ) : display.deliveryStage === 'downloading' ? (
+                            <span className="inline-flex items-center gap-1 text-blue-400 font-medium">
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              Downloading Assets
+                            </span>
+                          ) : display.deliveryStage === 'verifying' ? (
+                            <span className="inline-flex items-center gap-1 text-yellow-400 font-medium">
+                              <Shield className="w-3.5 h-3.5 animate-pulse" />
+                              Verifying SHA-256
+                            </span>
+                          ) : display.deliveryStage === 'failed' ? (
+                            <span className="inline-flex items-center gap-1 text-rose-400 font-medium" title={display.lastDeliveryError || 'Unknown error'}>
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              Verification Failed
+                            </span>
+                          ) : (
+                            <span className="text-slate-500 font-medium">Idle / Standby</span>
+                          )}
+                        </div>
+
+                        {/* Version Match / Lag */}
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400">Publication Version:</span>
+                          {display.desiredPublicationId ? (
+                            <span className="font-mono text-slate-300">
+                              {display.activePublicationId ? (
+                                display.desiredPublicationId === display.activePublicationId ? (
+                                  <span className="text-emerald-400">v.{display.activePublicationId.slice(-6)} (Synced)</span>
+                                ) : (
+                                  <span className="text-amber-400">
+                                    v.{display.activePublicationId.slice(-6)} → v.{display.desiredPublicationId.slice(-6)} (Lag)
+                                  </span>
+                                )
+                              ) : (
+                                <span className="text-blue-400">Target v.{display.desiredPublicationId.slice(-6)}</span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500">None Targeted</span>
+                          )}
+                        </div>
+
+                        {/* Current Playing Content */}
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400">Playing Now:</span>
+                          <span className="text-slate-300 truncate max-w-[170px]" title={display.reported?.playback?.currentSlideId || 'Fallback'}>
+                            {display.reported?.playback?.currentPlaylistId
+                              ? `Slide ${display.reported?.playback?.currentSlideId || 'Active'}`
+                              : 'Corporate Neutral Fallback'}
+                          </span>
+                        </div>
+
+                        {/* Local Storage Metric */}
+                        {display.reported?.storage && (
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between text-[11px] text-slate-400">
+                              <span>Device Storage:</span>
+                              <span>
+                                {((display.reported.storage.freeBytes || 0) / (1024 * 1024 * 1024)).toFixed(1)} GB free / {((display.reported.storage.totalBytes || 0) / (1024 * 1024 * 1024)).toFixed(1)} GB
+                              </span>
+                            </div>
+                            <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                              <div
+                                className="bg-teal-500 h-full rounded-full"
+                                style={{
+                                  width: `${Math.min(
+                                    100,
+                                    Math.round(
+                                      ((display.reported.storage.usedBytes || 0) /
+                                        (display.reported.storage.totalBytes || 1)) *
+                                        100
+                                    )
+                                  )}%`,
+                                }}
+                              ></div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Last Heartbeat */}
+                        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+                          <span>Last heartbeat:</span>
+                          <span>
+                            {display.lastHeartbeatAt
+                              ? new Date(display.lastHeartbeatAt).toLocaleTimeString('en-IN', {
+                                  timeZone: 'Asia/Kolkata',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  second: '2-digit',
+                                }) + ' IST'
+                              : 'Never connected'}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  )}
 
-                  {/* Last Heartbeat */}
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
-                    <span>Last heartbeat:</span>
-                    <span>
-                      {display.lastHeartbeatAt
-                        ? new Date(display.lastHeartbeatAt).toLocaleTimeString('en-IN', {
-                            timeZone: 'Asia/Kolkata',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            second: '2-digit',
-                          }) + ' IST'
-                        : 'Never connected'}
-                    </span>
+                    {/* Card Footer Actions */}
+                    <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setDetailsModalDisplay(display)}
+                          className="text-xs text-slate-400 hover:text-slate-200 inline-flex items-center gap-1 font-medium"
+                        >
+                          <Activity className="w-3.5 h-3.5" />
+                          Telemetry
+                        </button>
+
+                        <button
+                          onClick={() => setCommissioningDisplay(display)}
+                          className="text-xs text-slate-400 hover:text-teal-300 inline-flex items-center gap-1 font-medium"
+                        >
+                          <ClipboardCheck className="w-3.5 h-3.5" />
+                          Checklist
+                        </button>
+                      </div>
+
+                      {isAdmin && (
+                        <button
+                          onClick={() => handleGeneratePairingCode(display)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-teal-400 hover:text-teal-300 text-xs font-medium transition-colors"
+                        >
+                          <Key className="w-3 h-3" />
+                          Pairing Code
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </div>
-
-              {/* Card Footer Actions */}
-              <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
-                <button
-                  onClick={() => setDetailsModalDisplay(display)}
-                  className="text-xs text-slate-400 hover:text-slate-200 inline-flex items-center gap-1 font-medium"
-                >
-                  <Activity className="w-3.5 h-3.5" />
-                  Full Telemetry
-                </button>
-
-                {isAdmin && (
-                  <button
-                    onClick={() => handleGeneratePairingCode(display)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-teal-400 hover:text-teal-300 text-xs font-medium transition-colors"
-                  >
-                    <Key className="w-3 h-3" />
-                    Pairing Code
-                  </button>
-                )}
-              </div>
+                );
+              })}
             </div>
-          ))}
-        </div>
+          )}
+
+          {/* Floating Action Bar for Selected Digital Displays */}
+          {selectedIds.size > 0 && isAdmin && (
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900 border border-teal-500/60 rounded-2xl px-6 py-3 shadow-2xl flex items-center gap-4 text-xs">
+              <span className="text-white font-semibold flex items-center gap-1.5">
+                <CheckSquare className="w-4 h-4 text-teal-400" />
+                {selectedIds.size} digital displays selected
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setBulkAssignOpen(true)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white font-medium rounded-xl shadow transition-colors"
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                Assign to Department Head
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set())}
+                className="text-slate-400 hover:text-white underline ml-2"
+              >
+                Clear Selection
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Bulk CSV Import Modal */}
+      {bulkImportOpen && (
+        <BulkImportModal
+          isOpen={bulkImportOpen}
+          onClose={() => setBulkImportOpen(false)}
+        />
+      )}
+
+      {/* Bulk Assignment Modal */}
+      {bulkAssignOpen && (
+        <BulkAssignmentModal
+          isOpen={bulkAssignOpen}
+          onClose={() => setBulkAssignOpen(false)}
+          selectedDisplays={selectedDisplays}
+          onAssignmentComplete={() => setSelectedIds(new Set())}
+        />
+      )}
+
+      {/* Commissioning Checklist Drawer */}
+      {commissioningDisplay && (
+        <CommissioningDrawer
+          isOpen={!!commissioningDisplay}
+          onClose={() => setCommissioningDisplay(null)}
+          display={commissioningDisplay}
+        />
       )}
 
       {/* Modal: Pairing Code Generated */}

@@ -16,6 +16,12 @@ export type DisplayOrientation = 'landscape' | 'portrait';
 export type DisplayLifecycle = 'pending_enrollment' | 'active' | 'suspended' | 'retired';
 
 /**
+ * Commissioning lifecycle of a physical digital display installation.
+ * Kept separate from the hardware/device lifecycle.
+ */
+export type CommissioningStatus = 'planned' | 'in_progress' | 'commissioned' | 'blocked';
+
+/**
  * Connectivity is DERIVED at read time from `lastHeartbeatAt` and the
  * configured online threshold. It is never stored as a boolean.
  */
@@ -150,6 +156,11 @@ export interface DigitalDisplay {
   lastHeartbeatAt: string | null;
   reported: DisplayReportedState | null;
   enrolledAt: string | null;
+  commissioningStatus?: CommissioningStatus;
+  commissionedAt?: string | null;
+  commissionedBy?: string | null;
+  installationRef?: string | null;
+  installationOwner?: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -161,6 +172,8 @@ export interface DisplayView extends DigitalDisplay {
   siteName: string | null;
   departmentName: string | null;
   groupNames: string[];
+  assignedUserIds?: string[];
+  assignedUserNames?: string[];
 }
 
 /**
@@ -2102,5 +2115,473 @@ export interface EvaluateSchedulePreviewRequest {
 export interface EvaluateSchedulePreviewResponse {
   evaluation: ScheduleEvaluationResult;
 }
+
+// ==============================================================================
+// Commissioning Checklist & Rollout Inventory Schemas
+// ==============================================================================
+
+export type CommissioningCheckId =
+  | 'mounting_power'
+  | 'orientation_resolution'
+  | 'network_connectivity'
+  | 'device_enrolled'
+  | 'user_assignments'
+  | 'fallback_installed'
+  | 'test_publication_active'
+  | 'fonts_video_verified'
+  | 'physical_output_observed'
+  | 'restart_recovery_verified'
+  | 'offline_playback_verified'
+  | 'operator_handover_completed';
+
+export interface CommissioningCheckItem {
+  id: CommissioningCheckId;
+  label: string;
+  description: string;
+  checkKind: 'automated' | 'human';
+  status: 'pending' | 'passed' | 'failed' | 'skipped';
+  confirmedBy: string | null;
+  confirmedByEmail?: string | null;
+  confirmedAt: string | null;
+  notes: string;
+  automatedEvidence?: {
+    detected: boolean;
+    details: string;
+    timestamp: string;
+  } | null;
+}
+
+export interface CommissioningRecord {
+  displayId: string;
+  status: CommissioningStatus;
+  checklist: CommissioningCheckItem[];
+  commissionedAt: string | null;
+  commissionedBy: string | null;
+  commissionedByEmail?: string | null;
+  notes?: string | null;
+  blockers?: string[];
+  installationOwner?: string | null;
+  updatedAt: string;
+}
+
+export function createDefaultCommissioningChecklist(): CommissioningCheckItem[] {
+  return [
+    {
+      id: 'mounting_power',
+      label: 'Physical Mounting & Power Verification',
+      description: 'Physical panel mounted securely, vibration-damped, connected to stable UPS power supply.',
+      checkKind: 'human',
+      status: 'pending',
+      confirmedBy: null,
+      confirmedAt: null,
+      notes: '',
+    },
+    {
+      id: 'orientation_resolution',
+      label: 'Orientation & Resolution Alignment',
+      description: 'Physical display matches configured orientation (portrait/landscape) and native resolution.',
+      checkKind: 'human',
+      status: 'pending',
+      confirmedBy: null,
+      confirmedAt: null,
+      notes: '',
+    },
+    {
+      id: 'network_connectivity',
+      label: 'Network Connectivity Verification',
+      description: 'Signage appliance connected to designated VLAN with steady latency to cloud backend.',
+      checkKind: 'automated',
+      status: 'pending',
+      confirmedBy: null,
+      confirmedAt: null,
+      notes: '',
+    },
+    {
+      id: 'device_enrolled',
+      label: 'Device Pairing & Cryptographic Enrollment',
+      description: 'Digital display enrolled using secure pairing code and unique device credentials issued.',
+      checkKind: 'automated',
+      status: 'pending',
+      confirmedBy: null,
+      confirmedAt: null,
+      notes: '',
+    },
+    {
+      id: 'user_assignments',
+      label: 'Department Head Assignments Verification',
+      description: 'Explicit display assignments confirmed for responsible departmental operators.',
+      checkKind: 'automated',
+      status: 'pending',
+      confirmedBy: null,
+      confirmedAt: null,
+      notes: '',
+    },
+    {
+      id: 'fallback_installed',
+      label: 'Permanent Corporate Fallback Installed',
+      description: 'Neutral corporate emergency fallback asset verified present on local appliance storage.',
+      checkKind: 'automated',
+      status: 'pending',
+      confirmedBy: null,
+      confirmedAt: null,
+      notes: '',
+    },
+    {
+      id: 'test_publication_active',
+      label: 'Test Publication Manifest Activation',
+      description: 'Verified test publication successfully downloaded and activated on local player runtime.',
+      checkKind: 'automated',
+      status: 'pending',
+      confirmedBy: null,
+      confirmedAt: null,
+      notes: '',
+    },
+    {
+      id: 'fonts_video_verified',
+      label: 'Multilingual Fonts & Video Playback Inspection',
+      description: 'Physical inspection confirms Gujarati, Devanagari, and English typography render cleanly without font fallback; video transitions smoothly without frame drops.',
+      checkKind: 'human',
+      status: 'pending',
+      confirmedBy: null,
+      confirmedAt: null,
+      notes: '',
+    },
+    {
+      id: 'physical_output_observed',
+      label: 'Physical Output & Visibility Observation',
+      description: 'Physical panel brightness, viewing angle, contrast, and color fidelity confirmed on-site from target audience viewing distance.',
+      checkKind: 'human',
+      status: 'pending',
+      confirmedBy: null,
+      confirmedAt: null,
+      notes: '',
+    },
+    {
+      id: 'restart_recovery_verified',
+      label: 'Abrupt Power-Loss Reboot Recovery',
+      description: 'Appliance power-cycled abruptly while offline; resumed slide playback within 45s without OS dialogues.',
+      checkKind: 'human',
+      status: 'pending',
+      confirmedBy: null,
+      confirmedAt: null,
+      notes: '',
+    },
+    {
+      id: 'offline_playback_verified',
+      label: 'Offline Playback Soak Survival',
+      description: 'Network disconnected; continuous loop playback verified without black frames or API stalls.',
+      checkKind: 'human',
+      status: 'pending',
+      confirmedBy: null,
+      confirmedAt: null,
+      notes: '',
+    },
+    {
+      id: 'operator_handover_completed',
+      label: 'Facility Operator Handover & Escalation Sign-off',
+      description: 'Local facility lead trained on power controls, safe reboot procedure, and emergency escalation.',
+      checkKind: 'human',
+      status: 'pending',
+      confirmedBy: null,
+      confirmedAt: null,
+      notes: '',
+    },
+  ];
+}
+
+export interface PlannedInstallation {
+  id: string;
+  installationRef: string;
+  name: string;
+  siteId: string;
+  siteName?: string;
+  locationDescription: string;
+  departmentId: string;
+  departmentName?: string;
+  orientation: DisplayOrientation;
+  configuredResolution: Resolution;
+  groupIds: string[];
+  installationOwner: string;
+  installationWave: number;
+  commissioningStatus: CommissioningStatus;
+  commissioningDate: string | null;
+  notes: string;
+  blockers: string[];
+  displayId: string | null;
+  assignedUserIds?: string[];
+  fallbackConfig?: {
+    defaultDurationSeconds?: number;
+    fallbackPlaylistRevisionId?: string | null;
+  };
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+}
+
+// Bulk Registration & CSV Import Schemas
+export interface BulkDisplayImportRow {
+  installationRef: string;
+  name: string;
+  siteIdentifier: string;
+  locationDescription: string;
+  departmentIdentifier: string;
+  orientation: DisplayOrientation;
+  resolution: string;
+  groupIdentifiers?: string;
+  installationOwner?: string;
+  installationWave?: number;
+  notes?: string;
+}
+
+export interface BulkImportPreflightRowResult {
+  rowIndex: number;
+  raw: Record<string, string>;
+  parsed?: {
+    installationRef: string;
+    name: string;
+    siteId: string;
+    siteName: string;
+    departmentId: string;
+    departmentName: string;
+    locationDescription: string;
+    orientation: DisplayOrientation;
+    configuredResolution: Resolution;
+    groupIds: string[];
+    installationOwner: string;
+    installationWave: number;
+    notes: string;
+  };
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  existingDisplayId?: string | null;
+  existingInstallationId?: string | null;
+}
+
+export interface BulkImportPreflightRequest {
+  csvText: string;
+}
+
+export interface BulkImportPreflightResponse {
+  totalRows: number;
+  validRowsCount: number;
+  invalidRowsCount: number;
+  rows: BulkImportPreflightRowResult[];
+  errors: string[];
+}
+
+export interface BulkImportExecuteRequest {
+  rows: Array<{
+    installationRef: string;
+    name: string;
+    siteId: string;
+    departmentId: string;
+    locationDescription: string;
+    orientation: DisplayOrientation;
+    configuredResolution: Resolution;
+    groupIds: string[];
+    installationOwner?: string;
+    installationWave?: number;
+    notes?: string;
+  }>;
+  registerAsOperational?: boolean;
+}
+
+export interface BulkImportExecuteResponse {
+  totalRequested: number;
+  successCount: number;
+  failureCount: number;
+  results: Array<{
+    installationRef: string;
+    name: string;
+    success: boolean;
+    displayId?: string;
+    plannedInstallationId?: string;
+    error?: string;
+  }>;
+}
+
+// Bulk Assignments Schemas
+export interface BulkAssignDisplaysPreflightRequest {
+  targetUserId: string;
+  displayIds: string[];
+  action: 'assign' | 'unassign';
+}
+
+export interface BulkAssignDisplaysPreflightResponse {
+  valid: boolean;
+  targetUser: {
+    uid: string;
+    displayName: string;
+    email: string;
+    role: string;
+    departmentId: string | null;
+    status: string;
+  };
+  plannedChanges: Array<{
+    displayId: string;
+    displayName: string;
+    departmentId: string;
+    departmentName: string;
+    isCompatible: boolean;
+    currentAssigned: boolean;
+    willChange: boolean;
+    reason?: string;
+  }>;
+  eligibleCount: number;
+  ineligibleCount: number;
+  action: 'assign' | 'unassign';
+}
+
+export interface BulkAssignDisplaysRequest {
+  targetUserId: string;
+  displayIds: string[];
+  action: 'assign' | 'unassign';
+}
+
+export interface BulkAssignDisplaysResponse {
+  successCount: number;
+  failureCount: number;
+  results: Array<{
+    displayId: string;
+    success: boolean;
+    error?: string;
+  }>;
+}
+
+// Commissioning API Requests & Responses
+export interface GetCommissioningChecklistRequest {
+  displayId: string;
+}
+
+export interface GetCommissioningChecklistResponse {
+  commissioning: CommissioningRecord;
+}
+
+export interface UpdateCommissioningCheckRequest {
+  displayId: string;
+  checkId: CommissioningCheckId;
+  status: 'pending' | 'passed' | 'failed' | 'skipped';
+  notes?: string;
+}
+
+export interface UpdateCommissioningCheckResponse {
+  commissioning: CommissioningRecord;
+}
+
+export interface FinalizeCommissioningRequest {
+  displayId: string;
+  notes?: string;
+}
+
+export interface FinalizeCommissioningResponse {
+  commissioning: CommissioningRecord;
+  display: DigitalDisplay;
+}
+
+// Planned Installation CRUD
+export interface ListPlannedInstallationsRequest {
+  siteId?: string;
+  departmentId?: string;
+  wave?: number;
+  status?: CommissioningStatus;
+}
+
+export interface ListPlannedInstallationsResponse {
+  installations: PlannedInstallation[];
+}
+
+export interface CreatePlannedInstallationRequest {
+  installationRef: string;
+  name: string;
+  siteId: string;
+  locationDescription: string;
+  departmentId: string;
+  orientation: DisplayOrientation;
+  configuredResolution: Resolution;
+  groupIds?: string[];
+  installationOwner: string;
+  installationWave: number;
+  notes?: string;
+  blockers?: string[];
+}
+
+export interface CreatePlannedInstallationResponse {
+  installation: PlannedInstallation;
+}
+
+export interface UpdatePlannedInstallationRequest {
+  id: string;
+  name?: string;
+  locationDescription?: string;
+  siteId?: string;
+  departmentId?: string;
+  orientation?: DisplayOrientation;
+  configuredResolution?: Resolution;
+  groupIds?: string[];
+  installationOwner?: string;
+  installationWave?: number;
+  commissioningStatus?: CommissioningStatus;
+  commissioningDate?: string | null;
+  notes?: string;
+  blockers?: string[];
+}
+
+export interface UpdatePlannedInstallationResponse {
+  installation: PlannedInstallation;
+}
+
+export interface ConvertPlannedToRegisteredRequest {
+  plannedInstallationId: string;
+}
+
+export interface ConvertPlannedToRegisteredResponse {
+  display: DigitalDisplay;
+  installation: PlannedInstallation;
+}
+
+// Publication Rollout Progress Schemas
+export interface GetPublicationRolloutProgressRequest {
+  publicationId: string;
+}
+
+export interface PublicationTargetProgressItem {
+  displayId: string;
+  displayName: string;
+  siteName: string;
+  departmentName: string;
+  orientation: DisplayOrientation;
+  deliveryStage: PackageDeliveryStage;
+  activePublicationId: string | null;
+  desiredPublicationId: string | null;
+  lastHeartbeatAt: string | null;
+  lastSyncAt: string | null;
+  lastDeliveryError: string | null;
+  isStale: boolean;
+  statusSummary: 'active' | 'downloading' | 'verifying' | 'failed' | 'stale' | 'prepared';
+}
+
+export interface GetPublicationRolloutProgressResponse {
+  publicationId: string;
+  targetCount: number;
+  preparedCount: number;
+  downloadingCount: number;
+  activeCount: number;
+  failedCount: number;
+  staleOrNoReportCount: number;
+  targets: PublicationTargetProgressItem[];
+}
+
+export interface RetryPublicationTargetRequest {
+  publicationId: string;
+  displayId: string;
+}
+
+export interface RetryPublicationTargetResponse {
+  success: boolean;
+  displayId: string;
+  newDesiredPublicationId: string;
+}
+
 
 

@@ -800,3 +800,23 @@ export {
   listDisplays,
   getDisplay,
 } from './fleetAdmin';
+
+
+// ==============================================================================
+// Rollout Inventory, Bulk Registration, Bulk Assignment & Commissioning
+// ==============================================================================
+export {
+  preflightBulkDisplayImport,
+  executeBulkDisplayImport,
+  preflightBulkAssignDisplays,
+  executeBulkAssignDisplays,
+  getCommissioningChecklist,
+  updateCommissioningCheck,
+  finalizeCommissioning,
+  listPlannedInstallations,
+  createPlannedInstallation,
+  updatePlannedInstallation,
+  convertPlannedToRegistered,
+  getPublicationRolloutProgress,
+  retryPublicationTarget,
+} from './rolloutAdmin';

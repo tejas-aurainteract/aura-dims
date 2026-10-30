@@ -120,6 +120,32 @@ import type {
   ListDisplaysResponse,
   GetDisplayRequest,
   GetDisplayResponse,
+  BulkImportPreflightRequest,
+  BulkImportPreflightResponse,
+  BulkImportExecuteRequest,
+  BulkImportExecuteResponse,
+  BulkAssignDisplaysPreflightRequest,
+  BulkAssignDisplaysPreflightResponse,
+  BulkAssignDisplaysRequest,
+  BulkAssignDisplaysResponse,
+  GetCommissioningChecklistRequest,
+  GetCommissioningChecklistResponse,
+  UpdateCommissioningCheckRequest,
+  UpdateCommissioningCheckResponse,
+  FinalizeCommissioningRequest,
+  FinalizeCommissioningResponse,
+  ListPlannedInstallationsRequest,
+  ListPlannedInstallationsResponse,
+  CreatePlannedInstallationRequest,
+  CreatePlannedInstallationResponse,
+  UpdatePlannedInstallationRequest,
+  UpdatePlannedInstallationResponse,
+  ConvertPlannedToRegisteredRequest,
+  ConvertPlannedToRegisteredResponse,
+  GetPublicationRolloutProgressRequest,
+  GetPublicationRolloutProgressResponse,
+  RetryPublicationTargetRequest,
+  RetryPublicationTargetResponse,
 } from '@aura-dims/display-schema';
 
 export const api = {
@@ -470,6 +496,88 @@ export const api = {
 
   generateDisplayPairingCode: async (req: GeneratePairingCodeRequest): Promise<GeneratePairingCodeResponse> => {
     const fn = httpsCallable<GeneratePairingCodeRequest, GeneratePairingCodeResponse>(functions, 'generateDisplayPairingCode');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  // Bulk Operations & Rollout Inventory
+  preflightBulkDisplayImport: async (req: BulkImportPreflightRequest): Promise<BulkImportPreflightResponse> => {
+    const fn = httpsCallable<BulkImportPreflightRequest, BulkImportPreflightResponse>(functions, 'preflightBulkDisplayImport');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  executeBulkDisplayImport: async (req: BulkImportExecuteRequest): Promise<BulkImportExecuteResponse> => {
+    const fn = httpsCallable<BulkImportExecuteRequest, BulkImportExecuteResponse>(functions, 'executeBulkDisplayImport');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  preflightBulkAssignDisplays: async (req: BulkAssignDisplaysPreflightRequest): Promise<BulkAssignDisplaysPreflightResponse> => {
+    const fn = httpsCallable<BulkAssignDisplaysPreflightRequest, BulkAssignDisplaysPreflightResponse>(functions, 'preflightBulkAssignDisplays');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  executeBulkAssignDisplays: async (req: BulkAssignDisplaysRequest): Promise<BulkAssignDisplaysResponse> => {
+    const fn = httpsCallable<BulkAssignDisplaysRequest, BulkAssignDisplaysResponse>(functions, 'executeBulkAssignDisplays');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  // 12-Item Digital Display Commissioning
+  getCommissioningChecklist: async (req: GetCommissioningChecklistRequest): Promise<GetCommissioningChecklistResponse> => {
+    const fn = httpsCallable<GetCommissioningChecklistRequest, GetCommissioningChecklistResponse>(functions, 'getCommissioningChecklist');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  updateCommissioningCheck: async (req: UpdateCommissioningCheckRequest): Promise<UpdateCommissioningCheckResponse> => {
+    const fn = httpsCallable<UpdateCommissioningCheckRequest, UpdateCommissioningCheckResponse>(functions, 'updateCommissioningCheck');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  finalizeCommissioning: async (req: FinalizeCommissioningRequest): Promise<FinalizeCommissioningResponse> => {
+    const fn = httpsCallable<FinalizeCommissioningRequest, FinalizeCommissioningResponse>(functions, 'finalizeCommissioning');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  // Planned Installations Management
+  listPlannedInstallations: async (req: ListPlannedInstallationsRequest): Promise<ListPlannedInstallationsResponse> => {
+    const fn = httpsCallable<ListPlannedInstallationsRequest, ListPlannedInstallationsResponse>(functions, 'listPlannedInstallations');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  createPlannedInstallation: async (req: CreatePlannedInstallationRequest): Promise<CreatePlannedInstallationResponse> => {
+    const fn = httpsCallable<CreatePlannedInstallationRequest, CreatePlannedInstallationResponse>(functions, 'createPlannedInstallation');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  updatePlannedInstallation: async (req: UpdatePlannedInstallationRequest): Promise<UpdatePlannedInstallationResponse> => {
+    const fn = httpsCallable<UpdatePlannedInstallationRequest, UpdatePlannedInstallationResponse>(functions, 'updatePlannedInstallation');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  convertPlannedToRegistered: async (req: ConvertPlannedToRegisteredRequest): Promise<ConvertPlannedToRegisteredResponse> => {
+    const fn = httpsCallable<ConvertPlannedToRegisteredRequest, ConvertPlannedToRegisteredResponse>(functions, 'convertPlannedToRegistered');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  // Publication Rollout Monitoring
+  getPublicationRolloutProgress: async (req: GetPublicationRolloutProgressRequest): Promise<GetPublicationRolloutProgressResponse> => {
+    const fn = httpsCallable<GetPublicationRolloutProgressRequest, GetPublicationRolloutProgressResponse>(functions, 'getPublicationRolloutProgress');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  retryPublicationTarget: async (req: RetryPublicationTargetRequest): Promise<RetryPublicationTargetResponse> => {
+    const fn = httpsCallable<RetryPublicationTargetRequest, RetryPublicationTargetResponse>(functions, 'retryPublicationTarget');
     const result = await fn(req);
     return result.data;
   },

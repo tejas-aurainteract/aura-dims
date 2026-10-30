@@ -202,10 +202,19 @@ exports.listDesignRevisions = (0, https_1.onCall)(CALLABLE_OPTS, async (request)
     else if (departmentId) {
         query = query.where('departmentId', '==', departmentId);
     }
-    query = query.orderBy('createdAt', 'desc').limit(queryLimit && queryLimit > 0 ? queryLimit : 50);
-    const snapshot = await query.get();
+    const fetchLimit = queryLimit && queryLimit > 0 ? queryLimit : 50;
     const revisions = [];
-    snapshot.forEach((doc) => revisions.push(doc.data()));
+    try {
+        const orderedQuery = query.orderBy('createdAt', 'desc').limit(fetchLimit);
+        const snapshot = await orderedQuery.get();
+        snapshot.forEach((doc) => revisions.push(doc.data()));
+    }
+    catch (queryErr) {
+        console.warn('[listDesignRevisions] Ordered query failed (index building/missing), falling back to in-memory sort:', queryErr?.message || queryErr);
+        const snapshot = await query.limit(fetchLimit).get();
+        snapshot.forEach((doc) => revisions.push(doc.data()));
+        revisions.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    }
     return { revisions };
 });
 exports.getDesignRevision = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {

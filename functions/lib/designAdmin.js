@@ -417,15 +417,28 @@ exports.listDesigns = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     if (orientation && orientation !== 'all') {
         query = query.where('orientation', '==', orientation);
     }
-    query = query.orderBy('updatedAt', 'desc').limit(Math.min(pageSize, 50));
-    if (cursor) {
-        const cursorSnap = await db.collection('designs').doc(cursor).get();
-        if (cursorSnap.exists) {
-            query = query.startAfter(cursorSnap);
+    let snapshotDocs = [];
+    try {
+        let orderedQuery = query.orderBy('updatedAt', 'desc').limit(Math.min(pageSize, 50));
+        if (cursor) {
+            const cursorSnap = await db.collection('designs').doc(cursor).get();
+            if (cursorSnap.exists) {
+                orderedQuery = orderedQuery.startAfter(cursorSnap);
+            }
         }
+        const snapshot = await orderedQuery.get();
+        snapshotDocs = snapshot.docs;
     }
-    const snapshot = await query.get();
-    let designs = snapshot.docs.map((d) => {
+    catch (queryErr) {
+        console.warn('[listDesigns] Ordered query failed (index building/missing), falling back to in-memory sort:', queryErr?.message || queryErr);
+        const snapshot = await query.limit(Math.min(pageSize, 50)).get();
+        snapshotDocs = [...snapshot.docs].sort((a, b) => {
+            const aDate = a.data().updatedAt || '';
+            const bDate = b.data().updatedAt || '';
+            return bDate.localeCompare(aDate);
+        });
+    }
+    let designs = snapshotDocs.map((d) => {
         const data = d.data();
         // Omit the full document payload in listing to keep wire transfers bounded
         const { document, ...record } = data;
@@ -437,7 +450,7 @@ exports.listDesigns = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
         designs = designs.filter((des) => des.title.toLowerCase().includes(q) ||
             (des.description && des.description.toLowerCase().includes(q)));
     }
-    const nextCursor = snapshot.docs.length >= pageSize ? snapshot.docs[snapshot.docs.length - 1]?.id || null : null;
+    const nextCursor = snapshotDocs.length >= pageSize ? snapshotDocs[snapshotDocs.length - 1]?.id || null : null;
     return {
         designs,
         nextCursor,
@@ -546,9 +559,22 @@ exports.listTemplates = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     if (orientation && orientation !== 'all') {
         query = query.where('orientation', '==', orientation);
     }
-    query = query.orderBy('updatedAt', 'desc').limit(50);
-    const snap = await query.get();
-    let templates = snap.docs.map((d) => d.data());
+    let snapDocs = [];
+    try {
+        const orderedQuery = query.orderBy('updatedAt', 'desc').limit(50);
+        const snap = await orderedQuery.get();
+        snapDocs = snap.docs;
+    }
+    catch (queryErr) {
+        console.warn('[listTemplates] Ordered query failed (index building/missing), falling back to in-memory sort:', queryErr?.message || queryErr);
+        const snap = await query.limit(50).get();
+        snapDocs = [...snap.docs].sort((a, b) => {
+            const aDate = a.data().updatedAt || '';
+            const bDate = b.data().updatedAt || '';
+            return bDate.localeCompare(aDate);
+        });
+    }
+    let templates = snapDocs.map((d) => d.data());
     // Apply authorization filter
     if (caller.role !== 'admin') {
         templates = templates.filter((t) => t.scope === 'global' || (t.scope === 'department' && t.departmentId === caller.departmentId));

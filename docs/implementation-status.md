@@ -2,7 +2,7 @@
 
 **Company:** Aurainteract Private Limited  
 **Product:** Aura Digital Information Management System (Aura DIMS)  
-**Current Status:** Milestone 7 & Milestone 8 Complete (Acceptance Testing, Staging Architecture & Physical Digital Display Pilot Preparation)
+**Current Status:** Milestone 9 & Milestone 10 Complete (Initial Rollout Preparation & Controlled Expansion to ~20 Digital Displays)
 
 ---
 
@@ -21,6 +21,14 @@ Content Approval Workflows,    Digital Display Player Runtime,          End-to-E
 Playlist Sequencing,           Offline Autonomous Playback,             35-Requirement Traceability Matrix,      Strict Security Headers & CSP,
 Asia/Kolkata Scheduling,       Package Downloads, Heartbeats,           18-Step Live Cloud Flow Test Suite,      Physical Pilot Specs (Landscape & Portrait),
 Publication Manifests.         Delivery Reporting & Diagnostics.        24 Schedule Evaluator Tests (105 total). Staging Admin & Fixtures Automation.
+                                                                                                                        │
+┌───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+▼
+Milestone 9 (Complete)   ──>   Milestone 10 (Complete)            ──>   Milestone 11 (Future)
+Client Acceptance & Pilot,     Rollout Preparation & Controlled         Enterprise Fleet Expansion
+Production Verification,       Expansion to ~20 Digital Displays,       Toward 100 Displays,
+Blaze Plan Integration,        Bulk CSV Import & Preflight,             Automated Fleet Diagnostics &
+Composite Indexes Deployed.    12-Item Commissioning Checklist.         Advanced Content Automation.
 ```
 
 ---
@@ -32,6 +40,21 @@ Publication Manifests.         Delivery Reporting & Diagnostics.        24 Sched
 | **Product Branding "Aura DIMS"** | Complete | Header, Sidebar, Login, and meta tags reflect Aura DIMS identity |
 | **Digital Display Terminology** | Complete | Strictly enforced: devices are always "digital display", never bare screen/TV |
 | **Simplified Navigation Shell** | Complete | Primary routes: Dashboard, Displays, Content, Schedules, Approvals, Users, Settings |
+| **Rollout Inventory View** | Complete | Admin-only view inside Displays (`RolloutInventoryView.tsx`) tracking waves 0–4 separately from live fleet |
+| **Separation of Planned vs Operational** | Complete | Planned installations never count toward registered, online, or active fleet KPI counts |
+| **Bulk CSV Import Workflow** | Complete | `BulkImportModal.tsx` with downloadable template, preflight validation preview, and row error reporting |
+| **CSV Formula Injection Defense** | Complete | `displayExport.ts` sanitizes `=`, `+`, `-`, `@`, `\t`, `\r` with single-quote escaping |
+| **Bulk Department Head Assignment** | Complete | `BulkAssignmentModal.tsx` with role validation and departmental boundary protection |
+| **12-Item Commissioning Checklist** | Complete | `CommissioningDrawer.tsx` separating 5 automated software checks from 7 human physical checks |
+| **Commissioning Finalization Guard** | Complete | Backend & UI prevent certifying a display as commissioned until all 12 items pass |
+| **Actionable Fleet Filters** | Complete | Filters for Online, Offline, Never Connected, Suspended, Version Lag, Failed, Low Storage, Uncommissioned |
+| **Stale Telemetry Indicator** | Complete | Alerts and flags digital displays with no heartbeat for > 15 minutes |
+| **Publication Rollout Progress** | Complete | `PublicationRolloutModal.tsx` tracking intended, active, downloading, failed, and stale targets |
+| **Targeted Safe Sync Retry** | Complete | `retryPublicationTarget` resets delivery failure without disruptive full-fleet republishing |
+| **Phased Wave Rollout Plan** | Complete | `docs/rollout-plan.md` defining Wave 0 (Pilot 2), Wave 1 (5), Wave 2 (5), Wave 3 (4), Wave 4 (4) |
+| **Standard Operating Procedures (SOPs)**| Complete | `docs/operator-guide.md` with 8 standard operational procedures (hardware swap, enrollment reset, etc.) |
+| **Incident Response Runbooks** | Complete | `docs/incident-runbook.md` with RUN-01 through RUN-07 covering commissioning, delivery storms, rollbacks |
+| **Acceptance Test Suite** | Complete | `tests/acceptance/rollout-expansion.test.ts` (17 tests covering CSV, preflight, checklist, retry) |
 | **Content Hub & Subtabs** | Complete | `ContentPage` with tabs: Designs, Playlists, Media Library, Templates |
 | **Legacy Route Redirects** | Complete | Redirects `/content-library`, `/content-creator`, `/templates`, `/users-and-roles` |
 | **Development-Only Diagnostics** | Complete | Moved to `/dev/diagnostics`; excluded from production builds; unobtrusive header pill |

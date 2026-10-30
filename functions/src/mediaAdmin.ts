@@ -834,23 +834,35 @@ export const listMediaAssets = onCall<ListMediaAssetsRequest, Promise<ListMediaA
       query = query.where('status', 'in', ['ready', 'validating', 'failed', 'awaiting_upload']);
     }
 
-    // Order by creation time
-    query = query.orderBy('createdAt', 'desc');
-
-    if (cursor) {
-      const cursorDoc = await db.collection('assets').doc(cursor).get();
-      if (cursorDoc.exists) {
-        query = query.startAfter(cursorDoc);
-      }
-    }
-
     const boundedLimit = Math.min(Math.max(Number(pageSize) || 24, 1), 50);
-    query = query.limit(boundedLimit + 1);
 
-    const snapshot = await query.get();
-    const docs = snapshot.docs;
-    const hasNext = docs.length > boundedLimit;
-    const resultDocs = hasNext ? docs.slice(0, boundedLimit) : docs;
+    let docs: admin.firestore.QueryDocumentSnapshot[] = [];
+    let hasNext = false;
+    let resultDocs: admin.firestore.QueryDocumentSnapshot[] = [];
+
+    try {
+      let orderedQuery = query.orderBy('createdAt', 'desc');
+      if (cursor) {
+        const cursorDoc = await db.collection('assets').doc(cursor).get();
+        if (cursorDoc.exists) {
+          orderedQuery = orderedQuery.startAfter(cursorDoc);
+        }
+      }
+      const snapshot = await orderedQuery.limit(boundedLimit + 1).get();
+      docs = snapshot.docs;
+      hasNext = docs.length > boundedLimit;
+      resultDocs = hasNext ? docs.slice(0, boundedLimit) : docs;
+    } catch (queryErr: any) {
+      console.warn('[listMediaAssets] Ordered query failed (index building/missing), falling back to in-memory sort:', queryErr?.message || queryErr);
+      const snapshot = await query.limit(boundedLimit + 1).get();
+      docs = [...snapshot.docs].sort((a, b) => {
+        const aDate = (a.data().createdAt as string) || '';
+        const bDate = (b.data().createdAt as string) || '';
+        return bDate.localeCompare(aDate);
+      });
+      hasNext = docs.length > boundedLimit;
+      resultDocs = hasNext ? docs.slice(0, boundedLimit) : docs;
+    }
 
     let assets = resultDocs.map((d) => d.data() as MediaAsset);
 

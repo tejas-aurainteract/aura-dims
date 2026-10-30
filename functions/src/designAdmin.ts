@@ -529,17 +529,28 @@ export const listDesigns = onCall<ListDesignsRequest, Promise<ListDesignsRespons
       query = query.where('orientation', '==', orientation);
     }
 
-    query = query.orderBy('updatedAt', 'desc').limit(Math.min(pageSize, 50));
-
-    if (cursor) {
-      const cursorSnap = await db.collection('designs').doc(cursor).get();
-      if (cursorSnap.exists) {
-        query = query.startAfter(cursorSnap);
+    let snapshotDocs: admin.firestore.QueryDocumentSnapshot[] = [];
+    try {
+      let orderedQuery = query.orderBy('updatedAt', 'desc').limit(Math.min(pageSize, 50));
+      if (cursor) {
+        const cursorSnap = await db.collection('designs').doc(cursor).get();
+        if (cursorSnap.exists) {
+          orderedQuery = orderedQuery.startAfter(cursorSnap);
+        }
       }
+      const snapshot = await orderedQuery.get();
+      snapshotDocs = snapshot.docs;
+    } catch (queryErr: any) {
+      console.warn('[listDesigns] Ordered query failed (index building/missing), falling back to in-memory sort:', queryErr?.message || queryErr);
+      const snapshot = await query.limit(Math.min(pageSize, 50)).get();
+      snapshotDocs = [...snapshot.docs].sort((a, b) => {
+        const aDate = (a.data().updatedAt as string) || '';
+        const bDate = (b.data().updatedAt as string) || '';
+        return bDate.localeCompare(aDate);
+      });
     }
 
-    const snapshot = await query.get();
-    let designs: DesignRecord[] = snapshot.docs.map((d) => {
+    let designs: DesignRecord[] = snapshotDocs.map((d) => {
       const data = d.data();
       // Omit the full document payload in listing to keep wire transfers bounded
       const { document, ...record } = data;
@@ -557,7 +568,7 @@ export const listDesigns = onCall<ListDesignsRequest, Promise<ListDesignsRespons
     }
 
     const nextCursor =
-      snapshot.docs.length >= pageSize ? snapshot.docs[snapshot.docs.length - 1]?.id || null : null;
+      snapshotDocs.length >= pageSize ? snapshotDocs[snapshotDocs.length - 1]?.id || null : null;
 
     return {
       designs,
@@ -702,10 +713,22 @@ export const listTemplates = onCall<ListTemplatesRequest, Promise<ListTemplatesR
       query = query.where('orientation', '==', orientation);
     }
 
-    query = query.orderBy('updatedAt', 'desc').limit(50);
-    const snap = await query.get();
+    let snapDocs: admin.firestore.QueryDocumentSnapshot[] = [];
+    try {
+      const orderedQuery = query.orderBy('updatedAt', 'desc').limit(50);
+      const snap = await orderedQuery.get();
+      snapDocs = snap.docs;
+    } catch (queryErr: any) {
+      console.warn('[listTemplates] Ordered query failed (index building/missing), falling back to in-memory sort:', queryErr?.message || queryErr);
+      const snap = await query.limit(50).get();
+      snapDocs = [...snap.docs].sort((a, b) => {
+        const aDate = (a.data().updatedAt as string) || '';
+        const bDate = (b.data().updatedAt as string) || '';
+        return bDate.localeCompare(aDate);
+      });
+    }
 
-    let templates = snap.docs.map((d) => d.data() as TemplateRecord);
+    let templates = snapDocs.map((d) => d.data() as TemplateRecord);
 
     // Apply authorization filter
     if (caller.role !== 'admin') {
