@@ -40,7 +40,9 @@ service cloud.firestore {
     function getCallerDepartmentId() {
       return request.auth.token.departmentId != null
         ? request.auth.token.departmentId
-        : getUserData().departmentId;
+        : (exists(/databases/$(database)/documents/users/$(request.auth.uid))
+           ? getUserData().departmentId
+           : null);
     }
 
     // Users Collection: /users/{userId}

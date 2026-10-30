@@ -39,6 +39,7 @@ import { MEDIA_CONSTRAINTS } from '@aura-dims/display-schema';
 const execFilePromise = promisify(execFile);
 const db = admin.firestore();
 const REGION = 'asia-south1'; // India (Mumbai) regional target
+const CALLABLE_OPTS = { region: REGION, cors: true };
 
 // Lazy binary path resolution
 function getFfmpegPath(): string {
@@ -157,7 +158,7 @@ async function recordMediaAudit(
 // ==============================================================================
 
 export const initiateMediaUpload = onCall<InitiateMediaUploadRequest, Promise<InitiateMediaUploadResponse>>(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { fileName, fileSizeBytes, declaredMimeType, departmentId, title, description, tags } = request.data;
@@ -292,7 +293,7 @@ export const initiateMediaUpload = onCall<InitiateMediaUploadRequest, Promise<In
 // ==============================================================================
 
 export const finalizeMediaUpload = onCall<FinalizeMediaUploadRequest, Promise<FinalizeMediaUploadResponse>>(
-  { region: REGION, memory: '1GiB', timeoutSeconds: 120 },
+  { ...CALLABLE_OPTS, memory: '1GiB', timeoutSeconds: 120 },
   async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { assetId } = request.data;
@@ -604,7 +605,7 @@ export const finalizeMediaUpload = onCall<FinalizeMediaUploadRequest, Promise<Fi
 // ==============================================================================
 
 export const getMediaPreviewUrl = onCall<GetMediaPreviewUrlRequest, Promise<GetMediaPreviewUrlResponse>>(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { assetId, kind = 'thumbnail' } = request.data;
@@ -673,7 +674,7 @@ export const getMediaPreviewUrl = onCall<GetMediaPreviewUrlRequest, Promise<GetM
 // ==============================================================================
 
 export const updateMediaMetadata = onCall<UpdateMediaMetadataRequest, Promise<UpdateMediaMetadataResponse>>(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { assetId, title, description, tags } = request.data;
@@ -739,7 +740,7 @@ export const updateMediaMetadata = onCall<UpdateMediaMetadataRequest, Promise<Up
 // ==============================================================================
 
 export const setMediaArchivedStatus = onCall<SetMediaArchivedRequest, Promise<SetMediaArchivedResponse>>(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { assetId, archived } = request.data;
@@ -805,7 +806,7 @@ export const setMediaArchivedStatus = onCall<SetMediaArchivedRequest, Promise<Se
 // ==============================================================================
 
 export const listMediaAssets = onCall<ListMediaAssetsRequest, Promise<ListMediaAssetsResponse>>(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { departmentId, mediaType, status, search, pageSize = 24, cursor, includeArchived = false } =
@@ -878,7 +879,7 @@ export const listMediaAssets = onCall<ListMediaAssetsRequest, Promise<ListMediaA
 // ==============================================================================
 
 export const cleanupExpiredUploads = onCall<CleanupExpiredUploadsRequest, Promise<CleanupExpiredUploadsResponse>>(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     if (caller.role !== 'admin') {

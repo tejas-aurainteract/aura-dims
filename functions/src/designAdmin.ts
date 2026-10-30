@@ -49,6 +49,7 @@ import {
 
 const db = admin.firestore();
 const REGION = 'asia-south1'; // India (Mumbai) regional target
+const CALLABLE_OPTS = { region: REGION, cors: true };
 
 // ==============================================================================
 // Authorization & Audit Helper Functions
@@ -165,7 +166,7 @@ function createBlankDesignDocument(
  * Create a new Design document (from blank or with initial layout).
  */
 export const createDesign = onCall<CreateDesignRequest, Promise<CreateDesignResponse>>(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { title, description, orientation, departmentId, initialDocument } = request.data;
@@ -259,7 +260,7 @@ export const createDesign = onCall<CreateDesignRequest, Promise<CreateDesignResp
  * Fetch a Design with full document payload, checking departmental permissions.
  */
 export const getDesign = onCall<GetDesignRequest, Promise<GetDesignResponse>>(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { designId } = request.data;
@@ -291,7 +292,7 @@ export const getDesign = onCall<GetDesignRequest, Promise<GetDesignResponse>>(
  * Update a Design with optimistic concurrency revision checking and schema validation.
  */
 export const updateDesign = onCall<UpdateDesignRequest, Promise<UpdateDesignResponse>>(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { designId, title, description, expectedRevision, document, thumbnailSvg } = request.data;
@@ -378,7 +379,7 @@ export const updateDesign = onCall<UpdateDesignRequest, Promise<UpdateDesignResp
  * Duplicate a Design into an independent fresh copy.
  */
 export const duplicateDesign = onCall<DuplicateDesignRequest, Promise<DuplicateDesignResponse>>(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { designId, newTitle } = request.data;
@@ -463,7 +464,7 @@ export const duplicateDesign = onCall<DuplicateDesignRequest, Promise<DuplicateD
  * Archive or restore a Design.
  */
 export const setDesignArchivedStatus = onCall<SetDesignArchivedRequest, Promise<SetDesignArchivedResponse>>(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { designId, archived } = request.data;
@@ -504,7 +505,7 @@ export const setDesignArchivedStatus = onCall<SetDesignArchivedRequest, Promise<
  * List Designs with pagination and departmental filtering.
  */
 export const listDesigns = onCall<ListDesignsRequest, Promise<ListDesignsResponse>>(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { departmentId, orientation, status, search, pageSize = 12, cursor } = request.data;
@@ -572,7 +573,7 @@ export const listDesigns = onCall<ListDesignsRequest, Promise<ListDesignsRespons
 export const convertDesignOrientation = onCall<
   ConvertDesignOrientationRequest,
   Promise<ConvertDesignOrientationResponse>
->({ region: REGION }, async (request) => {
+>(CALLABLE_OPTS, async (request) => {
   const caller = await getAuthenticatedCaller(request.auth);
   const { designId, targetOrientation, expectedRevision } = request.data;
 
@@ -682,7 +683,7 @@ export const convertDesignOrientation = onCall<
  * List available templates (global + department scoped).
  */
 export const listTemplates = onCall<ListTemplatesRequest, Promise<ListTemplatesResponse>>(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { departmentId, category, orientation, includeArchived = false } = request.data;
@@ -725,7 +726,7 @@ export const listTemplates = onCall<ListTemplatesRequest, Promise<ListTemplatesR
  * Create a reusable template.
  */
 export const createTemplate = onCall<CreateTemplateRequest, Promise<CreateTemplateResponse>>(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { title, description, category, scope, departmentId, document, thumbnailSvg } = request.data;
@@ -805,7 +806,7 @@ export const createTemplate = onCall<CreateTemplateRequest, Promise<CreateTempla
 export const instantiateTemplate = onCall<
   InstantiateTemplateRequest,
   Promise<InstantiateTemplateResponse>
->({ region: REGION }, async (request) => {
+>(CALLABLE_OPTS, async (request) => {
   const caller = await getAuthenticatedCaller(request.auth);
   const { templateId, title, departmentId } = request.data;
 
@@ -896,7 +897,7 @@ export const instantiateTemplate = onCall<
 export const setTemplateArchivedStatus = onCall<
   SetTemplateArchivedRequest,
   Promise<SetTemplateArchivedResponse>
->({ region: REGION }, async (request) => {
+>(CALLABLE_OPTS, async (request) => {
   const caller = await getAuthenticatedCaller(request.auth);
   const { templateId, archived } = request.data;
 
@@ -2260,7 +2261,7 @@ function buildStarterTemplateDefinitions(): Array<{
 export const seedStarterTemplates = onCall<
   SeedStarterTemplatesRequest,
   Promise<SeedStarterTemplatesResponse>
->({ region: REGION }, async (request) => {
+>(CALLABLE_OPTS, async (request) => {
   const caller = await getAuthenticatedCaller(request.auth);
 
   if (caller.role !== 'admin') {

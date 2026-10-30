@@ -40,7 +40,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEVICE_UID_PREFIX = exports.REGION = exports.db = void 0;
+exports.DEVICE_UID_PREFIX = exports.CALLABLE_OPTS = exports.REGION = exports.db = void 0;
 exports.isDevicePrincipal = isDevicePrincipal;
 exports.getAuthenticatedCaller = getAuthenticatedCaller;
 exports.assertAdminCaller = assertAdminCaller;
@@ -59,6 +59,11 @@ if (admin.apps.length === 0) {
 exports.db = admin.firestore();
 exports.db.settings({ ignoreUndefinedProperties: true });
 exports.REGION = 'asia-south1'; // India (Mumbai) regional target
+/** Standard callable options with CORS enabled for cross-domain browser invocations */
+exports.CALLABLE_OPTS = {
+    region: exports.REGION,
+    cors: true,
+};
 /** Reserved UID namespace for digital display device identities. */
 exports.DEVICE_UID_PREFIX = 'dvc_';
 function isDevicePrincipal(auth) {

@@ -25,7 +25,7 @@ import {
   Building,
   Activity,
 } from 'lucide-react';
-import { collection, onSnapshot, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, getDocs, query, where, type Query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
@@ -95,74 +95,96 @@ export const DisplaysPage: React.FC = () => {
     loadMetadata();
   }, []);
 
-  // Real-time Firestore subscription to /displays
+  // Real-time Firestore subscription to /displays with server fallback
   useEffect(() => {
     setLoading(true);
-    let q = collection(db, 'displays');
+
+    const mapDisplayRecord = (id: string, d: any): DisplayView => {
+      const nowMs = Date.now();
+      let lastHeartbeatMs: number | null = null;
+      if (d.lastHeartbeatAt) {
+        lastHeartbeatMs = typeof d.lastHeartbeatAt.toMillis === 'function'
+          ? d.lastHeartbeatAt.toMillis()
+          : new Date(d.lastHeartbeatAt).getTime();
+      }
+
+      let connectivity: 'never_connected' | 'online' | 'offline' = 'never_connected';
+      if (lastHeartbeatMs !== null && !isNaN(lastHeartbeatMs)) {
+        connectivity = nowMs - lastHeartbeatMs <= 180_000 ? 'online' : 'offline';
+      }
+
+      return {
+        id,
+        name: d.name || 'Unnamed Digital Display',
+        siteId: d.siteId || '',
+        siteName: sites[d.siteId] || d.siteId || 'Site Unassigned',
+        locationDescription: d.locationDescription || '',
+        departmentId: d.departmentId || '',
+        departmentName: departments[d.departmentId] || d.departmentId || 'Department Unassigned',
+        groupIds: d.groupIds || [],
+        groupNames: [],
+        orientation: d.orientation || 'landscape',
+        configuredResolution: d.configuredResolution || { width: 1920, height: 1080 },
+        lifecycle: d.lifecycle || 'active',
+        desiredPublicationId: d.desiredPublicationId || null,
+        activePublicationId: d.activePublicationId || null,
+        deliveryStage: d.deliveryStage || d.reported?.deliveryStage || 'idle',
+        lastSyncAt: d.lastSyncAt ? (typeof d.lastSyncAt.toDate === 'function' ? d.lastSyncAt.toDate().toISOString() : String(d.lastSyncAt)) : null,
+        lastDeliveryError: d.lastDeliveryError || null,
+        lastHeartbeatAt: d.lastHeartbeatAt ? (typeof d.lastHeartbeatAt.toDate === 'function' ? d.lastHeartbeatAt.toDate().toISOString() : String(d.lastHeartbeatAt)) : null,
+        reported: d.reported || null,
+        connectivity,
+        enrolledAt: d.enrolledAt ? (typeof d.enrolledAt.toDate === 'function' ? d.enrolledAt.toDate().toISOString() : String(d.enrolledAt)) : null,
+        createdBy: d.createdBy || '',
+        createdAt: d.createdAt ? (typeof d.createdAt.toDate === 'function' ? d.createdAt.toDate().toISOString() : String(d.createdAt)) : '',
+        updatedAt: d.updatedAt ? (typeof d.updatedAt.toDate === 'function' ? d.updatedAt.toDate().toISOString() : String(d.updatedAt)) : '',
+      };
+    };
+
+    const fetchViaApi = async () => {
+      try {
+        const res = await api.listDisplays({
+          departmentId: isAdmin ? undefined : (userProfile?.departmentId || undefined),
+        });
+        const items = (res.displays || []).map((d) => mapDisplayRecord(d.id, d));
+        items.sort((a, b) => a.name.localeCompare(b.name));
+        setDisplays(items);
+        setError(null);
+      } catch (apiErr: any) {
+        console.error('[Aura DIMS] Failed to fetch digital displays via API:', apiErr);
+        setError(apiErr?.message || 'Failed to stream digital display fleet telemetry.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    let q: Query;
+    if (isAdmin) {
+      q = collection(db, 'displays');
+    } else if (userProfile?.departmentId) {
+      q = query(collection(db, 'displays'), where('departmentId', '==', userProfile.departmentId));
+    } else {
+      // Caller has neither admin role nor department - fetch via API to get authoritative server response
+      fetchViaApi();
+      return;
+    }
+
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const nowMs = Date.now();
         const items: DisplayView[] = [];
-
         snapshot.forEach((doc) => {
-          const d = doc.data() as any;
-          // Security filter for Department Heads
-          if (!isAdmin && userProfile?.departmentId && d.departmentId !== userProfile.departmentId) {
-            return;
-          }
-
-          // Compute derived connectivity (3-minute online window)
-          let lastHeartbeatMs: number | null = null;
-          if (d.lastHeartbeatAt) {
-            lastHeartbeatMs = typeof d.lastHeartbeatAt.toMillis === 'function'
-              ? d.lastHeartbeatAt.toMillis()
-              : new Date(d.lastHeartbeatAt).getTime();
-          }
-
-          let connectivity: 'never_connected' | 'online' | 'offline' = 'never_connected';
-          if (lastHeartbeatMs !== null) {
-            connectivity = nowMs - lastHeartbeatMs <= 180_000 ? 'online' : 'offline';
-          }
-
-          items.push({
-            id: doc.id,
-            name: d.name || 'Unnamed Digital Display',
-            siteId: d.siteId || '',
-            siteName: sites[d.siteId] || d.siteId || 'Site Unassigned',
-            locationDescription: d.locationDescription || '',
-            departmentId: d.departmentId || '',
-            departmentName: departments[d.departmentId] || d.departmentId || 'Department Unassigned',
-            groupIds: d.groupIds || [],
-            groupNames: [],
-            orientation: d.orientation || 'landscape',
-            configuredResolution: d.configuredResolution || { width: 1920, height: 1080 },
-            lifecycle: d.lifecycle || 'active',
-            desiredPublicationId: d.desiredPublicationId || null,
-            activePublicationId: d.activePublicationId || null,
-            deliveryStage: d.deliveryStage || d.reported?.deliveryStage || 'idle',
-            lastSyncAt: d.lastSyncAt ? (typeof d.lastSyncAt.toDate === 'function' ? d.lastSyncAt.toDate().toISOString() : d.lastSyncAt) : null,
-            lastDeliveryError: d.lastDeliveryError || null,
-            lastHeartbeatAt: d.lastHeartbeatAt ? (typeof d.lastHeartbeatAt.toDate === 'function' ? d.lastHeartbeatAt.toDate().toISOString() : d.lastHeartbeatAt) : null,
-            reported: d.reported || null,
-            connectivity,
-            enrolledAt: d.enrolledAt ? (typeof d.enrolledAt.toDate === 'function' ? d.enrolledAt.toDate().toISOString() : d.enrolledAt) : null,
-            createdBy: d.createdBy || '',
-            createdAt: d.createdAt ? (typeof d.createdAt.toDate === 'function' ? d.createdAt.toDate().toISOString() : d.createdAt) : '',
-            updatedAt: d.updatedAt ? (typeof d.updatedAt.toDate === 'function' ? d.updatedAt.toDate().toISOString() : d.updatedAt) : '',
-          });
+          items.push(mapDisplayRecord(doc.id, doc.data()));
         });
-
-        // Sort: active displays first, then by name
         items.sort((a, b) => a.name.localeCompare(b.name));
         setDisplays(items);
         setLoading(false);
         setError(null);
       },
       (err) => {
-        console.error('Digital displays subscription error:', err);
-        setError('Failed to stream digital display fleet telemetry.');
-        setLoading(false);
+        console.warn('[Aura DIMS] Real-time digital displays subscription warning (falling back to backend API):', err?.message || err);
+        // Resilient fallback: Query via Admin SDK callable function
+        fetchViaApi();
       }
     );
 

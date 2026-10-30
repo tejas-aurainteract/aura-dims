@@ -90,6 +90,7 @@ import {
 const db = admin.firestore();
 const storage = admin.storage();
 const REGION = 'asia-south1';
+const CALLABLE_OPTS = { region: REGION, cors: true };
 
 // ==============================================================================
 // Authorization & Audit Helpers
@@ -161,7 +162,7 @@ function computeSha256(content: string): string {
 // ==============================================================================
 
 export const createDesignRevision = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<CreateDesignRevisionResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { designId } = request.data as CreateDesignRevisionRequest;
@@ -276,7 +277,7 @@ export const createDesignRevision = onCall(
 );
 
 export const listDesignRevisions = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<ListDesignRevisionsResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { designId, departmentId, limit: queryLimit } = (request.data || {}) as ListDesignRevisionsRequest;
@@ -304,7 +305,7 @@ export const listDesignRevisions = onCall(
 );
 
 export const getDesignRevision = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<GetDesignRevisionResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { revisionId } = request.data as GetDesignRevisionRequest;
@@ -330,7 +331,7 @@ export const getDesignRevision = onCall(
 // ==============================================================================
 
 export const createPlaylist = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<CreatePlaylistResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { title, description, departmentId, orientation, items } = request.data as CreatePlaylistRequest;
@@ -394,7 +395,7 @@ export const createPlaylist = onCall(
 );
 
 export const updatePlaylist = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<UpdatePlaylistResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { playlistId, title, description, items, revision } = request.data as UpdatePlaylistRequest;
@@ -472,7 +473,7 @@ export const updatePlaylist = onCall(
 );
 
 export const getPlaylist = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<GetPlaylistResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { playlistId } = request.data as GetPlaylistRequest;
@@ -490,7 +491,7 @@ export const getPlaylist = onCall(
 );
 
 export const listPlaylists = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<ListPlaylistsResponse> => {
     try {
       const caller = await getAuthenticatedCaller(request.auth);
@@ -536,7 +537,7 @@ export const listPlaylists = onCall(
 );
 
 export const setPlaylistArchivedStatus = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<SetPlaylistArchivedResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { playlistId, isArchived } = request.data as SetPlaylistArchivedRequest;
@@ -568,7 +569,7 @@ export const setPlaylistArchivedStatus = onCall(
 );
 
 export const createPlaylistRevision = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<CreatePlaylistRevisionResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { playlistId } = request.data as CreatePlaylistRevisionRequest;
@@ -730,7 +731,7 @@ async function freezeDesignInternal(designId: string, caller: UserProfile): Prom
 }
 
 export const getPlaylistRevision = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<GetPlaylistRevisionResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { revisionId } = request.data as GetPlaylistRevisionRequest;
@@ -819,7 +820,7 @@ async function validateAndResolveTargets(
 }
 
 export const createSchedule = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<CreateScheduleResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const {
@@ -891,7 +892,7 @@ export const createSchedule = onCall(
 );
 
 export const updateSchedule = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<UpdateScheduleResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const {
@@ -977,7 +978,7 @@ export const updateSchedule = onCall(
 );
 
 export const getSchedule = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<GetScheduleResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { scheduleId } = request.data as GetScheduleRequest;
@@ -995,7 +996,7 @@ export const getSchedule = onCall(
 );
 
 export const listSchedules = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<ListSchedulesResponse> => {
     try {
       const caller = await getAuthenticatedCaller(request.auth);
@@ -1041,7 +1042,7 @@ export const listSchedules = onCall(
 );
 
 export const setScheduleStatus = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<SetScheduleStatusResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { scheduleId, status } = request.data as SetScheduleStatusRequest;
@@ -1079,7 +1080,7 @@ export const setScheduleStatus = onCall(
 // ==============================================================================
 
 export const submitForApproval = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<SubmitForApprovalResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { scheduleId } = request.data as SubmitForApprovalRequest;
@@ -1163,7 +1164,7 @@ export const submitForApproval = onCall(
 );
 
 export const reviewApproval = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<ReviewApprovalResponse> => {
     const caller = await assertAdminCaller(request.auth);
     const { approvalId, decision, rejectionReason } = request.data as ReviewApprovalRequest;
@@ -1246,7 +1247,7 @@ export const reviewApproval = onCall(
 );
 
 export const withdrawApproval = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<WithdrawApprovalResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { approvalId, reason } = request.data as WithdrawApprovalRequest;
@@ -1305,7 +1306,7 @@ export const withdrawApproval = onCall(
 );
 
 export const listApprovals = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<ListApprovalsResponse> => {
     try {
       const caller = await getAuthenticatedCaller(request.auth);
@@ -1347,7 +1348,7 @@ export const listApprovals = onCall(
 );
 
 export const getApproval = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<GetApprovalResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { approvalId } = request.data as GetApprovalRequest;
@@ -1369,7 +1370,7 @@ export const getApproval = onCall(
 // ==============================================================================
 
 export const preparePublication = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<PreparePublicationResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { scheduleId, idempotencyKey } = request.data as PreparePublicationRequest;
@@ -1608,7 +1609,7 @@ export const preparePublication = onCall(
 );
 
 export const rollbackPublication = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<RollbackPublicationResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { displayId, targetPublicationId } = request.data as RollbackPublicationRequest;
@@ -1657,7 +1658,7 @@ export const rollbackPublication = onCall(
 );
 
 export const setUserDirectPublishPermission = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<SetUserDirectPublishPermissionResponse> => {
     const caller = await assertAdminCaller(request.auth);
     const { userId, canDirectPublish } = request.data as SetUserDirectPublishPermissionRequest;
@@ -1703,7 +1704,7 @@ export const setUserDirectPublishPermission = onCall(
 );
 
 export const evaluateSchedulePreview = onCall(
-  { region: REGION },
+  CALLABLE_OPTS,
   async (request): Promise<EvaluateSchedulePreviewResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { displayId, targetIsoString } = request.data as EvaluateSchedulePreviewRequest;

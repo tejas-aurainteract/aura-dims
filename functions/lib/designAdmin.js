@@ -48,6 +48,7 @@ const crypto = __importStar(require("node:crypto"));
 const display_schema_1 = require("@aura-dims/display-schema");
 const db = admin.firestore();
 const REGION = 'asia-south1'; // India (Mumbai) regional target
+const CALLABLE_OPTS = { region: REGION, cors: true };
 // ==============================================================================
 // Authorization & Audit Helper Functions
 // ==============================================================================
@@ -133,7 +134,7 @@ function createBlankDesignDocument(orientation) {
 /**
  * Create a new Design document (from blank or with initial layout).
  */
-exports.createDesign = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.createDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { title, description, orientation, departmentId, initialDocument } = request.data;
     if (!title || typeof title !== 'string' || !title.trim()) {
@@ -211,7 +212,7 @@ exports.createDesign = (0, https_1.onCall)({ region: REGION }, async (request) =
 /**
  * Fetch a Design with full document payload, checking departmental permissions.
  */
-exports.getDesign = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.getDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { designId } = request.data;
     if (!designId) {
@@ -231,7 +232,7 @@ exports.getDesign = (0, https_1.onCall)({ region: REGION }, async (request) => {
 /**
  * Update a Design with optimistic concurrency revision checking and schema validation.
  */
-exports.updateDesign = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.updateDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { designId, title, description, expectedRevision, document, thumbnailSvg } = request.data;
     if (!designId) {
@@ -296,7 +297,7 @@ exports.updateDesign = (0, https_1.onCall)({ region: REGION }, async (request) =
 /**
  * Duplicate a Design into an independent fresh copy.
  */
-exports.duplicateDesign = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.duplicateDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { designId, newTitle } = request.data;
     const sourceSnap = await db.collection('designs').doc(designId).get();
@@ -366,7 +367,7 @@ exports.duplicateDesign = (0, https_1.onCall)({ region: REGION }, async (request
 /**
  * Archive or restore a Design.
  */
-exports.setDesignArchivedStatus = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.setDesignArchivedStatus = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { designId, archived } = request.data;
     const ref = db.collection('designs').doc(designId);
@@ -397,7 +398,7 @@ exports.setDesignArchivedStatus = (0, https_1.onCall)({ region: REGION }, async 
 /**
  * List Designs with pagination and departmental filtering.
  */
-exports.listDesigns = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.listDesigns = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { departmentId, orientation, status, search, pageSize = 12, cursor } = request.data;
     let query = db.collection('designs');
@@ -446,7 +447,7 @@ exports.listDesigns = (0, https_1.onCall)({ region: REGION }, async (request) =>
  * Explicit conversion between landscape (1920x1080) and portrait (1080x1920).
  * Scales element bounding boxes proportionally to new dimensions without stretching media.
  */
-exports.convertDesignOrientation = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.convertDesignOrientation = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { designId, targetOrientation, expectedRevision } = request.data;
     if (targetOrientation !== 'landscape' && targetOrientation !== 'portrait') {
@@ -532,7 +533,7 @@ exports.convertDesignOrientation = (0, https_1.onCall)({ region: REGION }, async
 /**
  * List available templates (global + department scoped).
  */
-exports.listTemplates = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.listTemplates = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { departmentId, category, orientation, includeArchived = false } = request.data;
     let query = db.collection('templates');
@@ -560,7 +561,7 @@ exports.listTemplates = (0, https_1.onCall)({ region: REGION }, async (request) 
 /**
  * Create a reusable template.
  */
-exports.createTemplate = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.createTemplate = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { title, description, category, scope, departmentId, document, thumbnailSvg } = request.data;
     if (!title || !title.trim()) {
@@ -618,7 +619,7 @@ exports.createTemplate = (0, https_1.onCall)({ region: REGION }, async (request)
 /**
  * Instantiate a template into a new independent design record.
  */
-exports.instantiateTemplate = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.instantiateTemplate = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { templateId, title, departmentId } = request.data;
     const tplSnap = await db.collection('templates').doc(templateId).get();
@@ -691,7 +692,7 @@ exports.instantiateTemplate = (0, https_1.onCall)({ region: REGION }, async (req
 /**
  * Archive or restore a template.
  */
-exports.setTemplateArchivedStatus = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.setTemplateArchivedStatus = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { templateId, archived } = request.data;
     const ref = db.collection('templates').doc(templateId);
@@ -2015,7 +2016,7 @@ function buildStarterTemplateDefinitions() {
 /**
  * Idempotent seeder for the 8 starter templates.
  */
-exports.seedStarterTemplates = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.seedStarterTemplates = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     if (caller.role !== 'admin') {
         throw new https_1.HttpsError('permission-denied', 'Only System Administrators can seed starter templates.');

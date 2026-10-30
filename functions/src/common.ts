@@ -19,6 +19,12 @@ export const db = admin.firestore();
 db.settings({ ignoreUndefinedProperties: true });
 export const REGION = 'asia-south1'; // India (Mumbai) regional target
 
+/** Standard callable options with CORS enabled for cross-domain browser invocations */
+export const CALLABLE_OPTS = {
+  region: REGION,
+  cors: true,
+};
+
 /** Reserved UID namespace for digital display device identities. */
 export const DEVICE_UID_PREFIX = 'dvc_';
 

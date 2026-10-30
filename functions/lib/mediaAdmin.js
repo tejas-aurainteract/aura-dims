@@ -58,6 +58,7 @@ const display_schema_1 = require("@aura-dims/display-schema");
 const execFilePromise = (0, node_util_1.promisify)(node_child_process_1.execFile);
 const db = admin.firestore();
 const REGION = 'asia-south1'; // India (Mumbai) regional target
+const CALLABLE_OPTS = { region: REGION, cors: true };
 // Lazy binary path resolution
 function getFfmpegPath() {
     try {
@@ -160,7 +161,7 @@ async function recordMediaAudit(actorId, action, targetId, departmentId, details
 // ==============================================================================
 // 1. initiateMediaUpload
 // ==============================================================================
-exports.initiateMediaUpload = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.initiateMediaUpload = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { fileName, fileSizeBytes, declaredMimeType, departmentId, title, description, tags } = request.data;
     if (!fileName || typeof fileName !== 'string') {
@@ -262,7 +263,7 @@ exports.initiateMediaUpload = (0, https_1.onCall)({ region: REGION }, async (req
 // ==============================================================================
 // 2. finalizeMediaUpload
 // ==============================================================================
-exports.finalizeMediaUpload = (0, https_1.onCall)({ region: REGION, memory: '1GiB', timeoutSeconds: 120 }, async (request) => {
+exports.finalizeMediaUpload = (0, https_1.onCall)({ ...CALLABLE_OPTS, memory: '1GiB', timeoutSeconds: 120 }, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { assetId } = request.data;
     if (!assetId || typeof assetId !== 'string') {
@@ -498,7 +499,7 @@ exports.finalizeMediaUpload = (0, https_1.onCall)({ region: REGION, memory: '1Gi
 // ==============================================================================
 // 3. getMediaPreviewUrl
 // ==============================================================================
-exports.getMediaPreviewUrl = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.getMediaPreviewUrl = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { assetId, kind = 'thumbnail' } = request.data;
     if (!assetId || typeof assetId !== 'string') {
@@ -552,7 +553,7 @@ exports.getMediaPreviewUrl = (0, https_1.onCall)({ region: REGION }, async (requ
 // ==============================================================================
 // 4. updateMediaMetadata
 // ==============================================================================
-exports.updateMediaMetadata = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.updateMediaMetadata = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { assetId, title, description, tags } = request.data;
     if (!assetId || typeof assetId !== 'string') {
@@ -599,7 +600,7 @@ exports.updateMediaMetadata = (0, https_1.onCall)({ region: REGION }, async (req
 // ==============================================================================
 // 5. setMediaArchivedStatus
 // ==============================================================================
-exports.setMediaArchivedStatus = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.setMediaArchivedStatus = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { assetId, archived } = request.data;
     if (!assetId || typeof assetId !== 'string') {
@@ -641,7 +642,7 @@ exports.setMediaArchivedStatus = (0, https_1.onCall)({ region: REGION }, async (
 // ==============================================================================
 // 6. listMediaAssets
 // ==============================================================================
-exports.listMediaAssets = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.listMediaAssets = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { departmentId, mediaType, status, search, pageSize = 24, cursor, includeArchived = false } = request.data || {};
     let query = db.collection('assets');
@@ -695,7 +696,7 @@ exports.listMediaAssets = (0, https_1.onCall)({ region: REGION }, async (request
 // ==============================================================================
 // 7. cleanupExpiredUploads
 // ==============================================================================
-exports.cleanupExpiredUploads = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.cleanupExpiredUploads = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     if (caller.role !== 'admin') {
         throw new https_1.HttpsError('permission-denied', 'Only System Administrators can invoke storage cleanup.');

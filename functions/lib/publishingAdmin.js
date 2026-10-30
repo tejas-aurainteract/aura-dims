@@ -53,6 +53,7 @@ const display_schema_1 = require("@aura-dims/display-schema");
 const db = admin.firestore();
 const storage = admin.storage();
 const REGION = 'asia-south1';
+const CALLABLE_OPTS = { region: REGION, cors: true };
 // ==============================================================================
 // Authorization & Audit Helpers
 // ==============================================================================
@@ -102,7 +103,7 @@ function computeSha256(content) {
 // ==============================================================================
 // 1. Immutable Design Revisions
 // ==============================================================================
-exports.createDesignRevision = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.createDesignRevision = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { designId } = request.data;
     if (!designId) {
@@ -188,7 +189,7 @@ exports.createDesignRevision = (0, https_1.onCall)({ region: REGION }, async (re
     });
     return { revision: revisionRecord };
 });
-exports.listDesignRevisions = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.listDesignRevisions = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { designId, departmentId, limit: queryLimit } = (request.data || {});
     let query = db.collection('designRevisions');
@@ -207,7 +208,7 @@ exports.listDesignRevisions = (0, https_1.onCall)({ region: REGION }, async (req
     snapshot.forEach((doc) => revisions.push(doc.data()));
     return { revisions };
 });
-exports.getDesignRevision = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.getDesignRevision = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { revisionId } = request.data;
     if (!revisionId) {
@@ -224,7 +225,7 @@ exports.getDesignRevision = (0, https_1.onCall)({ region: REGION }, async (reque
 // ==============================================================================
 // 2. Playlists & Playlist Revisions
 // ==============================================================================
-exports.createPlaylist = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.createPlaylist = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { title, description, departmentId, orientation, items } = request.data;
     assertDepartmentAccess(caller, departmentId);
@@ -276,7 +277,7 @@ exports.createPlaylist = (0, https_1.onCall)({ region: REGION }, async (request)
     });
     return { playlist: playlistRecord };
 });
-exports.updatePlaylist = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.updatePlaylist = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { playlistId, title, description, items, revision } = request.data;
     if (!playlistId) {
@@ -336,7 +337,7 @@ exports.updatePlaylist = (0, https_1.onCall)({ region: REGION }, async (request)
     });
     return { playlist: updatedRecord };
 });
-exports.getPlaylist = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.getPlaylist = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { playlistId } = request.data;
     const doc = await db.collection('playlists').doc(playlistId).get();
@@ -347,7 +348,7 @@ exports.getPlaylist = (0, https_1.onCall)({ region: REGION }, async (request) =>
     assertDepartmentAccess(caller, playlist.departmentId);
     return { playlist };
 });
-exports.listPlaylists = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.listPlaylists = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     try {
         const caller = await getAuthenticatedCaller(request.auth);
         const { departmentId, orientation, includeArchived, limit: queryLimit } = (request.data || {});
@@ -386,7 +387,7 @@ exports.listPlaylists = (0, https_1.onCall)({ region: REGION }, async (request) 
         throw new https_1.HttpsError('internal', err?.message || 'Failed to list playlists.');
     }
 });
-exports.setPlaylistArchivedStatus = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.setPlaylistArchivedStatus = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { playlistId, isArchived } = request.data;
     const ref = db.collection('playlists').doc(playlistId);
@@ -409,7 +410,7 @@ exports.setPlaylistArchivedStatus = (0, https_1.onCall)({ region: REGION }, asyn
     });
     return { playlistId, isArchived };
 });
-exports.createPlaylistRevision = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.createPlaylistRevision = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { playlistId } = request.data;
     const pDoc = await db.collection('playlists').doc(playlistId).get();
@@ -550,7 +551,7 @@ async function freezeDesignInternal(designId, caller) {
     await revRef.set(revision);
     return revision;
 }
-exports.getPlaylistRevision = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.getPlaylistRevision = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { revisionId } = request.data;
     const doc = await db.collection('playlistRevisions').doc(revisionId).get();
@@ -604,7 +605,7 @@ async function validateAndResolveTargets(caller, targetDisplayIds, orientation, 
     }
     return { displayIds: resolvedIds, displayNames: resolvedNames };
 }
-exports.createSchedule = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.createSchedule = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { title, departmentId, playlistRevisionId, playlistTitle, targetDisplayIds, orientation, scheduleRule, fallbackConfig, } = request.data;
     assertDepartmentAccess(caller, departmentId);
@@ -650,7 +651,7 @@ exports.createSchedule = (0, https_1.onCall)({ region: REGION }, async (request)
     });
     return { schedule: scheduleRecord };
 });
-exports.updateSchedule = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.updateSchedule = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { scheduleId, title, playlistRevisionId, playlistTitle, targetDisplayIds, scheduleRule, fallbackConfig, } = request.data;
     const ref = db.collection('schedules').doc(scheduleId);
@@ -708,7 +709,7 @@ exports.updateSchedule = (0, https_1.onCall)({ region: REGION }, async (request)
     });
     return { schedule: updated };
 });
-exports.getSchedule = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.getSchedule = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { scheduleId } = request.data;
     const doc = await db.collection('schedules').doc(scheduleId).get();
@@ -719,7 +720,7 @@ exports.getSchedule = (0, https_1.onCall)({ region: REGION }, async (request) =>
     assertDepartmentAccess(caller, schedule.departmentId);
     return { schedule };
 });
-exports.listSchedules = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.listSchedules = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     try {
         const caller = await getAuthenticatedCaller(request.auth);
         const { departmentId, displayId, status, limit: queryLimit } = (request.data || {});
@@ -758,7 +759,7 @@ exports.listSchedules = (0, https_1.onCall)({ region: REGION }, async (request) 
         throw new https_1.HttpsError('internal', err?.message || 'Failed to list schedules.');
     }
 });
-exports.setScheduleStatus = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.setScheduleStatus = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { scheduleId, status } = request.data;
     const ref = db.collection('schedules').doc(scheduleId);
@@ -786,7 +787,7 @@ exports.setScheduleStatus = (0, https_1.onCall)({ region: REGION }, async (reque
 // ==============================================================================
 // 4. Approval Workflows
 // ==============================================================================
-exports.submitForApproval = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.submitForApproval = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { scheduleId } = request.data;
     const sDoc = await db.collection('schedules').doc(scheduleId).get();
@@ -851,7 +852,7 @@ exports.submitForApproval = (0, https_1.onCall)({ region: REGION }, async (reque
     });
     return { approval: approvalRecord, schedule: updatedSchedule };
 });
-exports.reviewApproval = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.reviewApproval = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await assertAdminCaller(request.auth);
     const { approvalId, decision, rejectionReason } = request.data;
     if (!approvalId || !decision) {
@@ -916,7 +917,7 @@ exports.reviewApproval = (0, https_1.onCall)({ region: REGION }, async (request)
     });
     return { approval: updatedApproval, schedule: updatedSchedule };
 });
-exports.withdrawApproval = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.withdrawApproval = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { approvalId, reason } = request.data;
     const aDoc = await db.collection('approvals').doc(approvalId).get();
@@ -963,7 +964,7 @@ exports.withdrawApproval = (0, https_1.onCall)({ region: REGION }, async (reques
     });
     return { approval: updatedApproval, schedule: updatedSchedule };
 });
-exports.listApprovals = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.listApprovals = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     try {
         const caller = await getAuthenticatedCaller(request.auth);
         const { departmentId, status, limit: queryLimit } = (request.data || {});
@@ -999,7 +1000,7 @@ exports.listApprovals = (0, https_1.onCall)({ region: REGION }, async (request) 
         throw new https_1.HttpsError('internal', err?.message || 'Failed to list approvals.');
     }
 });
-exports.getApproval = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.getApproval = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { approvalId } = request.data;
     const doc = await db.collection('approvals').doc(approvalId).get();
@@ -1013,7 +1014,7 @@ exports.getApproval = (0, https_1.onCall)({ region: REGION }, async (request) =>
 // ==============================================================================
 // 5. Publication Preparation & Rollback
 // ==============================================================================
-exports.preparePublication = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.preparePublication = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { scheduleId, idempotencyKey } = request.data;
     if (!scheduleId || !idempotencyKey) {
@@ -1205,7 +1206,7 @@ exports.preparePublication = (0, https_1.onCall)({ region: REGION }, async (requ
         targetedDisplayCount: displayIds.length,
     };
 });
-exports.rollbackPublication = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.rollbackPublication = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { displayId, targetPublicationId } = request.data;
     const dRef = db.collection('displays').doc(displayId);
@@ -1240,7 +1241,7 @@ exports.rollbackPublication = (0, https_1.onCall)({ region: REGION }, async (req
     });
     return { displayId, activePublicationId: targetPublicationId };
 });
-exports.setUserDirectPublishPermission = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.setUserDirectPublishPermission = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await assertAdminCaller(request.auth);
     const { userId, canDirectPublish } = request.data;
     if (!userId || typeof canDirectPublish !== 'boolean') {
@@ -1277,7 +1278,7 @@ exports.setUserDirectPublishPermission = (0, https_1.onCall)({ region: REGION },
     });
     return { userId, canDirectPublish };
 });
-exports.evaluateSchedulePreview = (0, https_1.onCall)({ region: REGION }, async (request) => {
+exports.evaluateSchedulePreview = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { displayId, targetIsoString } = request.data;
     const dDoc = await db.collection('displays').doc(displayId).get();
