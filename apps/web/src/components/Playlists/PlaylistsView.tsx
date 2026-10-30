@@ -22,7 +22,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { api } from '@/lib/api';
+import { api, getApiErrorMessage } from '@/lib/api';
 import type { PlaylistRecord, DisplayOrientation } from '@aura-dims/display-schema';
 import { CreatePlaylistModal } from './CreatePlaylistModal';
 import { PlaylistPreviewModal } from './PlaylistPreviewModal';
@@ -61,7 +61,7 @@ export const PlaylistsView: React.FC<PlaylistsViewProps> = ({ departmentId }) =>
       setPlaylists(res.playlists);
     } catch (err: any) {
       console.error('[Aura DIMS] Failed to fetch playlists:', err);
-      setError(err?.message || 'Failed to load playlists.');
+      setError(getApiErrorMessage(err, 'Failed to load playlists.'));
     } finally {
       setLoading(false);
     }

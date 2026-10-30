@@ -1,0 +1,19 @@
+{
+  "name": "media/dept-hr/asset-hr-1/hr-handbook.png",
+  "bucket": "demo-rules-test",
+  "metageneration": 1,
+  "generation": 1793337953920,
+  "contentType": "image/png",
+  "storageClass": "STANDARD",
+  "contentDisposition": "inline",
+  "downloadTokens": [
+    "679b380a-3f80-4863-a38e-ba151e30d6a3"
+  ],
+  "etag": "kBGv0S7I8vzdQgKGykxnhG8Zc5U",
+  "customMetadata": {},
+  "timeCreated": "2026-10-30T05:25:53.920Z",
+  "updated": "2026-10-30T05:25:53.920Z",
+  "size": 4,
+  "md5Hash": "CNbAWiFRKnmh3+udKo8mLw==",
+  "crc32c": "691047668"
+}

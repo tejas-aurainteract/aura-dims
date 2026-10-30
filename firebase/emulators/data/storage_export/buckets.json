@@ -2,6 +2,9 @@
   "buckets": [
     {
       "id": "demo-aura-dims"
+    },
+    {
+      "id": "demo-rules-test"
     }
   ]
 }

@@ -1,0 +1,19 @@
+{
+  "name": "staging/dept-hr/asset-intent-hr/pending-slide.png",
+  "bucket": "demo-rules-test",
+  "metageneration": 1,
+  "generation": 1793337947196,
+  "contentType": "image/png",
+  "storageClass": "STANDARD",
+  "contentDisposition": "inline",
+  "downloadTokens": [
+    "aea6ab70-fd75-464b-b9d0-e8db08c1dd9d"
+  ],
+  "etag": "D86z+3E4NLJ16m3O8Q6Px8PAUxk",
+  "customMetadata": {},
+  "timeCreated": "2026-10-30T05:25:47.196Z",
+  "updated": "2026-10-30T05:25:47.196Z",
+  "size": 4,
+  "md5Hash": "CNbAWiFRKnmh3+udKo8mLw==",
+  "crc32c": "691047668"
+}

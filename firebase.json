@@ -18,7 +18,7 @@
         "*.local"
       ],
       "predeploy": [
-        "pnpm --filter @aura-dims/functions run build"
+        "pnpm run build"
       ]
     }
   ],

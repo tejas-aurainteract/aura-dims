@@ -1,0 +1,19 @@
+{
+  "name": "media/dept-ops/asset-ops-1/ops-floor-plan.png",
+  "bucket": "demo-rules-test",
+  "metageneration": 1,
+  "generation": 1793337953936,
+  "contentType": "image/png",
+  "storageClass": "STANDARD",
+  "contentDisposition": "inline",
+  "downloadTokens": [
+    "546b95dc-c6cf-4dde-bbd8-da297c497e3a"
+  ],
+  "etag": "z4czxmC66+wgJpRfe0U5YnFKcXg",
+  "customMetadata": {},
+  "timeCreated": "2026-10-30T05:25:53.936Z",
+  "updated": "2026-10-30T05:25:53.936Z",
+  "size": 4,
+  "md5Hash": "3s6Ad3WaKza5b70SA6gyqw==",
+  "crc32c": "3473258257"
+}

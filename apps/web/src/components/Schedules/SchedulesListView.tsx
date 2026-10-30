@@ -24,7 +24,7 @@ import {
   Ban,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { api } from '@/lib/api';
+import { api, getApiErrorMessage } from '@/lib/api';
 import type {
   ScheduleRecord,
   ScheduleStatus,
@@ -65,12 +65,7 @@ export const SchedulesListView: React.FC = () => {
       setSchedules(res.schedules || []);
     } catch (err: any) {
       console.error('[Aura DIMS] Failed to fetch schedules:', err);
-      const isInternal = err?.message === 'internal' || err?.code === 'functions/internal';
-      setError(
-        isInternal
-          ? 'Unable to load schedules from the server. This may occur if Firestore composite indexes are still deploying or network connectivity is unstable. Please click Retry.'
-          : err?.message || 'Failed to load schedules.'
-      );
+      setError(getApiErrorMessage(err, 'Failed to load broadcast schedules.'));
       setLoading(false);
       return;
     }

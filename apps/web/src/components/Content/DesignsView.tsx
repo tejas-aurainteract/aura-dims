@@ -13,7 +13,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '@/lib/api';
+import { api, getApiErrorMessage } from '@/lib/api';
 import {
   DesignRecord,
   DisplayOrientation,
@@ -75,7 +75,8 @@ export const DesignsView: React.FC<DesignsViewProps> = ({ onOpenCreateChoice }) 
       });
       setDesigns(res.designs);
     } catch (err: any) {
-      setError(err.message || 'Failed to load designs');
+      console.error('[Aura DIMS] Failed to fetch designs:', err);
+      setError(getApiErrorMessage(err, 'Failed to load designs.'));
     } finally {
       setLoading(false);
     }

@@ -20,7 +20,7 @@ import {
   Smartphone,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { api } from '@/lib/api';
+import { api, getApiErrorMessage } from '@/lib/api';
 import type { ApprovalRecord, ApprovalStatus } from '@aura-dims/display-schema';
 import { ApprovalReviewModal } from './ApprovalReviewModal';
 
@@ -48,7 +48,7 @@ export const ApprovalsView: React.FC = () => {
       setApprovals(res.approvals);
     } catch (err: any) {
       console.error('[Aura DIMS] Failed to fetch approvals:', err);
-      setError(err?.message || 'Failed to load approvals.');
+      setError(getApiErrorMessage(err, 'Failed to load approvals.'));
     } finally {
       setLoading(false);
     }

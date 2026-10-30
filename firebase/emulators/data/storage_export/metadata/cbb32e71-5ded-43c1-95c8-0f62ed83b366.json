@@ -1,0 +1,19 @@
+{
+  "name": "thumbnails/dept-hr/asset-hr-1/thumb.webp",
+  "bucket": "demo-rules-test",
+  "metageneration": 1,
+  "generation": 1793337953952,
+  "contentType": "image/webp",
+  "storageClass": "STANDARD",
+  "contentDisposition": "inline",
+  "downloadTokens": [
+    "b6766289-c900-4125-b0c0-7a499c91e850"
+  ],
+  "etag": "/+psrbaq8W5jp8zoNRF+RKWgnSY",
+  "customMetadata": {},
+  "timeCreated": "2026-10-30T05:25:53.952Z",
+  "updated": "2026-10-30T05:25:53.952Z",
+  "size": 2,
+  "md5Hash": "ndFyqDYzT4G453xr3WIbog==",
+  "crc32c": "339018789"
+}
