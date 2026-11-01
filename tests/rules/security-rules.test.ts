@@ -383,6 +383,34 @@ describe('Aura DIMS - Security Rules Suite', () => {
           createdAt: new Date().toISOString(),
         });
 
+        await setDoc(doc(db, 'displayAssignments/disp-hr-1__head-hr'), {
+          id: 'disp-hr-1__head-hr',
+          displayId: 'disp-hr-1',
+          departmentId: 'dept-hr',
+          uid: 'head-hr',
+          createdAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'displays/disp-hr-1/operations/op-hr-1'), {
+          id: 'op-hr-1',
+          displayId: 'disp-hr-1',
+          departmentId: 'dept-hr',
+          type: 'SYNC_NOW',
+          state: 'queued',
+          requestedByUid: 'head-hr',
+          createdAt: new Date().toISOString(),
+        });
+
+        await setDoc(doc(db, 'displays/disp-ops-1/operations/op-ops-1'), {
+          id: 'op-ops-1',
+          displayId: 'disp-ops-1',
+          departmentId: 'dept-ops',
+          type: 'REFRESH_RENDERER',
+          state: 'succeeded',
+          requestedByUid: 'admin-1',
+          createdAt: new Date().toISOString(),
+        });
+
         // Seed storage files with security rules bypassed
         const storage = context.storage();
         await uploadBytes(
@@ -399,6 +427,11 @@ describe('Aura DIMS - Security Rules Suite', () => {
           ref(storage, 'thumbnails/dept-hr/asset-hr-1/thumb.webp'),
           new Uint8Array([9, 10]),
           { contentType: 'image/webp' }
+        );
+        await uploadBytes(
+          ref(storage, 'previews/disp-hr-1/latest.png'),
+          new Uint8Array([11, 12, 13]),
+          { contentType: 'image/png' }
         );
       });
     }
@@ -1007,6 +1040,80 @@ describe('Aura DIMS - Security Rules Suite', () => {
       await assertFails(
         setDoc(doc(deviceCtx.firestore(), 'displays/disp-hr-1'), {
           reported: { appVersion: 'hacked' },
+        })
+      );
+    });
+
+    it('allows Admin and explicitly assigned Department Head to read /displays/{displayId}/operations/{opId}', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'displays/disp-hr-1/operations/op-hr-1')));
+      await assertSucceeds(getDoc(doc(adminCtx.firestore(), 'displays/disp-ops-1/operations/op-ops-1')));
+
+      const assignedHrCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertSucceeds(getDoc(doc(assignedHrCtx.firestore(), 'displays/disp-hr-1/operations/op-hr-1')));
+    });
+
+    it('DENIES unassigned Department Heads and cross-department users from reading /displays/{displayId}/operations/{opId}', async () => {
+      // Same department (dept-hr) but not assigned to disp-hr-1
+      const unassignedHrCtx = testEnv.authenticatedContext('user-hr-2', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      await assertFails(getDoc(doc(unassignedHrCtx.firestore(), 'displays/disp-hr-1/operations/op-hr-1')));
+
+      // Different department (dept-ops)
+      const opsHeadCtx = testEnv.authenticatedContext('head-ops', {
+        role: 'department_head',
+        departmentId: 'dept-ops',
+        active: true,
+      });
+      await assertFails(getDoc(doc(opsHeadCtx.firestore(), 'displays/disp-hr-1/operations/op-hr-1')));
+    });
+
+    it('DENIES direct client SDK writes to /displays/{displayId}/operations/{opId} for all principals', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      await assertFails(
+        setDoc(doc(adminCtx.firestore(), 'displays/disp-hr-1/operations/op-forged'), {
+          type: 'REBOOT',
+          state: 'succeeded',
+        })
+      );
+
+      const deviceCtx = testEnv.authenticatedContext('dvc_disp_hr_1', {
+        role: 'device',
+        principal: 'device',
+        displayId: 'disp-hr-1',
+      });
+      await assertFails(
+        updateDoc(doc(deviceCtx.firestore(), 'displays/disp-hr-1/operations/op-hr-1'), {
+          state: 'succeeded',
+        })
+      );
+    });
+
+    it('DENIES direct client SDK reads and writes to private /previews/{displayId}/{fileName} in Cloud Storage', async () => {
+      const adminCtx = testEnv.authenticatedContext('admin-1', { role: 'admin', active: true });
+      const hrHeadCtx = testEnv.authenticatedContext('head-hr', {
+        role: 'department_head',
+        departmentId: 'dept-hr',
+        active: true,
+      });
+      const deviceCtx = testEnv.authenticatedContext('dvc_disp_hr_1', {
+        role: 'device',
+        principal: 'device',
+        displayId: 'disp-hr-1',
+      });
+
+      await assertFails(getBytes(ref(adminCtx.storage(), 'previews/disp-hr-1/latest.png')));
+      await assertFails(getBytes(ref(hrHeadCtx.storage(), 'previews/disp-hr-1/latest.png')));
+      await assertFails(
+        uploadBytes(ref(deviceCtx.storage(), 'previews/disp-hr-1/forged.png'), new Uint8Array([1, 2, 3]), {
+          contentType: 'image/png',
         })
       );
     });

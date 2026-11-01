@@ -1,0 +1,41 @@
+[Unit]
+Description=Aura DIMS Digital Display Local Agent
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+# Prevent dual-daemon port or display contention with legacy signage runtimes
+Conflicts=tv-signage.service tv-agent.service
+
+[Service]
+Type=simple
+User=auradims
+Group=auradims
+WorkingDirectory=/var/lib/auradims
+# Explicit transport mode: 'emulator' (demo-aura-dims local only) or 'cloud' (staging/production)
+Environment=AURA_TRANSPORT_MODE=cloud
+Environment=FIREBASE_PROJECT_ID=replace-with-firebase-project-id
+Environment=FIREBASE_API_KEY=replace-with-firebase-web-api-key
+Environment=AURA_FUNCTIONS_REGION=asia-south1
+Environment=AURA_PLAYER_HOST=127.0.0.1
+Environment=AURA_PLAYER_PORT=8090
+Environment=AURA_PLAYER_DATA_DIR=/var/lib/auradims/data
+Environment=AURA_MIN_FREE_DISK_BYTES=209715200
+# Optional controlled reboot helper (enable only after configuring /etc/sudoers.d/auradims-reboot)
+# Environment=AURA_REBOOT_HELPER=/usr/local/libexec/aura-dims-reboot
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/auradims/.Xauthority
+ExecStart=/usr/bin/node --experimental-strip-types /opt/aura-dims/player/src/agent/index.js
+Restart=always
+RestartSec=5s
+StandardOutput=append:/var/log/auradims/agent.log
+StandardError=append:/var/log/auradims/agent-error.log
+
+# Security Sandboxing
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/auradims/data /var/log/auradims /tmp
+PrivateTmp=true
+NoNewPrivileges=false
+
+[Install]
+WantedBy=multi-user.target
+

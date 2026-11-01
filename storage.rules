@@ -57,6 +57,12 @@ service firebase.storage {
       allow read: if isAdmin() || isDepartmentHead(departmentId);
     }
 
+    // On-demand digital display software previews: previews/{displayId}/{fileName}
+    // Privately stored and accessed strictly via server-authorized Cloud Functions (getDisplayPreviewUrl).
+    match /previews/{displayId}/{fileName} {
+      allow read, write: if false;
+    }
+
     // Deny-by-default for all other storage paths
     match /{allPaths=**} {
       allow read, write: if false;

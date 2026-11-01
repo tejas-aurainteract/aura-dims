@@ -62,3 +62,14 @@ curl -s http://127.0.0.1:8090/api/active-package | jq .
   xset s noblank
   ```
 
+### F. Cloud Transport Configuration Rejected at Startup
+- **Cause:** `AURA_TRANSPORT_MODE=cloud` is set, but `FIREBASE_PROJECT_ID` is missing or still set to `demo-aura-dims`, or `FIREBASE_API_KEY` is missing/placeholder.
+- **Remedy:** Verify `/etc/systemd/system/aura-dims-player.service` sets valid non-demo `FIREBASE_PROJECT_ID` and `FIREBASE_API_KEY` values for your target Firebase project. Local development must explicitly use `AURA_TRANSPORT_MODE=emulator` with `demo-aura-dims`.
+
+### G. Software Preview (`CAPTURE_PREVIEW`) or Reboot (`REBOOT`) Disabled in UI
+- **Cause:** The digital display capabilities advertisement (`reported.capabilities`) indicates the underlying OS dependency is unavailable.
+- **Remedy:**
+  - For **Capture Preview**: ensure `DISPLAY` is set (e.g. `:0`) and `scrot` is installed (`which scrot`).
+  - For **Reboot**: ensure `AURA_REBOOT_HELPER=/usr/local/libexec/aura-dims-reboot` is configured and executable, and `/etc/sudoers.d/auradims-reboot` grants `NOPASSWD` execution to the `auradims` service account.
+
+

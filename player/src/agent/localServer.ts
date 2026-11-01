@@ -33,9 +33,13 @@ export class LocalServer {
     designRevisionId: null,
     isPlaying: false,
     lastSlideStartedAt: null,
+    presentedPublicationId: null,
+    firstPresentedAt: null,
+    rendererGeneration: 1,
   };
   private rendererHealth: 'healthy' | 'stalled' | 'error' = 'healthy';
   private lastRendererPing = Date.now();
+  private reloadGeneration = 1;
 
   constructor(
     config: PlayerConfig,
@@ -49,6 +53,22 @@ export class LocalServer {
     this.identity = identity;
     this.syncEngine = syncEngine;
     this.rendererDir = rendererDir || path.resolve(process.cwd(), 'player/src/renderer');
+  }
+
+  public triggerRendererRefresh(): number {
+    this.reloadGeneration += 1;
+    this.playbackState = {
+      ...this.playbackState,
+      rendererGeneration: this.reloadGeneration,
+    };
+    this.logger.info(
+      `Triggered local digital display renderer refresh (generation #${this.reloadGeneration}).`
+    );
+    return this.reloadGeneration;
+  }
+
+  public getReloadGeneration(): number {
+    return this.reloadGeneration;
   }
 
   getPlaybackState(): PlaybackPresentationState {
@@ -145,6 +165,7 @@ export class LocalServer {
       res.end(
         JSON.stringify({
           enrolled: this.identity.isEnrolled(),
+          revoked: this.identity.isRevoked(),
           displayId: creds?.displayId || null,
           deliveryStage: this.syncEngine.getCurrentStage(),
           downloadingPublicationId: this.syncEngine.getDownloadingPublicationId(),
@@ -153,6 +174,7 @@ export class LocalServer {
           lastError: this.syncEngine.getLastError(),
           playback: this.playbackState,
           rendererHealth: this.getRendererHealth(),
+          reloadGeneration: this.reloadGeneration,
         })
       );
       return;
@@ -161,7 +183,12 @@ export class LocalServer {
     if (req.method === 'GET' && pathname === '/api/active-package') {
       if (!this.identity.isEnrolled()) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ state: 'unprovisioned' }));
+        res.end(
+          JSON.stringify({
+            state: 'unprovisioned',
+            reloadGeneration: this.reloadGeneration,
+          })
+        );
         return;
       }
 
@@ -175,6 +202,7 @@ export class LocalServer {
             state: 'provisioned_no_package',
             displayId: this.identity.getDisplayId(),
             stage: this.syncEngine.getCurrentStage(),
+            reloadGeneration: this.reloadGeneration,
           })
         );
         return;
@@ -194,6 +222,7 @@ export class LocalServer {
           publicationId: activePkg.publicationId,
           manifest,
           assetUrls,
+          reloadGeneration: this.reloadGeneration,
         })
       );
       return;
@@ -284,12 +313,27 @@ export class LocalServer {
           this.lastRendererPing = Date.now();
 
           if (evt.type === 'slide_started') {
+            const nowIso = new Date().toISOString();
+            const reportedPubId =
+              evt.publicationId ||
+              this.syncEngine.getActivePublicationId() ||
+              this.playbackState.presentedPublicationId ||
+              null;
+            const isNewPubPresentation =
+              reportedPubId !== null &&
+              reportedPubId !== this.playbackState.presentedPublicationId;
+
             this.playbackState = {
               currentPlaylistId: evt.playlistId || null,
               currentSlideId: evt.slideId || null,
               designRevisionId: evt.designRevisionId || null,
               isPlaying: true,
-              lastSlideStartedAt: new Date().toISOString(),
+              lastSlideStartedAt: nowIso,
+              presentedPublicationId: reportedPubId,
+              firstPresentedAt: isNewPubPresentation
+                ? nowIso
+                : this.playbackState.firstPresentedAt || nowIso,
+              rendererGeneration: this.reloadGeneration,
             };
             this.rendererHealth = 'healthy';
           } else if (evt.type === 'playback_error') {

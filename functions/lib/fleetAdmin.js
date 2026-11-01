@@ -46,6 +46,7 @@ const common_js_1 = require("./common.js");
 const operational_js_1 = require("./operational.js");
 const credentials_js_1 = require("./credentials.js");
 const displayModel_js_1 = require("./displayModel.js");
+const deviceOperations_js_1 = require("./deviceOperations.js");
 const opts = { cors: true, region: common_js_1.REGION };
 // ---------------------------------------------------------------------------
 // Validation helpers
@@ -892,18 +893,49 @@ exports.reportDeviceDelivery = (0, https_1.onCall)(opts, async (request) => {
         throw new https_1.HttpsError('not-found', 'Digital display not found.');
     }
     const now = new Date().toISOString();
+    const assetProgress = (0, deviceOperations_js_1.sanitizeAssetProgress)(request.data?.assetProgress);
+    const cacheInventory = (0, deviceOperations_js_1.sanitizeCacheInventory)(request.data?.cacheInventory, now);
+    const existingReported = (dDoc.data()?.reported || {});
+    const mergedReported = {
+        ...existingReported,
+        deliveryStage: stage,
+        lastSyncAt: now,
+    };
+    if (assetProgress !== null) {
+        mergedReported.assetProgress = assetProgress;
+    }
+    if (cacheInventory !== null) {
+        mergedReported.cacheInventory = cacheInventory;
+        mergedReported.lastInventoryAt = cacheInventory.reportedAt;
+    }
     const updateData = {
         deliveryStage: stage,
         lastSyncAt: firestore_1.FieldValue.serverTimestamp(),
         updatedAt: firestore_1.FieldValue.serverTimestamp(),
+        reported: mergedReported,
     };
-    if (stage === 'active') {
+    if (stage === 'downloading' || stage === 'verifying') {
+        mergedReported.downloadingPublicationId = publicationId;
+    }
+    else if (stage === 'ready') {
+        updateData.readyPublicationId = publicationId;
+        mergedReported.readyPublicationId = publicationId;
+        mergedReported.downloadingPublicationId = null;
+    }
+    else if (stage === 'active') {
         updateData.activePublicationId = publicationId;
+        updateData.readyPublicationId = null;
         updateData.lastActiveAt = firestore_1.FieldValue.serverTimestamp();
         updateData.lastDeliveryError = null;
+        mergedReported.activePublicationId = publicationId;
+        mergedReported.downloadingPublicationId = null;
+        mergedReported.readyPublicationId = null;
+        mergedReported.lastError = null;
     }
     else if (stage === 'failed') {
         updateData.lastDeliveryError = errorMessage;
+        mergedReported.downloadingPublicationId = null;
+        mergedReported.lastError = errorMessage;
     }
     await dRef.update(updateData);
     await (0, common_js_1.writeAuditLog)({
@@ -953,20 +985,57 @@ exports.reportDeviceHeartbeat = (0, https_1.onCall)(opts, async (request) => {
     if (display.lifecycle !== 'active') {
         throw new https_1.HttpsError('permission-denied', `Digital display is not active (${display.lifecycle}).`);
     }
+    const serverNowIso = new Date().toISOString();
+    const existingReported = (display.reported || null);
+    const hardwareMetrics = (0, deviceOperations_js_1.sanitizeHardwareMetrics)(data.hardwareMetrics, serverNowIso) ??
+        existingReported?.hardwareMetrics ??
+        null;
+    const capabilities = (0, deviceOperations_js_1.sanitizeCapabilities)(data.capabilities) ??
+        existingReported?.capabilities ??
+        null;
+    const assetProgress = (0, deviceOperations_js_1.sanitizeAssetProgress)(data.assetProgress) ??
+        existingReported?.assetProgress ??
+        null;
+    const cacheInventory = (0, deviceOperations_js_1.sanitizeCacheInventory)(data.cacheInventory, serverNowIso) ??
+        existingReported?.cacheInventory ??
+        null;
+    const presentedPublicationId = data.presentedPublicationId ??
+        data.playback?.presentedPublicationId ??
+        existingReported?.presentedPublicationId ??
+        null;
+    const firstPresentedAt = data.firstPresentedAt ??
+        data.playback?.firstPresentedAt ??
+        existingReported?.firstPresentedAt ??
+        null;
     const reportedState = {
-        appVersion: data.appVersion || '1.0.0',
+        appVersion: String(data.appVersion || '1.0.0').slice(0, 32),
+        rendererVersion: data.rendererVersion
+            ? String(data.rendererVersion).slice(0, 32)
+            : capabilities?.rendererVersion ?? existingReported?.rendererVersion ?? null,
         clientKind: data.clientKind || 'player',
         screenWidth: data.screen?.width || null,
         screenHeight: data.screen?.height || null,
-        availableStorageBytes: data.diagnostics?.availableStorageBytes || null,
-        uptimeSeconds: data.diagnostics?.uptimeSeconds || null,
+        availableStorageBytes: data.diagnostics?.availableStorageBytes ??
+            hardwareMetrics?.diskFreeBytes ??
+            null,
+        uptimeSeconds: data.diagnostics?.uptimeSeconds ?? null,
         desiredPublicationId: data.desiredPublicationId || display.desiredPublicationId || null,
         downloadingPublicationId: data.downloadingPublicationId || null,
         readyPublicationId: data.readyPublicationId || null,
         activePublicationId: data.activePublicationId || display.activePublicationId || null,
+        presentedPublicationId,
+        firstPresentedAt,
         deliveryStage: data.deliveryStage || display.deliveryStage || 'idle',
-        lastSyncAt: data.lastSyncAt || null,
+        lastSyncAt: data.lastSyncAt || existingReported?.lastSyncAt || null,
+        lastInventoryAt: data.lastInventoryAt ||
+            cacheInventory?.reportedAt ||
+            existingReported?.lastInventoryAt ||
+            null,
         storage: data.storage || null,
+        hardwareMetrics,
+        capabilities,
+        assetProgress,
+        cacheInventory,
         playback: data.playback || null,
         rendererHealth: data.rendererHealth || 'healthy',
         lastError: data.lastError || null,
@@ -979,14 +1048,27 @@ exports.reportDeviceHeartbeat = (0, https_1.onCall)(opts, async (request) => {
     if (data.activePublicationId) {
         updatePayload.activePublicationId = data.activePublicationId;
     }
+    if (presentedPublicationId) {
+        updatePayload.presentedPublicationId = presentedPublicationId;
+    }
+    if (firstPresentedAt) {
+        updatePayload.firstPresentedAt = firstPresentedAt;
+    }
     if (data.deliveryStage) {
         updatePayload.deliveryStage = data.deliveryStage;
     }
     await dRef.update(updatePayload);
+    const pendingOperationCount = await (0, deviceOperations_js_1.reconcileAndCountOperationsOnHeartbeat)({
+        displayId,
+        deviceUid: auth.uid,
+        bootId: hardwareMetrics?.bootId ?? null,
+        uptimeSeconds: reportedState.uptimeSeconds,
+    });
     return {
         accepted: true,
-        serverReceivedAt: new Date().toISOString(),
+        serverReceivedAt: serverNowIso,
         recommendedHeartbeatSeconds: 30,
+        pendingOperationCount,
     };
 });
 exports.listDisplays = (0, https_1.onCall)(opts, async (request) => {

@@ -8,17 +8,21 @@
 
 import * as path from 'node:path';
 import { exec } from 'node:child_process';
-import { loadConfig } from './config.js';
+import { loadConfig, type PlayerTransportMode } from './config.js';
 import { Logger } from './logger.js';
+import { PlayerTransport } from './transport.js';
 import { DeviceIdentity } from './identity.js';
+import { HardwareAdapter } from './hardwareAdapter.js';
 import { SyncEngine } from './syncEngine.js';
 import { LocalServer } from './localServer.js';
+import { OperationsAgent } from './operationsAgent.js';
 import { Supervisor } from './supervision.js';
 
 async function main() {
   const args = process.argv.slice(2);
   let portOverride: number | undefined;
   let dataDirOverride: string | undefined;
+  let modeOverride: PlayerTransportMode | undefined;
   let pairCode: string | undefined;
   let openBrowser = false;
 
@@ -28,6 +32,9 @@ async function main() {
       i++;
     } else if (args[i] === '--data-dir' && args[i + 1]) {
       dataDirOverride = path.resolve(args[i + 1]);
+      i++;
+    } else if (args[i] === '--mode' && args[i + 1]) {
+      modeOverride = args[i + 1] as PlayerTransportMode;
       i++;
     } else if (args[i] === '--pair' && args[i + 1]) {
       pairCode = args[i + 1];
@@ -40,24 +47,44 @@ async function main() {
   const config = loadConfig({
     ...(portOverride ? { port: portOverride } : {}),
     ...(dataDirOverride ? { dataDir: dataDirOverride } : {}),
+    ...(modeOverride ? { mode: modeOverride } : {}),
   });
 
   const logger = new Logger(config.logsDir);
   logger.info('====================================================');
   logger.info('Aura DIMS - Digital Display Player Agent starting...');
   logger.info('Company: Aurainteract Private Limited');
+  logger.info(`Transport mode: ${config.mode} (project: ${config.projectId})`);
   logger.info(`Loopback service: http://${config.host}:${config.port}/`);
   logger.info(`Data directory: ${config.dataDir}`);
   logger.info('====================================================');
 
-  const identity = new DeviceIdentity(config, logger);
-  const syncEngine = new SyncEngine(config, logger, identity);
+  const transport = new PlayerTransport(config);
+  const identity = new DeviceIdentity(config, logger, transport);
+  const hardwareAdapter = new HardwareAdapter(config, logger);
+  const syncEngine = new SyncEngine(config, logger, identity, hardwareAdapter);
   const server = new LocalServer(config, logger, identity, syncEngine);
-  const supervisor = new Supervisor(config, logger, identity, syncEngine, server);
+  const operationsAgent = new OperationsAgent({
+    config,
+    logger,
+    identity,
+    syncEngine,
+    hardwareAdapter,
+    onRefreshRenderer: () => server.triggerRendererRefresh(),
+  });
+  const supervisor = new Supervisor(
+    config,
+    logger,
+    identity,
+    syncEngine,
+    server,
+    hardwareAdapter,
+    operationsAgent
+  );
 
   // If pairing code provided via CLI, pair immediately
   if (pairCode) {
-    logger.info(`Redeeming CLI pairing code for digital display enrollment...`);
+    logger.info('Redeeming CLI pairing code for digital display enrollment...');
     const pairResult = await identity.pairWithCode(pairCode);
     if (!pairResult.success) {
       logger.error(`Pairing failed: ${pairResult.error}`);
@@ -82,7 +109,12 @@ async function main() {
 
   if (openBrowser) {
     logger.info(`Opening default browser to ${playerUrl}...`);
-    const cmd = process.platform === 'win32' ? `start ${playerUrl}` : process.platform === 'darwin' ? `open ${playerUrl}` : `xdg-open ${playerUrl}`;
+    const cmd =
+      process.platform === 'win32'
+        ? `start ${playerUrl}`
+        : process.platform === 'darwin'
+          ? `open ${playerUrl}`
+          : `xdg-open ${playerUrl}`;
     exec(cmd);
   }
 
@@ -103,4 +135,3 @@ main().catch((err) => {
   console.error('[Aura DIMS Fatal Error]', err);
   process.exit(1);
 });
-

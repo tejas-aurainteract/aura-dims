@@ -231,47 +231,47 @@ sudo mkdir -p /opt/aura-dims /var/lib/auradims/data /var/log/auradims
 sudo chown -R auradims:auradims /var/lib/auradims /var/log/auradims
 ```
 
-### 7.2 Digital Display Agent Service (`/etc/systemd/system/auradims-agent.service`)
+### 7.2 Digital Display Agent Service (`/etc/systemd/system/aura-dims-player.service`)
+See [`player/systemd/aura-dims-player.service`](../player/systemd/aura-dims-player.service):
 ```ini
 [Unit]
 Description=Aura DIMS Digital Display Local Agent
 After=network-online.target time-sync.target
 Wants=network-online.target time-sync.target
+Conflicts=tv-signage.service tv-agent.service
 
 [Service]
 Type=simple
 User=auradims
 Group=auradims
 WorkingDirectory=/var/lib/auradims
-Environment=NODE_ENV=staging
+Environment=AURA_TRANSPORT_MODE=cloud
+Environment=FIREBASE_PROJECT_ID=replace-with-firebase-project-id
+Environment=FIREBASE_API_KEY=replace-with-firebase-web-api-key
+Environment=AURA_FUNCTIONS_REGION=asia-south1
+Environment=AURA_PLAYER_HOST=127.0.0.1
 Environment=AURA_PLAYER_PORT=8090
 Environment=AURA_PLAYER_DATA_DIR=/var/lib/auradims/data
-Environment=AURA_LOG_LEVEL=info
-ExecStart=/usr/bin/node /opt/aura-dims/player/dist/agent/index.js
+Environment=AURA_MIN_FREE_DISK_BYTES=209715200
+# Optional controlled reboot helper:
+# Environment=AURA_REBOOT_HELPER=/usr/local/libexec/aura-dims-reboot
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/auradims/.Xauthority
+ExecStart=/usr/bin/node --experimental-strip-types /opt/aura-dims/player/src/agent/index.js
 Restart=always
 RestartSec=5s
-RestartSteps=5
-RestartMaxDelaySec=60s
 StandardOutput=append:/var/log/auradims/agent.log
 StandardError=append:/var/log/auradims/agent-error.log
-
-# Security Sandboxing
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/auradims/data /var/log/auradims
-PrivateTmp=true
-NoNewPrivileges=true
-
-[Install]
-WantedBy=multi-user.target
 ```
 
-### 7.3 Digital Display Kiosk Service (`/etc/systemd/system/auradims-kiosk.service`)
+### 7.3 Digital Display Kiosk Service (`/etc/systemd/system/aura-dims-kiosk.service`)
+See [`player/systemd/aura-dims-kiosk.service`](../player/systemd/aura-dims-kiosk.service):
 ```ini
 [Unit]
-Description=Aura DIMS Fullscreen Kiosk Browser
-After=auradims-agent.service
-Requires=auradims-agent.service
+Description=Aura DIMS Digital Display Fullscreen Kiosk Renderer
+After=aura-dims-player.service graphical.target
+Requires=aura-dims-player.service
+Conflicts=tv-signage.service
 
 [Service]
 Type=simple
@@ -279,6 +279,7 @@ User=auradims
 Group=auradims
 WorkingDirectory=/var/lib/auradims
 Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/auradims/.Xauthority
 ExecStart=/bin/bash /opt/aura-dims/bin/kiosk-x11.sh
 Restart=always
 RestartSec=3s
@@ -301,6 +302,43 @@ WantedBy=graphical.target
     create 0640 auradims auradims
     copytruncate
 }
+```
+
+### 7.5 Optional Capabilities Setup (Software Preview & Controlled Reboot)
+
+1. **On-Demand Software Preview (`CAPTURE_PREVIEW`):**
+   - Requires an X11 session (`DISPLAY=:0`) and the `scrot` utility:
+     ```bash
+     sudo apt install -y scrot
+     ```
+   - When available, the agent advertises `capabilities.capturePreview = true`. If unavailable (or on Wayland without X11), the agent advertises `capturePreview = false` with an explicit reason and disables the button in the Aura DIMS web UI.
+
+2. **Administrator-Confirmed OS Reboot (`REBOOT`):**
+   - Disabled by default. To enable on Linux appliances, install [`player/systemd/aura-dims-reboot`](../player/systemd/aura-dims-reboot) to `/usr/local/libexec/aura-dims-reboot`:
+     ```bash
+     sudo install -o root -g root -m 0755 /opt/aura-dims/player/systemd/aura-dims-reboot /usr/local/libexec/aura-dims-reboot
+     echo 'auradims ALL=(root) NOPASSWD: /usr/local/libexec/aura-dims-reboot' | sudo tee /etc/sudoers.d/auradims-reboot
+     sudo chmod 0440 /etc/sudoers.d/auradims-reboot
+     ```
+   - Uncomment `Environment=AURA_REBOOT_HELPER=/usr/local/libexec/aura-dims-reboot` in `aura-dims-player.service`.
+
+### 7.6 Single-Owner Cutover & Rollback Procedure (Replacing Legacy `tv-signage` / `tv-agent`)
+
+Never run two signage renderers or agents simultaneously on the same digital display.
+
+**Cutover to Aura DIMS Player:**
+```bash
+sudo systemctl stop tv-signage.service tv-agent.service || true
+sudo systemctl disable tv-signage.service tv-agent.service || true
+sudo systemctl daemon-reload
+sudo systemctl enable --now aura-dims-player.service aura-dims-kiosk.service
+```
+
+**Emergency Rollback to Legacy Runtime:**
+```bash
+sudo systemctl stop aura-dims-kiosk.service aura-dims-player.service
+sudo systemctl disable aura-dims-kiosk.service aura-dims-player.service
+sudo systemctl enable --now tv-signage.service tv-agent.service
 ```
 
 ---
