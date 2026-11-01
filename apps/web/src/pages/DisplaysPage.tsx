@@ -47,6 +47,7 @@ import { BulkAssignmentModal } from '@/components/Rollout/BulkAssignmentModal';
 import { CommissioningDrawer } from '@/components/Rollout/CommissioningDrawer';
 import { RolloutInventoryView } from '@/components/Rollout/RolloutInventoryView';
 import { downloadDisplaysCsv } from '@/components/Rollout/displayExport';
+import { DisplayDetailsDrawer } from '@/components/Displays/DisplayDetailsDrawer';
 
 export const DisplaysPage: React.FC = () => {
   const { userProfile } = useAuth();
@@ -152,10 +153,14 @@ export const DisplaysPage: React.FC = () => {
         configuredResolution: d.configuredResolution || { width: 1920, height: 1080 },
         lifecycle: d.lifecycle || 'active',
         desiredPublicationId: d.desiredPublicationId || null,
+        readyPublicationId: d.readyPublicationId || d.reported?.readyPublicationId || null,
         activePublicationId: d.activePublicationId || null,
+        presentedPublicationId: d.presentedPublicationId || d.reported?.presentedPublicationId || null,
+        firstPresentedAt: d.firstPresentedAt ? (typeof d.firstPresentedAt.toDate === 'function' ? d.firstPresentedAt.toDate().toISOString() : String(d.firstPresentedAt)) : (d.reported?.firstPresentedAt || null),
         deliveryStage: d.deliveryStage || d.reported?.deliveryStage || 'idle',
         lastSyncAt: d.lastSyncAt ? (typeof d.lastSyncAt.toDate === 'function' ? d.lastSyncAt.toDate().toISOString() : String(d.lastSyncAt)) : null,
         lastDeliveryError: d.lastDeliveryError || null,
+        lastPreview: d.lastPreview || null,
         lastHeartbeatAt: d.lastHeartbeatAt ? (typeof d.lastHeartbeatAt.toDate === 'function' ? d.lastHeartbeatAt.toDate().toISOString() : String(d.lastHeartbeatAt)) : null,
         reported: d.reported || null,
         connectivity,
@@ -1109,75 +1114,14 @@ export const DisplaysPage: React.FC = () => {
         </div>
       )}
 
-      {/* Modal: Full Telemetry & Diagnostics Drawer */}
+      {/* Drawer: Hardware Health, Delivery, Verified Cache Files & Durable Device Operations */}
       {detailsModalDisplay && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => setDetailsModalDisplay(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-2 text-teal-400 mb-1">
-              <Activity className="w-5 h-5" />
-              <h3 className="text-lg font-bold text-white">Digital Display Diagnostics &amp; Delivery</h3>
-            </div>
-            <p className="text-xs text-slate-400 mb-5">
-              Live hardware telemetry and sync metrics for: <strong className="text-slate-200">{detailsModalDisplay.name}</strong>
-            </p>
-
-            <div className="grid grid-cols-2 gap-4 text-xs">
-              <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 space-y-1.5">
-                <span className="font-semibold text-slate-300 block mb-1">Hardware &amp; Runtime</span>
-                <p className="text-slate-400">ID: <code className="text-teal-400 font-mono">{detailsModalDisplay.id}</code></p>
-                <p className="text-slate-400">Orientation: <span className="text-slate-200">{detailsModalDisplay.orientation}</span></p>
-                <p className="text-slate-400">Configured Resolution: <span className="text-slate-200">{detailsModalDisplay.configuredResolution.width}×{detailsModalDisplay.configuredResolution.height}</span></p>
-                <p className="text-slate-400">App Version: <span className="text-slate-200">{detailsModalDisplay.reported?.appVersion || '1.0.0'}</span></p>
-                <p className="text-slate-400">Renderer Health: <span className="text-emerald-400">{detailsModalDisplay.reported?.rendererHealth || 'healthy'}</span></p>
-              </div>
-
-              <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 space-y-1.5">
-                <span className="font-semibold text-slate-300 block mb-1">Delivery State Machine</span>
-                <p className="text-slate-400">Current Stage: <span className="text-teal-400 font-bold uppercase">{detailsModalDisplay.deliveryStage}</span></p>
-                <p className="text-slate-400">Active Package: <span className="font-mono text-slate-200">{detailsModalDisplay.activePublicationId || 'None'}</span></p>
-                <p className="text-slate-400">Targeted Package: <span className="font-mono text-slate-200">{detailsModalDisplay.desiredPublicationId || 'None'}</span></p>
-                <p className="text-slate-400">Version Sync Lag: <span className={detailsModalDisplay.desiredPublicationId === detailsModalDisplay.activePublicationId ? 'text-emerald-400' : 'text-amber-400'}>
-                  {detailsModalDisplay.desiredPublicationId === detailsModalDisplay.activePublicationId ? 'Zero (In Sync)' : 'Pending Synchronization'}
-                </span></p>
-              </div>
-            </div>
-
-            {/* Playback presentation details */}
-            <div className="mt-4 p-4 bg-slate-950/80 rounded-xl border border-slate-800 text-xs space-y-2">
-              <span className="font-semibold text-slate-300 block">Current Playback Presentation</span>
-              <div className="grid grid-cols-2 gap-2 text-slate-400">
-                <p>Playlist ID: <span className="text-slate-200 font-mono">{detailsModalDisplay.reported?.playback?.currentPlaylistId || 'Neutral Fallback'}</span></p>
-                <p>Slide ID: <span className="text-slate-200 font-mono">{detailsModalDisplay.reported?.playback?.currentSlideId || 'Fallback Slide'}</span></p>
-                <p>Playing State: <span className="text-emerald-400 font-semibold">{detailsModalDisplay.reported?.playback?.isPlaying ? 'Actively Rendering' : 'Idle / Standby'}</span></p>
-                <p>Slide Started At: <span className="text-slate-200">{detailsModalDisplay.reported?.playback?.lastSlideStartedAt ? new Date(detailsModalDisplay.reported.playback.lastSlideStartedAt).toLocaleTimeString('en-IN') : 'N/A'}</span></p>
-              </div>
-            </div>
-
-            {/* Error banner if verification failed */}
-            {detailsModalDisplay.lastDeliveryError && (
-              <div className="mt-4 p-3 bg-rose-950/40 border border-rose-800/80 rounded-xl text-rose-300 text-xs">
-                <span className="font-semibold block mb-0.5">Last Delivery Exception:</span>
-                {detailsModalDisplay.lastDeliveryError}
-              </div>
-            )}
-
-            <div className="mt-5 flex justify-end">
-              <button
-                onClick={() => setDetailsModalDisplay(null)}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium"
-              >
-                Close Diagnostics
-              </button>
-            </div>
-          </div>
-        </div>
+        <DisplayDetailsDrawer
+          display={detailsModalDisplay}
+          isAdmin={isAdmin}
+          onClose={() => setDetailsModalDisplay(null)}
+          onDisplayUpdated={() => {}}
+        />
       )}
     </div>
   );

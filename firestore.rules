@@ -170,6 +170,19 @@ service cloud.firestore {
         (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId())
       );
       allow write: if false;
+
+      // Durable Device Operations Subcollection: /displays/{displayId}/operations/{operationId}
+      // Client SDK writes are strictly forbidden; all queuing, claiming, and result reporting
+      // occur exclusively through server-authorized Cloud Functions.
+      match /operations/{operationId} {
+        allow read: if isAuthenticated() && (
+          isAdmin() ||
+          (isDepartmentHead() &&
+           resource.data.departmentId == getCallerDepartmentId() &&
+           exists(/databases/$(database)/documents/displayAssignments/$(displayId + '__' + request.auth.uid)))
+        );
+        allow write: if false;
+      }
     }
 
     // Display Assignments Collection: /displayAssignments/{assignmentId}

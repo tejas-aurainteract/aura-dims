@@ -820,3 +820,16 @@ export {
   getPublicationRolloutProgress,
   retryPublicationTarget,
 } from './rolloutAdmin';
+
+// ==============================================================================
+// Hardware Integration, Durable Device Operations & Private Display Previews
+// ==============================================================================
+export {
+  requestDisplayOperation,
+  listDisplayOperations,
+  claimDeviceOperation,
+  reportDeviceOperation,
+  uploadDevicePreview,
+  getDisplayPreviewUrl,
+} from './deviceOperations';
+

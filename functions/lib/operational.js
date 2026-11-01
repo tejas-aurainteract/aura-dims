@@ -36,6 +36,12 @@ function getConfig() {
         pairingFailureWindowSeconds: envInt('AURA_PAIRING_FAILURE_WINDOW_SECONDS', 600, 10, 86400),
         deviceSignInLimit: envInt('AURA_DEVICE_SIGNIN_LIMIT', 30, 1, 1000),
         deviceSignInWindowSeconds: envInt('AURA_DEVICE_SIGNIN_WINDOW_SECONDS', 600, 10, 86400),
+        operationDefaultTtlSeconds: envInt('AURA_OPERATION_TTL_SECONDS', 900, 60, 86400),
+        operationRebootTtlSeconds: envInt('AURA_OPERATION_REBOOT_TTL_SECONDS', 300, 60, 1800),
+        operationClaimLeaseSeconds: envInt('AURA_OPERATION_CLAIM_LEASE_SECONDS', 90, 15, 600),
+        operationRequestLimit: envInt('AURA_OPERATION_REQUEST_LIMIT', 30, 1, 500),
+        operationRequestWindowSeconds: envInt('AURA_OPERATION_REQUEST_WINDOW_SECONDS', 300, 10, 3600),
+        previewRetentionSeconds: envInt('AURA_PREVIEW_RETENTION_SECONDS', 86400, 300, 604800),
     };
 }
 /**
