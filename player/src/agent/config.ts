@@ -26,6 +26,9 @@ export interface PlayerConfig {
   /** Firebase project & Cloud Function configuration. */
   projectId: string;
   region: string;
+  isLive: boolean;
+  functionBaseUrl: string;
+  firebaseApiKey: string;
   functionsEmulatorHost: string;
   authEmulatorHost: string;
   storageEmulatorHost: string;
@@ -46,6 +49,20 @@ export function loadConfig(overrides?: Partial<PlayerConfig>): PlayerConfig {
   const baseDir = overrides?.dataDir || process.env.AURA_DATA_DIR || path.resolve(process.cwd(), 'player/data');
   const port = overrides?.port || Number(process.env.AURA_PLAYER_PORT || '8090');
 
+  const projectId = overrides?.projectId || process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || 'aura-dims';
+  const isLive = overrides?.isLive !== undefined ? overrides.isLive : (projectId !== 'demo-aura-dims' && !projectId.startsWith('demo-'));
+  const region = overrides?.region || process.env.FIREBASE_REGION || 'asia-south1';
+
+  const functionsEmulatorHost = process.env.FIREBASE_FUNCTIONS_EMULATOR_HOST || '127.0.0.1:5001';
+  const authEmulatorHost = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
+  const storageEmulatorHost = process.env.STORAGE_EMULATOR_HOST || '127.0.0.1:9199';
+
+  const functionBaseUrl = overrides?.functionBaseUrl || (isLive
+    ? (process.env.FUNCTIONS_BASE_URL || `https://${region}-${projectId}.cloudfunctions.net`)
+    : `http://${functionsEmulatorHost}/${projectId}/${region}`);
+
+  const firebaseApiKey = overrides?.firebaseApiKey || (process.env.FIREBASE_API_KEY || (isLive ? 'AIzaSyCVCH85nbkVFYrKERvQzpMjZlJqTNfaeSs' : 'demo-api-key'));
+
   return {
     dataDir: baseDir,
     credentialsDir: path.join(baseDir, 'credentials'),
@@ -58,11 +75,14 @@ export function loadConfig(overrides?: Partial<PlayerConfig>): PlayerConfig {
     host: '127.0.0.1', // Ground rule: strictly loopback only
     port,
 
-    projectId: process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || 'demo-aura-dims',
-    region: 'asia-south1',
-    functionsEmulatorHost: process.env.FIREBASE_FUNCTIONS_EMULATOR_HOST || '127.0.0.1:5001',
-    authEmulatorHost: process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099',
-    storageEmulatorHost: process.env.STORAGE_EMULATOR_HOST || '127.0.0.1:9199',
+    projectId,
+    region,
+    isLive,
+    functionBaseUrl,
+    firebaseApiKey,
+    functionsEmulatorHost,
+    authEmulatorHost,
+    storageEmulatorHost,
 
     maxPackageSizeBytes: 500 * 1024 * 1024,
     maxFileSizeBytes: 200 * 1024 * 1024,

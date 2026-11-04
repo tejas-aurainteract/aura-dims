@@ -150,7 +150,7 @@ export class SyncEngine {
     const token = await this.identity.getIdToken();
     if (!token) return;
 
-    const url = `http://${this.config.functionsEmulatorHost}/${this.config.projectId}/${this.config.region}/reportDeviceDelivery`;
+    const url = `${this.config.functionBaseUrl}/reportDeviceDelivery`;
     try {
       await fetch(url, {
         method: 'POST',
@@ -186,7 +186,7 @@ export class SyncEngine {
       return false;
     }
 
-    const checkUrl = `http://${this.config.functionsEmulatorHost}/${this.config.projectId}/${this.config.region}/getDevicePublication`;
+    const checkUrl = `${this.config.functionBaseUrl}/getDevicePublication`;
 
     let desiredPubId: string | null = null;
     try {
@@ -235,7 +235,7 @@ export class SyncEngine {
     await this.reportDeliveryStage(displayId, publicationId, 'downloading');
 
     // 1. Fetch publication manifest & authorized asset URLs
-    const manifestUrl = `http://${this.config.functionsEmulatorHost}/${this.config.projectId}/${this.config.region}/getDevicePublicationManifest`;
+    const manifestUrl = `${this.config.functionBaseUrl}/getDevicePublicationManifest`;
     let manifest: DetailedPublicationManifest;
     let assetUrls: Record<string, string>;
 

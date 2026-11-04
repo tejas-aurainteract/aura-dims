@@ -146,7 +146,7 @@ export class Supervisor {
       errorCount: this.syncEngine.getLastError() ? 1 : 0,
     };
 
-    const heartbeatUrl = `http://${this.config.functionsEmulatorHost}/${this.config.projectId}/${this.config.region}/reportDeviceHeartbeat`;
+    const heartbeatUrl = `${this.config.functionBaseUrl}/reportDeviceHeartbeat`;
     try {
       await fetch(heartbeatUrl, {
         method: 'POST',

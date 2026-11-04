@@ -165,7 +165,7 @@ export class DeviceIdentity {
     }
 
     this.logger.info(`Restoring authenticated session for digital display: ${creds.displayId}...`);
-    const functionUrl = `http://${this.config.functionsEmulatorHost}/${this.config.projectId}/${this.config.region}/deviceSignIn`;
+    const functionUrl = `${this.config.functionBaseUrl}/deviceSignIn`;
 
     try {
       const res = await fetch(functionUrl, {
