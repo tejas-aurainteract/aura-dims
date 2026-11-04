@@ -19,6 +19,8 @@ import type {
   TriggerPasswordResetResponse,
   CreateDepartmentRequest,
   CreateDepartmentResponse,
+  CreateSiteRequest,
+  SiteResponse,
   UpdateDepartmentRequest,
   UpdateDepartmentResponse,
   SetDepartmentStatusRequest,
@@ -453,6 +455,12 @@ export const api = {
 
   evaluateSchedulePreview: async (req: EvaluateSchedulePreviewRequest): Promise<EvaluateSchedulePreviewResponse> => {
     const fn = httpsCallable<EvaluateSchedulePreviewRequest, EvaluateSchedulePreviewResponse>(functions, 'evaluateSchedulePreview');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  createSite: async (req: CreateSiteRequest): Promise<SiteResponse> => {
+    const fn = httpsCallable<CreateSiteRequest, SiteResponse>(functions, 'createSite');
     const result = await fn(req);
     return result.data;
   },

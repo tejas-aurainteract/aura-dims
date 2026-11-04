@@ -19,6 +19,7 @@
     "emulators:export": "firebase emulators:export ./firebase/emulators/data --project demo-aura-dims --force",
     "bootstrap:admin": "node --experimental-strip-types scripts/bootstrap-admin.ts",
     "seed:displays": "node --experimental-strip-types scripts/seed-displays.ts",
+    "seed:live": "node --experimental-strip-types scripts/seed-live-defaults.ts",
     "player:dev": "node --experimental-strip-types player/src/agent/index.ts --open",
     "player:agent": "node --experimental-strip-types player/src/agent/index.ts",
     "deploy:staging:rules": "firebase deploy --only firestore:rules,storage:rules -P staging",

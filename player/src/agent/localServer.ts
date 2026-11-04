@@ -48,7 +48,17 @@ export class LocalServer {
     this.logger = logger;
     this.identity = identity;
     this.syncEngine = syncEngine;
-    this.rendererDir = rendererDir || path.resolve(process.cwd(), 'player/src/renderer');
+    let resolvedDir = rendererDir;
+    if (!resolvedDir) {
+      const candidates = [
+        path.resolve(process.cwd(), 'player/src/renderer'),
+        path.resolve(process.cwd(), 'src/renderer'),
+        path.resolve(process.cwd(), 'renderer'),
+        path.resolve('/opt/aura-dims/player/src/renderer'),
+      ];
+      resolvedDir = candidates.find((c) => fs.existsSync(c)) || candidates[0]!;
+    }
+    this.rendererDir = resolvedDir;
   }
 
   getPlaybackState(): PlaybackPresentationState {

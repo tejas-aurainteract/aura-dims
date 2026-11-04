@@ -181,6 +181,27 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Sites Collection: /sites/{siteId}
+    match /sites/{siteId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // Display Groups Collection: /displayGroups/{groupId}
+    match /displayGroups/{groupId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // Planned Installations: /plannedInstallations/{installationId}
+    match /plannedInstallations/{installationId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId())
+      );
+      allow write: if false;
+    }
+
     // Audit Events Collection: /auditEvents/{eventId}
     match /auditEvents/{eventId} {
       allow read: if isAdmin();

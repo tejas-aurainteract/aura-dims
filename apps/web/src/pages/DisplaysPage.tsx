@@ -93,26 +93,74 @@ export const DisplaysPage: React.FC = () => {
   const [formOrientation, setFormOrientation] = useState<DisplayOrientation>('landscape');
   const [formSubmitting, setFormSubmitting] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [quickCreatingSite, setQuickCreatingSite] = useState<boolean>(false);
+  const [quickCreatingDept, setQuickCreatingDept] = useState<boolean>(false);
+
+  const handleQuickCreateSite = async () => {
+    const siteName = prompt('Enter Enterprise Site name (e.g. Surat Main Campus):', 'Surat Tech Complex');
+    if (!siteName || !siteName.trim()) return;
+    const siteLoc = prompt('Enter Site location (e.g. Surat, Gujarat):', 'Surat, Gujarat');
+    try {
+      setQuickCreatingSite(true);
+      const res = await api.createSite({
+        name: siteName.trim(),
+        location: (siteLoc || siteName).trim(),
+      });
+      setSites((prev) => ({ ...prev, [res.site.id]: res.site.name }));
+      setFormSiteId(res.site.id);
+    } catch (err: any) {
+      alert(`Could not create enterprise site: ${err?.message || err}`);
+    } finally {
+      setQuickCreatingSite(false);
+    }
+  };
+
+  const handleQuickCreateDept = async () => {
+    const deptName = prompt('Enter Department name (e.g. Operations):', 'Operations');
+    if (!deptName || !deptName.trim()) return;
+    const deptCode = prompt('Enter 2-5 letter Department Code (e.g. OPS):', 'OPS');
+    try {
+      setQuickCreatingDept(true);
+      const res = await api.createDepartment({
+        name: deptName.trim(),
+        code: (deptCode || 'OPS').trim().toUpperCase(),
+      });
+      setDepartments((prev) => ({ ...prev, [res.department.id]: res.department.name }));
+      setFormDeptId(res.department.id);
+    } catch (err: any) {
+      alert(`Could not create department: ${err?.message || err}`);
+    } finally {
+      setQuickCreatingDept(false);
+    }
+  };
 
   // Load reference metadata: Sites & Departments
   useEffect(() => {
     async function loadMetadata() {
       try {
-        const [sitesSnap, deptsSnap] = await Promise.all([
-          getDocs(collection(db, 'sites')),
-          getDocs(collection(db, 'departments')),
-        ]);
-        const siteMap: Record<string, string> = {};
-        sitesSnap.forEach((doc) => {
-          siteMap[doc.id] = (doc.data().name as string) || doc.id;
+        const sitesSnap = await getDocs(collection(db, 'sites')).catch((err) => {
+          console.warn('[Aura DIMS] Could not read /sites collection:', err);
+          return null;
         });
-        setSites(siteMap);
+        if (sitesSnap && !sitesSnap.empty) {
+          const siteMap: Record<string, string> = {};
+          sitesSnap.forEach((doc) => {
+            siteMap[doc.id] = (doc.data().name as string) || doc.id;
+          });
+          setSites(siteMap);
+        }
 
-        const deptMap: Record<string, string> = {};
-        deptsSnap.forEach((doc) => {
-          deptMap[doc.id] = (doc.data().name as string) || doc.id;
+        const deptsSnap = await getDocs(collection(db, 'departments')).catch((err) => {
+          console.warn('[Aura DIMS] Could not read /departments collection:', err);
+          return null;
         });
-        setDepartments(deptMap);
+        if (deptsSnap && !deptsSnap.empty) {
+          const deptMap: Record<string, string> = {};
+          deptsSnap.forEach((doc) => {
+            deptMap[doc.id] = (doc.data().name as string) || doc.id;
+          });
+          setDepartments(deptMap);
+        }
       } catch (err) {
         console.warn('Metadata loading warning:', err);
       }
@@ -1008,9 +1056,21 @@ export const DisplaysPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
-                    Enterprise Site <span className="text-teal-400">*</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-slate-300">
+                      Enterprise Site <span className="text-teal-400">*</span>
+                    </label>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={handleQuickCreateSite}
+                        disabled={quickCreatingSite}
+                        className="text-[11px] text-teal-400 hover:text-teal-300 transition-colors font-medium flex items-center gap-0.5"
+                      >
+                        <Plus className="w-3 h-3" /> Add Site
+                      </button>
+                    )}
+                  </div>
                   <select
                     required
                     value={formSiteId}
@@ -1022,12 +1082,29 @@ export const DisplaysPage: React.FC = () => {
                       <option key={id} value={id}>{name}</option>
                     ))}
                   </select>
+                  {Object.keys(sites).length === 0 && (
+                    <p className="text-[11px] text-amber-400 mt-1">
+                      No sites found. Click <span className="font-semibold text-teal-300">+ Add Site</span> above to create one.
+                    </p>
+                  )}
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
-                    Department <span className="text-teal-400">*</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-slate-300">
+                      Department <span className="text-teal-400">*</span>
+                    </label>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={handleQuickCreateDept}
+                        disabled={quickCreatingDept}
+                        className="text-[11px] text-teal-400 hover:text-teal-300 transition-colors font-medium flex items-center gap-0.5"
+                      >
+                        <Plus className="w-3 h-3" /> Add Dept
+                      </button>
+                    )}
+                  </div>
                   <select
                     required
                     value={formDeptId}
@@ -1039,6 +1116,11 @@ export const DisplaysPage: React.FC = () => {
                       <option key={id} value={id}>{name}</option>
                     ))}
                   </select>
+                  {Object.keys(departments).length === 0 && (
+                    <p className="text-[11px] text-amber-400 mt-1">
+                      No departments found. Click <span className="font-semibold text-teal-300">+ Add Dept</span> above to create one.
+                    </p>
+                  )}
                 </div>
               </div>
 
