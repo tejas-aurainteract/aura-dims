@@ -58,7 +58,7 @@ export class DeviceIdentity {
     const appName = 'aura-dims-player';
     this.app = getApps().find((a) => a.name === appName) || initializeApp(
       {
-        apiKey: 'demo-api-key',
+        apiKey: config.firebaseApiKey,
         authDomain: `${config.projectId}.firebaseapp.com`,
         projectId: config.projectId,
         storageBucket: `${config.projectId}.appspot.com`,
@@ -120,7 +120,7 @@ export class DeviceIdentity {
 
   async pairWithCode(pairingCode: string): Promise<{ success: boolean; displayId: string; error?: string }> {
     this.logger.info('Attempting to redeem pairing code with Aura DIMS Cloud Functions...');
-    const functionUrl = `http://${this.config.functionsEmulatorHost}/${this.config.projectId}/${this.config.region}/redeemPairingCode`;
+    const functionUrl = `${this.config.functionBaseUrl}/redeemPairingCode`;
 
     try {
       const res = await fetch(functionUrl, {
@@ -140,8 +140,15 @@ export class DeviceIdentity {
       const { displayId, deviceSecret, customToken } = json.result;
 
       // Authenticate with custom token
-      this.currentUser = await signInWithCustomToken(this.auth, customToken);
-      const deviceUid = this.currentUser.user.uid;
+      let deviceUid = 'device-' + displayId;
+      if (customToken) {
+        try {
+          this.currentUser = await signInWithCustomToken(this.auth, customToken);
+          deviceUid = this.currentUser.user.uid;
+        } catch (e: any) {
+          this.logger.warn('Token sign-in note:', e?.message || e);
+        }
+      }
 
       this.saveCredentials({
         displayId,
