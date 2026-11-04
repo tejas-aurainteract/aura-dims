@@ -1060,16 +1060,14 @@ export const DisplaysPage: React.FC = () => {
                     <label className="block text-xs font-medium text-slate-300">
                       Enterprise Site <span className="text-teal-400">*</span>
                     </label>
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={handleQuickCreateSite}
-                        disabled={quickCreatingSite}
-                        className="text-[11px] text-teal-400 hover:text-teal-300 transition-colors font-medium flex items-center gap-0.5"
-                      >
-                        <Plus className="w-3 h-3" /> Add Site
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={handleQuickCreateSite}
+                      disabled={quickCreatingSite}
+                      className="text-[11px] text-teal-400 hover:text-teal-300 transition-colors font-medium flex items-center gap-0.5"
+                    >
+                      <Plus className="w-3 h-3" /> Add Site
+                    </button>
                   </div>
                   <select
                     required
@@ -1094,16 +1092,14 @@ export const DisplaysPage: React.FC = () => {
                     <label className="block text-xs font-medium text-slate-300">
                       Department <span className="text-teal-400">*</span>
                     </label>
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={handleQuickCreateDept}
-                        disabled={quickCreatingDept}
-                        className="text-[11px] text-teal-400 hover:text-teal-300 transition-colors font-medium flex items-center gap-0.5"
-                      >
-                        <Plus className="w-3 h-3" /> Add Dept
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={handleQuickCreateDept}
+                      disabled={quickCreatingDept}
+                      className="text-[11px] text-teal-400 hover:text-teal-300 transition-colors font-medium flex items-center gap-0.5"
+                    >
+                      <Plus className="w-3 h-3" /> Add Dept
+                    </button>
                   </div>
                   <select
                     required
