@@ -55,8 +55,28 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
 
   // Playlists
   const [availablePlaylists, setAvailablePlaylists] = useState<PlaylistRecord[]>([]);
-  const [selectedPlaylistId, setSelectedPlaylistId] = useState(schedule?.playlistRevisionId || '');
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState('');
   const [loadingPlaylists, setLoadingPlaylists] = useState(false);
+
+  // When editing, resolve playlistId from schedule's playlistRevisionId
+  useEffect(() => {
+    let active = true;
+    if (schedule?.playlistRevisionId) {
+      api
+        .getPlaylistRevision({ revisionId: schedule.playlistRevisionId })
+        .then((res) => {
+          if (active && res.revision?.playlistId) {
+            setSelectedPlaylistId(res.revision.playlistId);
+          }
+        })
+        .catch((err) => {
+          console.warn('Failed to resolve playlistId from revision:', err);
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [schedule?.playlistRevisionId]);
 
   // Target Digital Displays
   const [availableDisplays, setAvailableDisplays] = useState<DigitalDisplay[]>([]);
@@ -104,8 +124,14 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
           includeArchived: false,
         });
         setAvailablePlaylists(res.playlists);
-        if (res.playlists.length > 0 && res.playlists[0] && !selectedPlaylistId) {
-          setSelectedPlaylistId(res.playlists[0].id);
+        if (res.playlists.length > 0) {
+          if (isEditing && schedule?.playlistTitle) {
+            const match = res.playlists.find((p) => p.title === schedule.playlistTitle);
+            if (match) {
+              setSelectedPlaylistId((prev) => prev || match.id);
+            }
+          }
+          setSelectedPlaylistId((prev) => prev || res.playlists[0]!.id);
         }
       } catch (err) {
         console.error('Failed to load playlists:', err);

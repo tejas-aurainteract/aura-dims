@@ -108,6 +108,36 @@ export const SchedulesListView: React.FC = () => {
 
     setActionLoadingId(schedule.id);
     try {
+      // 1. Resolve underlying playlist ID from playlistRevisionId
+      let playlistId: string | null = null;
+      try {
+        const pr = await api.getPlaylistRevision({ revisionId: schedule.playlistRevisionId });
+        playlistId = pr.revision?.playlistId || null;
+      } catch (err) {
+        console.warn('Could not resolve playlistRevision to playlistId', err);
+      }
+
+      // 2. If playlistId resolved, freeze fresh playlist revision with latest visual design edits
+      if (playlistId) {
+        try {
+          const revRes = await api.createPlaylistRevision({ playlistId });
+          if (revRes.revision?.id && revRes.revision.id !== schedule.playlistRevisionId) {
+            await api.updateSchedule({
+              scheduleId: schedule.id,
+              title: schedule.title,
+              playlistRevisionId: revRes.revision.id,
+              playlistTitle: schedule.playlistTitle,
+              targetDisplayIds: schedule.targetDisplayIds,
+              scheduleRule: schedule.scheduleRule,
+              fallbackConfig: schedule.fallbackConfig,
+            });
+          }
+        } catch (freezeErr) {
+          console.warn('Could not auto-freeze latest playlist revision:', freezeErr);
+        }
+      }
+
+      // 3. Prepare and publish publication package
       const idempotencyKey = `pub_${schedule.id}_${Date.now()}`;
       await api.preparePublication({
         scheduleId: schedule.id,

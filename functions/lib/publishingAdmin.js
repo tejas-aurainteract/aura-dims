@@ -419,9 +419,7 @@ exports.setPlaylistArchivedStatus = (0, https_1.onCall)(CALLABLE_OPTS, async (re
     });
     return { playlistId, isArchived };
 });
-exports.createPlaylistRevision = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
-    const caller = await getAuthenticatedCaller(request.auth);
-    const { playlistId } = request.data;
+async function freezePlaylistRevisionInternal(playlistId, caller) {
     const pDoc = await db.collection('playlists').doc(playlistId).get();
     if (!pDoc.exists) {
         throw new https_1.HttpsError('not-found', `Playlist '${playlistId}' not found.`);
@@ -437,20 +435,8 @@ exports.createPlaylistRevision = (0, https_1.onCall)(CALLABLE_OPTS, async (reque
     const assetManifestMap = new Map();
     const fontSet = new Set();
     for (const item of playlist.items) {
-        // If item already has a frozen revision, use it; otherwise freeze from latest design
-        let dRev;
-        if (item.designRevisionId) {
-            const drDoc = await db.collection('designRevisions').doc(item.designRevisionId).get();
-            if (drDoc.exists) {
-                dRev = drDoc.data();
-            }
-            else {
-                dRev = await freezeDesignInternal(item.designId, caller);
-            }
-        }
-        else {
-            dRev = await freezeDesignInternal(item.designId, caller);
-        }
+        // Always freeze from latest visual design state to ensure modifications are captured
+        const dRev = await freezeDesignInternal(item.designId, caller);
         revItems.push({
             designId: item.designId,
             designRevisionId: dRev.id,
@@ -497,7 +483,13 @@ exports.createPlaylistRevision = (0, https_1.onCall)(CALLABLE_OPTS, async (reque
         newState: { playlistId, revisionNumber, contentHash: playlistContentHash },
         metadata: { departmentId: playlist.departmentId },
     });
-    return { revision: playlistRevision };
+    return playlistRevision;
+}
+exports.createPlaylistRevision = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
+    const caller = await getAuthenticatedCaller(request.auth);
+    const { playlistId } = request.data;
+    const revision = await freezePlaylistRevisionInternal(playlistId, caller);
+    return { revision };
 });
 async function freezeDesignInternal(designId, caller) {
     const designDoc = await db.collection('designs').doc(designId).get();
@@ -1078,11 +1070,25 @@ exports.preparePublication = (0, https_1.onCall)(CALLABLE_OPTS, async (request) 
         }
     }
     // Load PlaylistRevision and constituent DesignRevisions
-    const prDoc = await db.collection('playlistRevisions').doc(schedule.playlistRevisionId).get();
+    let prDoc = await db.collection('playlistRevisions').doc(schedule.playlistRevisionId).get();
     if (!prDoc.exists) {
         throw new https_1.HttpsError('not-found', `Playlist revision '${schedule.playlistRevisionId}' not found.`);
     }
-    const playlistRev = prDoc.data();
+    let playlistRev = prDoc.data();
+    // For direct publishers / administrators, ensure we compile the latest design updates
+    if (isDirectAuthorized && playlistRev.playlistId) {
+        try {
+            const freshRev = await freezePlaylistRevisionInternal(playlistRev.playlistId, caller);
+            playlistRev = freshRev;
+            await sDoc.ref.update({
+                playlistRevisionId: freshRev.id,
+                updatedAt: new Date().toISOString(),
+            });
+        }
+        catch (err) {
+            console.warn('Auto-freeze latest playlist revision failed, using existing revision:', err?.message || err);
+        }
+    }
     // Load full DesignRevisions
     const playlistItemsForManifest = [];
     const allAssetsMap = new Map();

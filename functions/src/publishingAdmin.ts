@@ -576,98 +576,95 @@ export const setPlaylistArchivedStatus = onCall(
   }
 );
 
+async function freezePlaylistRevisionInternal(
+  playlistId: string,
+  caller: UserProfile
+): Promise<PlaylistRevision> {
+  const pDoc = await db.collection('playlists').doc(playlistId).get();
+  if (!pDoc.exists) {
+    throw new HttpsError('not-found', `Playlist '${playlistId}' not found.`);
+  }
+
+  const playlist = pDoc.data() as PlaylistRecord;
+  assertDepartmentAccess(caller, playlist.departmentId);
+
+  if (!playlist.items || playlist.items.length === 0) {
+    throw new HttpsError('failed-precondition', 'Cannot create revision for an empty playlist.');
+  }
+
+  // Freeze all constituent designs into DesignRevisions
+  const revItems: PlaylistRevision['items'] = [];
+  const allReferencedAssets = new Set<string>();
+  const assetManifestMap = new Map<string, DesignRevisionAsset>();
+  const fontSet = new Set<string>();
+
+  for (const item of playlist.items) {
+    // Always freeze from latest visual design state to ensure modifications are captured
+    const dRev = await freezeDesignInternal(item.designId, caller);
+
+    revItems.push({
+      designId: item.designId,
+      designRevisionId: dRev.id,
+      title: dRev.title,
+      slideCount: dRev.slideCount,
+      durationSeconds: dRev.totalDurationSeconds,
+      order: item.order,
+      contentHash: dRev.contentHash,
+    });
+
+    dRev.referencedAssetIds.forEach((id) => allReferencedAssets.add(id));
+    dRev.assetManifest.forEach((am) => assetManifestMap.set(am.assetId, am));
+    dRev.requiredFonts.forEach((f) => fontSet.add(f));
+  }
+
+  const canonicalJson = JSON.stringify(revItems, Object.keys(revItems).sort());
+  const playlistContentHash = computeSha256(canonicalJson);
+
+  const prevRevs = await db.collection('playlistRevisions')
+    .where('playlistId', '==', playlistId)
+    .get();
+  const revisionNumber = prevRevs.size + 1;
+
+  const prRef = db.collection('playlistRevisions').doc();
+  const playlistRevision: PlaylistRevision = {
+    id: prRef.id,
+    playlistId,
+    revisionNumber,
+    title: playlist.title,
+    description: playlist.description,
+    departmentId: playlist.departmentId,
+    orientation: playlist.orientation,
+    items: revItems,
+    totalDurationSeconds: revItems.reduce((acc, it) => acc + it.durationSeconds, 0),
+    referencedAssetIds: Array.from(allReferencedAssets),
+    assetManifest: Array.from(assetManifestMap.values()),
+    requiredFonts: Array.from(fontSet),
+    contentHash: playlistContentHash,
+    createdAt: new Date().toISOString(),
+    createdBy: caller.uid,
+  };
+
+  await prRef.set(playlistRevision);
+
+  await writeAuditLog({
+    actorId: caller.uid,
+    action: 'playlist_revision.created',
+    targetId: playlistRevision.id,
+    targetType: 'playlist_revision',
+    newState: { playlistId, revisionNumber, contentHash: playlistContentHash },
+    metadata: { departmentId: playlist.departmentId },
+  });
+
+  return playlistRevision;
+}
+
 export const createPlaylistRevision = onCall(
   CALLABLE_OPTS,
   async (request): Promise<CreatePlaylistRevisionResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { playlistId } = request.data as CreatePlaylistRevisionRequest;
-
-    const pDoc = await db.collection('playlists').doc(playlistId).get();
-    if (!pDoc.exists) {
-      throw new HttpsError('not-found', `Playlist '${playlistId}' not found.`);
-    }
-
-    const playlist = pDoc.data() as PlaylistRecord;
-    assertDepartmentAccess(caller, playlist.departmentId);
-
-    if (!playlist.items || playlist.items.length === 0) {
-      throw new HttpsError('failed-precondition', 'Cannot create revision for an empty playlist.');
-    }
-
-    // Freeze all constituent designs into DesignRevisions
-    const revItems: PlaylistRevision['items'] = [];
-    const allReferencedAssets = new Set<string>();
-    const assetManifestMap = new Map<string, DesignRevisionAsset>();
-    const fontSet = new Set<string>();
-
-    for (const item of playlist.items) {
-      // If item already has a frozen revision, use it; otherwise freeze from latest design
-      let dRev: DesignRevision;
-      if (item.designRevisionId) {
-        const drDoc = await db.collection('designRevisions').doc(item.designRevisionId).get();
-        if (drDoc.exists) {
-          dRev = drDoc.data() as DesignRevision;
-        } else {
-          dRev = await freezeDesignInternal(item.designId, caller);
-        }
-      } else {
-        dRev = await freezeDesignInternal(item.designId, caller);
-      }
-
-      revItems.push({
-        designId: item.designId,
-        designRevisionId: dRev.id,
-        title: dRev.title,
-        slideCount: dRev.slideCount,
-        durationSeconds: dRev.totalDurationSeconds,
-        order: item.order,
-        contentHash: dRev.contentHash,
-      });
-
-      dRev.referencedAssetIds.forEach((id) => allReferencedAssets.add(id));
-      dRev.assetManifest.forEach((am) => assetManifestMap.set(am.assetId, am));
-      dRev.requiredFonts.forEach((f) => fontSet.add(f));
-    }
-
-    const canonicalJson = JSON.stringify(revItems, Object.keys(revItems).sort());
-    const playlistContentHash = computeSha256(canonicalJson);
-
-    const prevRevs = await db.collection('playlistRevisions')
-      .where('playlistId', '==', playlistId)
-      .get();
-    const revisionNumber = prevRevs.size + 1;
-
-    const prRef = db.collection('playlistRevisions').doc();
-    const playlistRevision: PlaylistRevision = {
-      id: prRef.id,
-      playlistId,
-      revisionNumber,
-      title: playlist.title,
-      description: playlist.description,
-      departmentId: playlist.departmentId,
-      orientation: playlist.orientation,
-      items: revItems,
-      totalDurationSeconds: revItems.reduce((acc, it) => acc + it.durationSeconds, 0),
-      referencedAssetIds: Array.from(allReferencedAssets),
-      assetManifest: Array.from(assetManifestMap.values()),
-      requiredFonts: Array.from(fontSet),
-      contentHash: playlistContentHash,
-      createdAt: new Date().toISOString(),
-      createdBy: caller.uid,
-    };
-
-    await prRef.set(playlistRevision);
-
-    await writeAuditLog({
-      actorId: caller.uid,
-      action: 'playlist_revision.created',
-      targetId: playlistRevision.id,
-      targetType: 'playlist_revision',
-      newState: { playlistId, revisionNumber, contentHash: playlistContentHash },
-      metadata: { departmentId: playlist.departmentId },
-    });
-
-    return { revision: playlistRevision };
+    const revision = await freezePlaylistRevisionInternal(playlistId, caller);
+    return { revision };
   }
 );
 
@@ -1455,11 +1452,25 @@ export const preparePublication = onCall(
     }
 
     // Load PlaylistRevision and constituent DesignRevisions
-    const prDoc = await db.collection('playlistRevisions').doc(schedule.playlistRevisionId).get();
+    let prDoc = await db.collection('playlistRevisions').doc(schedule.playlistRevisionId).get();
     if (!prDoc.exists) {
       throw new HttpsError('not-found', `Playlist revision '${schedule.playlistRevisionId}' not found.`);
     }
-    const playlistRev = prDoc.data() as PlaylistRevision;
+    let playlistRev = prDoc.data() as PlaylistRevision;
+
+    // For direct publishers / administrators, ensure we compile the latest design updates
+    if (isDirectAuthorized && playlistRev.playlistId) {
+      try {
+        const freshRev = await freezePlaylistRevisionInternal(playlistRev.playlistId, caller);
+        playlistRev = freshRev;
+        await sDoc.ref.update({
+          playlistRevisionId: freshRev.id,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (err: any) {
+        console.warn('Auto-freeze latest playlist revision failed, using existing revision:', err?.message || err);
+      }
+    }
 
     // Load full DesignRevisions
     const playlistItemsForManifest: Array<{
