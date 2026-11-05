@@ -6,28 +6,51 @@
  * Characteristics:
  * - Operates purely locally from loopback HTTP service.
  * - Zero live Firebase connectivity required in browser JavaScript.
- * - Reuses display-schema layout and schedule evaluator logic.
  * - Evaluates schedules in Asia/Kolkata timezone with neutral corporate fallback.
- * - Muted video playback, complex script shaping (Gujarati/Hindi/English), and error recovery.
+ * - Dual-buffered off-screen slide preparation with generation counters, 15s preparation watchdog,
+ *   reveal-timed dwell, and audio-then-muted video fallback adapted from verified hardware runtime.
+ * - Supports complex script shaping (Gujarati/Hindi/English) and remote renderer refresh.
  */
 
 (function () {
   'use strict';
 
+  const PREP_TIMEOUT_MS = 15000;
   const rootEl = document.getElementById('player-root');
   let currentPackage = null;
-  let currentPlaylist = null;
   let currentSlideIndex = 0;
   let slideTimeoutTimer = null;
+  let prepWatchdogTimer = null;
   let statusPollTimer = null;
   let isPlaying = false;
+  let activeBufferSlot = 'a';
+  let transitionGeneration = 0;
+  let currentReloadGeneration = 1;
+
+  function clearSlideTimers() {
+    if (slideTimeoutTimer) {
+      clearTimeout(slideTimeoutTimer);
+      slideTimeoutTimer = null;
+    }
+    if (prepWatchdogTimer) {
+      clearTimeout(prepWatchdogTimer);
+      prepWatchdogTimer = null;
+    }
+  }
 
   // Initialize
   async function init() {
+    clearSlideTimers();
+    transitionGeneration += 1;
+
     try {
       const res = await fetch('/api/active-package');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+
+      if (typeof data.reloadGeneration === 'number') {
+        currentReloadGeneration = data.reloadGeneration;
+      }
 
       if (data.state === 'unprovisioned') {
         renderSetupScreen();
@@ -40,13 +63,13 @@
         startPolling();
       }
     } catch (err) {
-      renderErrorScreen('Failed to connect to local player agent service.');
+      renderErrorScreen('Failed to connect to local digital display player service.');
     }
   }
 
   // 1. Setup / Pairing Screen
   function renderSetupScreen(errorMsg = null) {
-    if (slideTimeoutTimer) clearTimeout(slideTimeoutTimer);
+    clearSlideTimers();
     isPlaying = false;
 
     rootEl.innerHTML = `
@@ -107,13 +130,15 @@
           renderSetupScreen(json.error || 'Failed to claim pairing code.');
         }
       } catch (err) {
-        renderSetupScreen('Could not communicate with local player agent.');
+        renderSetupScreen('Could not communicate with local digital display player service.');
       }
     });
   }
 
   // 2. Awaiting Package Screen
   function renderAwaitingPackageScreen(displayId) {
+    clearSlideTimers();
+    isPlaying = false;
     rootEl.innerHTML = `
       <div class="screen-center">
         <div class="spinner"></div>
@@ -128,6 +153,8 @@
 
   // 3. Error Screen
   function renderErrorScreen(message) {
+    clearSlideTimers();
+    isPlaying = false;
     rootEl.innerHTML = `
       <div class="setup-card">
         <div class="brand-badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border-color: rgba(239, 68, 68, 0.4);">
@@ -158,7 +185,10 @@
 
     rootEl.innerHTML = `
       <div id="viewport" class="signage-viewport" style="width: ${canvasWidth}px; height: ${canvasHeight}px;">
-        <div id="slide-container" class="slide-canvas"></div>
+        <div id="slide-container" class="slide-canvas">
+          <div id="slide-buffer-a" class="slide-buffer active"></div>
+          <div id="slide-buffer-b" class="slide-buffer"></div>
+        </div>
       </div>
       <div class="status-indicator">
         <span class="dot"></span>
@@ -181,14 +211,18 @@
     window.addEventListener('resize', scaleViewport);
     scaleViewport();
 
+    activeBufferSlot = 'a';
     isPlaying = true;
     currentSlideIndex = 0;
     playNextSlide();
   }
 
-  // 5. Evaluate Schedule & Sequence Slides
+  // 5. Evaluate Schedule & Sequence Slides with Dual-Buffer Preparation
   function playNextSlide() {
     if (!isPlaying || !currentPackage || !currentPackage.manifest) return;
+    clearSlideTimers();
+
+    const myGeneration = ++transitionGeneration;
     const manifest = currentPackage.manifest;
 
     // Local Schedule Evaluation in Asia/Kolkata
@@ -198,8 +232,12 @@
     let playlistId = manifest.scheduleId || 'default-schedule';
     let designRevisionId = null;
 
-    if (scheduleActive && manifest.playlist && manifest.playlist.items && manifest.playlist.items.length > 0) {
-      // Gather all slides across playlist items
+    if (
+      scheduleActive &&
+      manifest.playlist &&
+      manifest.playlist.items &&
+      manifest.playlist.items.length > 0
+    ) {
       const allPlaylistSlides = [];
       manifest.playlist.items.forEach((item) => {
         (item.slides || []).forEach((s) => {
@@ -225,64 +263,194 @@
 
     // If no active schedule or empty playlist, render fallback slide
     if (!slideToRender) {
-      slideToRender = manifest.fallback?.slides?.[0] || getNeutralFallbackSlide(manifest.orientation);
+      slideToRender =
+        manifest.fallback?.slides?.[0] || getNeutralFallbackSlide(manifest.orientation);
       durationSeconds = 15;
     }
 
-    // Render slide into DOM
-    renderSlideToDOM(slideToRender);
-
-    // Notify agent of slide start for real playback presentation reporting
-    reportPlaybackEvent({
-      type: 'slide_started',
+    prepareAndRevealSlide({
+      slide: slideToRender,
+      durationSeconds,
       playlistId,
-      slideId: slideToRender.id || 'slide-1',
       designRevisionId,
+      generation: myGeneration,
     });
-
-    // Schedule next slide transition
-    if (slideTimeoutTimer) clearTimeout(slideTimeoutTimer);
-    slideTimeoutTimer = setTimeout(() => {
-      playNextSlide();
-    }, durationSeconds * 1000);
   }
 
-  // 6. Pixel-Accurate DOM Slide Renderer
-  function renderSlideToDOM(slide) {
-    const container = document.getElementById('slide-container');
-    if (!container) return;
+  // 6. Dual-Buffered DOM Slide Renderer with 15s Prep Watchdog & Reveal-Timed Dwell
+  function prepareAndRevealSlide({
+    slide,
+    durationSeconds,
+    playlistId,
+    designRevisionId,
+    generation,
+  }) {
+    const bufferA = document.getElementById('slide-buffer-a');
+    const bufferB = document.getElementById('slide-buffer-b');
+    const fallbackContainer = document.getElementById('slide-container');
 
-    // Background
-    let bgStyle = 'background-color: #0f172a;';
-    if (slide.background) {
-      if (slide.background.type === 'color' && slide.background.value) {
-        bgStyle = `background-color: ${slide.background.value};`;
-      } else if (slide.background.type === 'gradient' && slide.background.value) {
-        bgStyle = `background-image: ${slide.background.value};`;
-      } else if (slide.background.type === 'asset' && slide.background.assetId) {
-        const url = getAssetUrl(slide.background.assetId);
-        if (url) {
-          bgStyle = `background-image: url("${url}"); background-size: cover; background-position: center;`;
-        }
+    if (!bufferA || !bufferB) {
+      if (fallbackContainer) {
+        fallbackContainer.innerHTML = buildSlideInnerHtml(slide);
       }
+      return;
     }
 
-    // Render Canvas Elements
-    const elementsHtml = (slide.elements || [])
+    const currentBuffer = activeBufferSlot === 'a' ? bufferA : bufferB;
+    const nextBuffer = activeBufferSlot === 'a' ? bufferB : bufferA;
+    const nextSlot = activeBufferSlot === 'a' ? 'b' : 'a';
+
+    // Apply background style to off-screen buffer
+    applySlideBackground(nextBuffer, slide.background);
+    nextBuffer.innerHTML = buildSlideInnerHtml(slide);
+
+    const images = Array.from(nextBuffer.querySelectorAll('img'));
+    const videos = Array.from(nextBuffer.querySelectorAll('video'));
+    const totalMediaCount = images.length + videos.length;
+    let settledCount = 0;
+    let failedCount = 0;
+    let revealed = false;
+
+    const revealNow = () => {
+      if (revealed || generation !== transitionGeneration) return;
+      revealed = true;
+      if (prepWatchdogTimer) {
+        clearTimeout(prepWatchdogTimer);
+        prepWatchdogTimer = null;
+      }
+
+      // Swap active classes
+      nextBuffer.classList.add('active');
+      currentBuffer.classList.remove('active');
+      activeBufferSlot = nextSlot;
+
+      // Stop and release media in previous buffer
+      const oldVideos = currentBuffer.querySelectorAll('video');
+      oldVideos.forEach((v) => {
+        try {
+          v.pause();
+          v.removeAttribute('src');
+          v.load();
+        } catch {}
+      });
+
+      // Start videos in newly revealed buffer with audio-then-muted fallback
+      videos.forEach((v) => {
+        const wantsAudio = v.getAttribute('data-muted') === 'false';
+        v.muted = !wantsAudio;
+        const playPromise = v.play();
+        if (playPromise && typeof playPromise.catch === 'function') {
+          playPromise.catch(() => {
+            if (generation !== transitionGeneration) return;
+            v.muted = true;
+            v.play().catch(() => {
+              reportPlaybackEvent({
+                type: 'playback_error',
+                error: 'Video playback failed even when muted',
+              });
+            });
+          });
+        }
+      });
+
+      // Notify agent of actual slide presentation start
+      reportPlaybackEvent({
+        type: 'slide_started',
+        publicationId: currentPackage?.publicationId || null,
+        playlistId,
+        slideId: slide.id || 'slide-1',
+        designRevisionId,
+      });
+
+      // Start dwell timer strictly after reveal
+      slideTimeoutTimer = setTimeout(() => {
+        if (generation !== transitionGeneration) return;
+        playNextSlide();
+      }, Math.max(1, durationSeconds) * 1000);
+    };
+
+    const onMediaSettled = (failed) => {
+      if (generation !== transitionGeneration || revealed) return;
+      settledCount += 1;
+      if (failed) failedCount += 1;
+      if (settledCount >= totalMediaCount) {
+        revealNow();
+      }
+    };
+
+    if (totalMediaCount === 0) {
+      revealNow();
+      return;
+    }
+
+    // Arm 15-second preparation watchdog so a hung asset never freezes signage playback
+    prepWatchdogTimer = setTimeout(() => {
+      if (generation !== transitionGeneration || revealed) return;
+      reportPlaybackEvent({
+        type: 'playback_error',
+        error: 'Slide media preparation watchdog timeout (15s)',
+      });
+      revealNow();
+    }, PREP_TIMEOUT_MS);
+
+    images.forEach((img) => {
+      if (img.complete) {
+        onMediaSettled(img.naturalWidth === 0);
+      } else {
+        img.addEventListener('load', () => onMediaSettled(false), { once: true });
+        img.addEventListener(
+          'error',
+          () => {
+            img.style.display = 'none';
+            onMediaSettled(true);
+          },
+          { once: true }
+        );
+      }
+    });
+
+    videos.forEach((v) => {
+      if (v.readyState >= 2) {
+        onMediaSettled(false);
+      } else {
+        v.addEventListener('loadeddata', () => onMediaSettled(false), { once: true });
+        v.addEventListener(
+          'error',
+          () => {
+            reportPlaybackEvent({ type: 'playback_error', error: 'Video decode failure' });
+            onMediaSettled(true);
+          },
+          { once: true }
+        );
+      }
+    });
+  }
+
+  function applySlideBackground(bufferEl, background) {
+    bufferEl.style.backgroundColor = '#0f172a';
+    bufferEl.style.backgroundImage = 'none';
+    if (!background) return;
+
+    if (background.type === 'color' && background.value) {
+      bufferEl.style.backgroundColor = background.value;
+    } else if (background.type === 'gradient' && background.value) {
+      bufferEl.style.backgroundImage = background.value;
+    } else if (background.type === 'asset' && background.assetId) {
+      const url = getAssetUrl(background.assetId);
+      if (url) {
+        bufferEl.style.backgroundImage = `url("${url}")`;
+        bufferEl.style.backgroundSize = 'cover';
+        bufferEl.style.backgroundPosition = 'center';
+      }
+    }
+  }
+
+  function buildSlideInnerHtml(slide) {
+    return (slide.elements || [])
+      .slice()
       .sort((a, b) => (a.zIndex || 1) - (b.zIndex || 1))
       .map((el) => renderElementHtml(el))
       .join('');
-
-    container.style = bgStyle;
-    container.innerHTML = elementsHtml;
-
-    // Attach video error handlers to recover gracefully
-    const videos = container.querySelectorAll('video');
-    videos.forEach((v) => {
-      v.addEventListener('error', () => {
-        reportPlaybackEvent({ type: 'playback_error', error: 'Video decode failure' });
-      });
-    });
   }
 
   function renderElementHtml(el) {
@@ -345,9 +513,10 @@
     if (el.type === 'image') {
       const url = getAssetUrl(el.assetId);
       if (!url) return '';
+      const fit = el.fit || 'cover';
       return `
         <div class="canvas-element" style="${style}">
-          <img class="canvas-image" src="${url}" alt="" loading="eager" onerror="this.style.display='none'">
+          <img class="canvas-image" style="object-fit: ${fit};" src="${url}" alt="" loading="eager">
         </div>
       `;
     }
@@ -355,9 +524,21 @@
     if (el.type === 'video') {
       const url = getAssetUrl(el.assetId);
       if (!url) return '';
+      const fit = el.fit || 'cover';
+      const isMuted = el.muted !== false;
+      const isLoop = el.loop !== false;
       return `
         <div class="canvas-element" style="${style}">
-          <video class="canvas-video" src="${url}" autoplay muted loop playsinline></video>
+          <video
+            class="canvas-video"
+            style="object-fit: ${fit};"
+            src="${url}"
+            preload="auto"
+            data-muted="${isMuted ? 'true' : 'false'}"
+            ${isMuted ? 'muted' : ''}
+            ${isLoop ? 'loop' : ''}
+            playsinline
+          ></video>
         </div>
       `;
     }
@@ -387,7 +568,6 @@
     if (!rule) return true; // Default fallback: always active if no rule
     try {
       const now = new Date();
-      // Format now into Asia/Kolkata components
       const formatter = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Asia/Kolkata',
         year: 'numeric',
@@ -401,7 +581,9 @@
 
       const parts = formatter.formatToParts(now);
       const partMap = {};
-      parts.forEach((p) => { partMap[p.type] = p.value; });
+      parts.forEach((p) => {
+        partMap[p.type] = p.value;
+      });
 
       const currentDate = `${partMap.year}-${partMap.month}-${partMap.day}`;
       const currentTime = `${partMap.hour}:${partMap.minute}`;
@@ -487,7 +669,7 @@
     }).catch(() => {});
   }
 
-  // 8. Status Poller (hot reloads package when new one is activated)
+  // 8. Status Poller (hot reloads package when new one is activated or REFRESH_RENDERER is triggered)
   function startPolling() {
     if (statusPollTimer) clearInterval(statusPollTimer);
     statusPollTimer = setInterval(async () => {
@@ -496,14 +678,24 @@
         if (!res.ok) return;
         const status = await res.json();
 
-        if (status.enrolled && currentPackage?.state === 'unprovisioned') {
-          // Newly enrolled
+        if (
+          typeof status.reloadGeneration === 'number' &&
+          status.reloadGeneration > currentReloadGeneration
+        ) {
+          currentReloadGeneration = status.reloadGeneration;
           init();
           return;
         }
 
-        if (status.activePublicationId && (!currentPackage || currentPackage.publicationId !== status.activePublicationId)) {
-          // New package activated!
+        if (status.enrolled && currentPackage?.state === 'unprovisioned') {
+          init();
+          return;
+        }
+
+        if (
+          status.activePublicationId &&
+          (!currentPackage || currentPackage.publicationId !== status.activePublicationId)
+        ) {
           init();
         }
       } catch {}
@@ -523,4 +715,3 @@
   // Bootstrap
   init();
 })();
-

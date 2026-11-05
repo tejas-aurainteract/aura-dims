@@ -103,10 +103,116 @@ export interface StorageMetrics {
   freeBytes: number;
 }
 
+/**
+ * Typed numeric hardware telemetry reported by the player runtime.
+ * Unavailable measurements are strictly null, never fabricated zeros or strings.
+ */
+export interface HardwareMetrics {
+  cpuTempCelsius: number | null;
+  memoryUsedBytes: number | null;
+  memoryTotalBytes: number | null;
+  diskFreeBytes: number | null;
+  diskTotalBytes: number | null;
+  osPlatform?: string | null;
+  osRelease?: string | null;
+  arch?: string | null;
+  bootId?: string | null;
+  observedAt: string;
+}
+
+/**
+ * Versioned capability advertisement for a digital display player runtime.
+ * Capabilities describe what the device OS/runtime supports; they NEVER grant permission.
+ */
+export interface DeviceCapabilities {
+  schemaVersion: '1.0';
+  protocolVersion: string;
+  agentVersion: string;
+  rendererVersion: string;
+  visualDesigns: boolean;
+  supportedMediaTypes: Array<'image' | 'video'>;
+  supportedOrientations: DisplayOrientation[];
+  supportedFonts: string[];
+  capturePreview: boolean;
+  capturePreviewReason?: string | null;
+  refreshRenderer: boolean;
+  refreshRendererReason?: string | null;
+  reboot: boolean;
+  rebootReason?: string | null;
+  safeCacheCleanup: boolean;
+}
+
+export type AssetTransferStage =
+  | 'queued'
+  | 'downloading'
+  | 'verifying'
+  | 'ready'
+  | 'failed';
+
+/**
+ * Per-asset preparation and checksum verification telemetry keyed by immutable publication + assetId/hash.
+ */
+export interface AssetTransferProgress {
+  publicationId: string;
+  assetId: string;
+  fileName: string;
+  sizeBytes: number;
+  bytesTransferred: number;
+  progressPercent: number;
+  checksumSha256: string;
+  verifiedChecksumSha256?: string | null;
+  stage: AssetTransferStage;
+  fromCache?: boolean;
+  updatedAt: string;
+  errorMessage?: string | null;
+}
+
+export type CacheReferenceKind = 'active' | 'previous' | 'staged' | 'unreferenced';
+
+export interface CacheInventoryItem {
+  checksumSha256: string;
+  assetIds: string[];
+  fileNames: string[];
+  sizeBytes: number;
+  verifiedAt: string;
+  lastUsedAt: string;
+  references: CacheReferenceKind[];
+}
+
+export interface CacheInventorySummary {
+  reportedAt: string;
+  activePublicationId?: string | null;
+  previousPublicationId?: string | null;
+  stagedPublicationIds?: string[];
+  totalItems: number;
+  totalBytes: number;
+  referencedBytes: number;
+  unreferencedBytes: number;
+  items: CacheInventoryItem[];
+}
+
+export interface DisplayPreviewMetadata {
+  operationId: string;
+  storagePath: string;
+  mimeType: 'image/jpeg' | 'image/png';
+  sizeBytes: number;
+  width?: number | null;
+  height?: number | null;
+  capturedAt: string;
+  uploadedAt: string;
+  expiresAt: string;
+  requestedBy: string;
+}
+
 export interface PlaybackPresentationState {
   currentPlaylistId: string | null;
   currentSlideId: string | null;
   designRevisionId?: string | null;
+  /** Immutable publication ID actually rendered on the browser viewport (distinct from activated pointer). */
+  presentedPublicationId?: string | null;
+  /** Timestamp when the currently presented publication first rendered a visible slide. */
+  firstPresentedAt?: string | null;
+  rendererGeneration?: number;
   isPlaying: boolean;
   lastSlideStartedAt: string | null;
 }
@@ -114,6 +220,7 @@ export interface PlaybackPresentationState {
 /** Values reported by an enrolled device in its last accepted heartbeat. */
 export interface DisplayReportedState {
   appVersion: string;
+  rendererVersion?: string | null;
   clientKind: 'player' | 'simulator';
   screenWidth: number | null;
   screenHeight: number | null;
@@ -123,9 +230,16 @@ export interface DisplayReportedState {
   downloadingPublicationId?: string | null;
   readyPublicationId?: string | null;
   activePublicationId?: string | null;
+  presentedPublicationId?: string | null;
+  firstPresentedAt?: string | null;
   deliveryStage?: PackageDeliveryStage;
   lastSyncAt?: string | null;
+  lastInventoryAt?: string | null;
   storage?: StorageMetrics | null;
+  hardwareMetrics?: HardwareMetrics | null;
+  capabilities?: DeviceCapabilities | null;
+  assetProgress?: AssetTransferProgress[] | null;
+  cacheInventory?: CacheInventorySummary | null;
   playback?: PlaybackPresentationState | null;
   rendererHealth?: 'healthy' | 'stalled' | 'error';
   lastError?: string | null;
@@ -148,10 +262,14 @@ export interface DigitalDisplay {
   configuredResolution: Resolution;
   lifecycle: DisplayLifecycle;
   desiredPublicationId?: string | null;
+  readyPublicationId?: string | null;
   activePublicationId?: string | null;
+  presentedPublicationId?: string | null;
+  firstPresentedAt?: string | null;
   deliveryStage?: PackageDeliveryStage;
   lastSyncAt?: string | null;
   lastDeliveryError?: string | null;
+  lastPreview?: DisplayPreviewMetadata | null;
   /** Server receipt time of the last accepted heartbeat. */
   lastHeartbeatAt: string | null;
   reported: DisplayReportedState | null;
@@ -311,7 +429,9 @@ export type AuditTargetType =
   | 'asset'
   | 'schedule'
   | 'playlist'
-  | 'publication';
+  | 'publication'
+  | 'display_operation'
+  | 'display_preview';
 
 export interface AuditEvent {
   id: string;
@@ -583,6 +703,8 @@ export interface ReportDeviceDeliveryRequest {
   stage: PackageDeliveryStage;
   checksumSha256?: string;
   errorMessage?: string;
+  assetProgress?: AssetTransferProgress[];
+  cacheInventory?: CacheInventorySummary;
 }
 
 export interface ReportDeviceDeliveryResponse {
@@ -593,6 +715,7 @@ export interface ReportDeviceDeliveryResponse {
 export interface DeviceHeartbeatRequest {
   displayId?: string;
   appVersion: string;
+  rendererVersion?: string | null;
   clientKind?: 'player' | 'simulator';
   screen?: { width: number; height: number } | null;
   diagnostics?: { availableStorageBytes?: number; uptimeSeconds?: number } | null;
@@ -600,9 +723,16 @@ export interface DeviceHeartbeatRequest {
   downloadingPublicationId?: string | null;
   readyPublicationId?: string | null;
   activePublicationId?: string | null;
+  presentedPublicationId?: string | null;
+  firstPresentedAt?: string | null;
   deliveryStage?: PackageDeliveryStage;
   lastSyncAt?: string | null;
   storage?: StorageMetrics | null;
+  hardwareMetrics?: HardwareMetrics | null;
+  capabilities?: DeviceCapabilities | null;
+  assetProgress?: AssetTransferProgress[] | null;
+  cacheInventory?: CacheInventorySummary | null;
+  lastInventoryAt?: string | null;
   playback?: PlaybackPresentationState | null;
   rendererHealth?: 'healthy' | 'stalled' | 'error';
   lastError?: string | null;
@@ -613,6 +743,7 @@ export interface DeviceHeartbeatResponse {
   accepted: true;
   serverReceivedAt: string;
   recommendedHeartbeatSeconds: number;
+  pendingOperationCount?: number;
 }
 
 export interface DeviceConfigResponse {
@@ -2582,6 +2713,265 @@ export interface RetryPublicationTargetResponse {
   displayId: string;
   newDesiredPublicationId: string;
 }
+
+// ==========================================
+// Milestone: Hardware Integration & Durable Device Operations
+// ==========================================
+
+export type DeviceOperationType =
+  | 'SYNC_NOW'
+  | 'REFRESH_RENDERER'
+  | 'CAPTURE_PREVIEW'
+  | 'SAFE_CLEANUP_CACHE'
+  | 'REBOOT';
+
+export type DeviceOperationState =
+  | 'queued'
+  | 'claimed'
+  | 'in_progress'
+  | 'awaiting_reconnect'
+  | 'succeeded'
+  | 'failed'
+  | 'expired'
+  | 'cancelled';
+
+export interface DeviceOperationRecord {
+  id: string;
+  displayId: string;
+  departmentId: string;
+  type: DeviceOperationType;
+  state: DeviceOperationState;
+  requestedBy: string;
+  requestedByRole: UserRole;
+  requestedAt: string;
+  expiresAt: string;
+  idempotencyKey?: string | null;
+  reason?: string | null;
+  claimedAt?: string | null;
+  claimLeaseId?: string | null;
+  claimExpiresAt?: string | null;
+  attemptCount: number;
+  maxAttempts: number;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  preRebootBootId?: string | null;
+  preRebootUptimeSeconds?: number | null;
+  resultSummary?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  previewMetadata?: DisplayPreviewMetadata | null;
+  cleanupSummary?: {
+    removedPublications: number;
+    removedAssets: number;
+    removedStagingDirs: number;
+    removedPartFiles: number;
+    freedBytes: number;
+  } | null;
+  updatedAt: string;
+}
+
+export interface RequestDisplayOperationRequest {
+  displayId: string;
+  type: DeviceOperationType;
+  idempotencyKey?: string;
+  reason?: string;
+  confirmed?: boolean;
+}
+
+export interface RequestDisplayOperationResponse {
+  operation: DeviceOperationRecord;
+  deduplicated: boolean;
+}
+
+export interface ListDisplayOperationsRequest {
+  displayId: string;
+  limit?: number;
+}
+
+export interface ListDisplayOperationsResponse {
+  operations: DeviceOperationRecord[];
+}
+
+export interface ClaimDeviceOperationRequest {
+  displayId: string;
+  capabilities?: DeviceCapabilities | null;
+}
+
+export interface ClaimDeviceOperationResponse {
+  operation: DeviceOperationRecord | null;
+  serverTimestamp: string;
+}
+
+export interface ReportDeviceOperationRequest {
+  displayId: string;
+  operationId: string;
+  claimLeaseId: string;
+  state: 'in_progress' | 'awaiting_reconnect' | 'succeeded' | 'failed';
+  resultSummary?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  preRebootBootId?: string | null;
+  preRebootUptimeSeconds?: number | null;
+  cleanupSummary?: {
+    removedPublications: number;
+    removedAssets: number;
+    removedStagingDirs: number;
+    removedPartFiles: number;
+    freedBytes: number;
+  } | null;
+}
+
+export interface ReportDeviceOperationResponse {
+  operation: DeviceOperationRecord;
+  serverReceivedAt: string;
+}
+
+export interface UploadDevicePreviewRequest {
+  displayId: string;
+  operationId: string;
+  claimLeaseId: string;
+  mimeType: 'image/jpeg' | 'image/png';
+  imageBase64: string;
+  width?: number | null;
+  height?: number | null;
+  captureMethod: string;
+}
+
+export interface UploadDevicePreviewResponse {
+  preview: DisplayPreviewMetadata;
+  operation: DeviceOperationRecord;
+}
+
+export interface GetDisplayPreviewUrlRequest {
+  displayId: string;
+}
+
+export interface GetDisplayPreviewUrlResponse {
+  url: string;
+  expiresAt: string;
+  preview: DisplayPreviewMetadata;
+}
+
+export interface PublicationCompatibilityResult {
+  compatible: boolean;
+  reasons: string[];
+}
+
+/**
+ * Evaluates whether an Aura DIMS DetailedPublicationManifest can be losslessly represented
+ * by the legacy Python/SQLite weekly filename-only manifest format.
+ * Used to guard against silent feature degradation.
+ */
+export function checkLegacyManifestCompatibility(
+  manifest: DetailedPublicationManifest
+): PublicationCompatibilityResult {
+  const reasons: string[] = [];
+
+  for (const item of manifest.playlist.items) {
+    for (const slide of item.slides) {
+      const hasComplexElements = slide.elements.some(
+        (el) => el.type === 'text' || el.type === 'shape'
+      );
+      if (hasComplexElements || slide.elements.length > 1) {
+        reasons.push(
+          `Item "${item.title}" (${item.designRevisionId}) contains multi-element visual design canvas elements, which cannot be represented as a single static filename in the legacy weekly manifest.`
+        );
+      }
+      for (const el of slide.elements) {
+        if (el.type === 'text' && el.fontFamily !== 'Inter') {
+          reasons.push(
+            `Design "${item.title}" uses localized font "${el.fontFamily}", which requires the Aura DIMS HTML5 canvas renderer.`
+          );
+        }
+      }
+    }
+  }
+
+  if (manifest.orientation === 'portrait') {
+    reasons.push(
+      'Publication targets portrait (1080x1920) orientation, whereas legacy weekly manifest lacks orientation metadata.'
+    );
+  }
+
+  if (manifest.scheduleRule) {
+    const rule = manifest.scheduleRule;
+    if (rule.priority > 1 || rule.overrideExpiresAt) {
+      reasons.push(
+        `Schedule rule uses priority (${rule.priority}) or emergency override semantics unsupported by legacy flat day-of-week slots.`
+      );
+    }
+    if (rule.scheduleType === 'one_time' || rule.endDate) {
+      reasons.push(
+        `Schedule rule has explicit date bounds (${rule.startDate} to ${rule.endDate}) unsupported by legacy recurring day-of-week tables.`
+      );
+    }
+  }
+
+  return {
+    compatible: reasons.length === 0,
+    reasons,
+  };
+}
+
+/**
+ * Evaluates whether a DetailedPublicationManifest is compatible with a target digital display's
+ * reported capabilities and configured orientation. Rejects unsupported content explicitly.
+ */
+export function checkDevicePublicationCompatibility(
+  manifest: DetailedPublicationManifest,
+  expectedOrientation: DisplayOrientation,
+  capabilities?: DeviceCapabilities | null
+): PublicationCompatibilityResult {
+  const reasons: string[] = [];
+
+  if (manifest.manifestVersion !== '1.0') {
+    reasons.push(`Unsupported manifestVersion "${manifest.manifestVersion}". Expected "1.0".`);
+  }
+
+  if (manifest.orientation !== expectedOrientation) {
+    reasons.push(
+      `Publication orientation "${manifest.orientation}" does not match digital display orientation "${expectedOrientation}".`
+    );
+  }
+
+  if (capabilities) {
+    if (
+      capabilities.supportedOrientations.length > 0 &&
+      !capabilities.supportedOrientations.includes(manifest.orientation)
+    ) {
+      reasons.push(
+        `Digital display capabilities (${capabilities.supportedOrientations.join(', ')}) do not support "${manifest.orientation}" orientation.`
+      );
+    }
+
+    for (const item of manifest.playlist.items) {
+      for (const slide of item.slides) {
+        if (!capabilities.visualDesigns && slide.elements.some((el) => el.type === 'text' || el.type === 'shape')) {
+          reasons.push(
+            `Digital display does not support visual design canvas rendering required by item "${item.title}".`
+          );
+        }
+        for (const el of slide.elements) {
+          if (
+            el.type === 'text' &&
+            capabilities.supportedFonts.length > 0 &&
+            !capabilities.supportedFonts.includes(el.fontFamily)
+          ) {
+            reasons.push(
+              `Digital display does not support font "${el.fontFamily}" required by design "${item.title}".`
+            );
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    compatible: reasons.length === 0,
+    reasons,
+  };
+}
+
 
 
 

@@ -366,7 +366,36 @@ Compiled publication state records and Cloud Storage distribution artifacts.
   - `compiledAt`: string (ISO timestamp)
   - `integrityChecksumSha256`: string (SHA-256 checksum of manifest payload)
 
-### 2.15 `/auditEvents/{eventId}`
+### 2.15 `/displays/{displayId}/operations/{operationId}`
+Server-authorized durable device operations subcollection.
+- **Fields:**
+  - `id`: string (Operation ID)
+  - `displayId`: string
+  - `departmentId`: string
+  - `type`: `'SYNC_NOW' | 'REFRESH_RENDERER' | 'CAPTURE_PREVIEW' | 'SAFE_CLEANUP_CACHE' | 'REBOOT'` (`TERMINAL` and arbitrary shell commands are permanently excluded)
+  - `state`: `'queued' | 'claimed' | 'in_progress' | 'awaiting_reconnect' | 'succeeded' | 'failed' | 'expired' | 'cancelled'`
+  - `idempotencyKey`: string
+  - `requestedByUid`: string
+  - `requestedByRole`: `'admin' | 'department_head'`
+  - `requestedByName`: string
+  - `requestedAt`: string (ISO timestamp)
+  - `expiresAt`: string (ISO timestamp; 15 min default, 5 min for `REBOOT`)
+  - `claimedByDeviceUid`: string | null
+  - `claimLeaseId`: string | null
+  - `claimedAt`: string | null
+  - `claimExpiresAt`: string | null
+  - `attemptCount`: number
+  - `maxAttempts`: number (`1` for `REBOOT`, `2` for non-destructive operations)
+  - `completedAt`: string | null
+  - `resultSummary`: string | null
+  - `errorCode`: string | null
+  - `errorMessage`: string | null
+  - `preRebootBootId`: string | null
+  - `preRebootUptimeSeconds`: number | null
+  - `previewStoragePath`: string | null
+- **Access Pattern:** Read-only via Firestore rules for Admin and explicitly assigned Department Heads; all writes (`requestDisplayOperation`, `claimDeviceOperation`, `reportDeviceOperation`) are restricted to Cloud Functions.
+
+### 2.16 `/auditEvents/{eventId}`
 Append-only compliance audit trail.
 - **Fields:**
   - `id`: string

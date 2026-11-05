@@ -1,0 +1,23 @@
+[Unit]
+Description=Aura DIMS Digital Display Fullscreen Kiosk Renderer
+After=aura-dims-player.service graphical.target
+Requires=aura-dims-player.service
+# Ensure only one signage renderer owns the X11/Wayland display
+Conflicts=tv-signage.service
+
+[Service]
+Type=simple
+User=auradims
+Group=auradims
+WorkingDirectory=/var/lib/auradims
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/auradims/.Xauthority
+ExecStart=/bin/bash /opt/aura-dims/bin/kiosk-x11.sh
+Restart=always
+RestartSec=3s
+StandardOutput=append:/var/log/auradims/kiosk.log
+StandardError=append:/var/log/auradims/kiosk-error.log
+
+[Install]
+WantedBy=graphical.target
+

@@ -148,6 +148,12 @@ import type {
   GetPublicationRolloutProgressResponse,
   RetryPublicationTargetRequest,
   RetryPublicationTargetResponse,
+  RequestDisplayOperationRequest,
+  RequestDisplayOperationResponse,
+  ListDisplayOperationsRequest,
+  ListDisplayOperationsResponse,
+  GetDisplayPreviewUrlRequest,
+  GetDisplayPreviewUrlResponse,
 } from '@aura-dims/display-schema';
 
 export const api = {
@@ -586,6 +592,25 @@ export const api = {
 
   retryPublicationTarget: async (req: RetryPublicationTargetRequest): Promise<RetryPublicationTargetResponse> => {
     const fn = httpsCallable<RetryPublicationTargetRequest, RetryPublicationTargetResponse>(functions, 'retryPublicationTarget');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  // Hardware Integration & Durable Device Operations
+  requestDisplayOperation: async (req: RequestDisplayOperationRequest): Promise<RequestDisplayOperationResponse> => {
+    const fn = httpsCallable<RequestDisplayOperationRequest, RequestDisplayOperationResponse>(functions, 'requestDisplayOperation');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  listDisplayOperations: async (req: ListDisplayOperationsRequest): Promise<ListDisplayOperationsResponse> => {
+    const fn = httpsCallable<ListDisplayOperationsRequest, ListDisplayOperationsResponse>(functions, 'listDisplayOperations');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  getDisplayPreviewUrl: async (req: GetDisplayPreviewUrlRequest): Promise<GetDisplayPreviewUrlResponse> => {
+    const fn = httpsCallable<GetDisplayPreviewUrlRequest, GetDisplayPreviewUrlResponse>(functions, 'getDisplayPreviewUrl');
     const result = await fn(req);
     return result.data;
   },

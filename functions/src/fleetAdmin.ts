@@ -67,6 +67,13 @@ import {
   thresholds,
   loadAuthorizedDisplay,
 } from './displayModel.js';
+import {
+  reconcileAndCountOperationsOnHeartbeat,
+  sanitizeAssetProgress,
+  sanitizeCacheInventory,
+  sanitizeCapabilities,
+  sanitizeHardwareMetrics,
+} from './deviceOperations.js';
 
 const opts = { cors: true, region: REGION };
 
@@ -1035,18 +1042,50 @@ export const reportDeviceDelivery = onCall<ReportDeviceDeliveryRequest, Promise<
     }
 
     const now = new Date().toISOString();
+    const assetProgress = sanitizeAssetProgress(request.data?.assetProgress);
+    const cacheInventory = sanitizeCacheInventory(request.data?.cacheInventory, now);
+
+    const existingReported = (dDoc.data()?.reported || {}) as Partial<DisplayReportedState>;
+    const mergedReported: Record<string, any> = {
+      ...existingReported,
+      deliveryStage: stage,
+      lastSyncAt: now,
+    };
+
+    if (assetProgress !== null) {
+      mergedReported.assetProgress = assetProgress;
+    }
+    if (cacheInventory !== null) {
+      mergedReported.cacheInventory = cacheInventory;
+      mergedReported.lastInventoryAt = cacheInventory.reportedAt;
+    }
+
     const updateData: Record<string, any> = {
       deliveryStage: stage,
       lastSyncAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
+      reported: mergedReported,
     };
 
-    if (stage === 'active') {
+    if (stage === 'downloading' || stage === 'verifying') {
+      mergedReported.downloadingPublicationId = publicationId;
+    } else if (stage === 'ready') {
+      updateData.readyPublicationId = publicationId;
+      mergedReported.readyPublicationId = publicationId;
+      mergedReported.downloadingPublicationId = null;
+    } else if (stage === 'active') {
       updateData.activePublicationId = publicationId;
+      updateData.readyPublicationId = null;
       updateData.lastActiveAt = FieldValue.serverTimestamp();
       updateData.lastDeliveryError = null;
+      mergedReported.activePublicationId = publicationId;
+      mergedReported.downloadingPublicationId = null;
+      mergedReported.readyPublicationId = null;
+      mergedReported.lastError = null;
     } else if (stage === 'failed') {
       updateData.lastDeliveryError = errorMessage;
+      mergedReported.downloadingPublicationId = null;
+      mergedReported.lastError = errorMessage;
     }
 
     await dRef.update(updateData);
@@ -1108,20 +1147,67 @@ export const reportDeviceHeartbeat = onCall<DeviceHeartbeatRequest, Promise<Devi
       throw new HttpsError('permission-denied', `Digital display is not active (${display.lifecycle}).`);
     }
 
+    const serverNowIso = new Date().toISOString();
+    const existingReported = (display.reported || null) as DisplayReportedState | null;
+    const hardwareMetrics =
+      sanitizeHardwareMetrics(data.hardwareMetrics, serverNowIso) ??
+      existingReported?.hardwareMetrics ??
+      null;
+    const capabilities =
+      sanitizeCapabilities(data.capabilities) ??
+      existingReported?.capabilities ??
+      null;
+    const assetProgress =
+      sanitizeAssetProgress(data.assetProgress) ??
+      existingReported?.assetProgress ??
+      null;
+    const cacheInventory =
+      sanitizeCacheInventory(data.cacheInventory, serverNowIso) ??
+      existingReported?.cacheInventory ??
+      null;
+
+    const presentedPublicationId =
+      data.presentedPublicationId ??
+      data.playback?.presentedPublicationId ??
+      existingReported?.presentedPublicationId ??
+      null;
+    const firstPresentedAt =
+      data.firstPresentedAt ??
+      data.playback?.firstPresentedAt ??
+      existingReported?.firstPresentedAt ??
+      null;
+
     const reportedState: DisplayReportedState = {
-      appVersion: data.appVersion || '1.0.0',
+      appVersion: String(data.appVersion || '1.0.0').slice(0, 32),
+      rendererVersion: data.rendererVersion
+        ? String(data.rendererVersion).slice(0, 32)
+        : capabilities?.rendererVersion ?? existingReported?.rendererVersion ?? null,
       clientKind: data.clientKind || 'player',
       screenWidth: data.screen?.width || null,
       screenHeight: data.screen?.height || null,
-      availableStorageBytes: data.diagnostics?.availableStorageBytes || null,
-      uptimeSeconds: data.diagnostics?.uptimeSeconds || null,
+      availableStorageBytes:
+        data.diagnostics?.availableStorageBytes ??
+        hardwareMetrics?.diskFreeBytes ??
+        null,
+      uptimeSeconds: data.diagnostics?.uptimeSeconds ?? null,
       desiredPublicationId: data.desiredPublicationId || display.desiredPublicationId || null,
       downloadingPublicationId: data.downloadingPublicationId || null,
       readyPublicationId: data.readyPublicationId || null,
       activePublicationId: data.activePublicationId || display.activePublicationId || null,
+      presentedPublicationId,
+      firstPresentedAt,
       deliveryStage: data.deliveryStage || display.deliveryStage || 'idle',
-      lastSyncAt: data.lastSyncAt || null,
+      lastSyncAt: data.lastSyncAt || existingReported?.lastSyncAt || null,
+      lastInventoryAt:
+        data.lastInventoryAt ||
+        cacheInventory?.reportedAt ||
+        existingReported?.lastInventoryAt ||
+        null,
       storage: data.storage || null,
+      hardwareMetrics,
+      capabilities,
+      assetProgress,
+      cacheInventory,
       playback: data.playback || null,
       rendererHealth: data.rendererHealth || 'healthy',
       lastError: data.lastError || null,
@@ -1135,16 +1221,30 @@ export const reportDeviceHeartbeat = onCall<DeviceHeartbeatRequest, Promise<Devi
     if (data.activePublicationId) {
       updatePayload.activePublicationId = data.activePublicationId;
     }
+    if (presentedPublicationId) {
+      updatePayload.presentedPublicationId = presentedPublicationId;
+    }
+    if (firstPresentedAt) {
+      updatePayload.firstPresentedAt = firstPresentedAt;
+    }
     if (data.deliveryStage) {
       updatePayload.deliveryStage = data.deliveryStage;
     }
 
     await dRef.update(updatePayload);
 
+    const pendingOperationCount = await reconcileAndCountOperationsOnHeartbeat({
+      displayId,
+      deviceUid: auth.uid,
+      bootId: hardwareMetrics?.bootId ?? null,
+      uptimeSeconds: reportedState.uptimeSeconds,
+    });
+
     return {
       accepted: true,
-      serverReceivedAt: new Date().toISOString(),
+      serverReceivedAt: serverNowIso,
       recommendedHeartbeatSeconds: 30,
+      pendingOperationCount,
     };
   }
 );

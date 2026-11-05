@@ -1,24 +1,27 @@
 /**
- * Aura DIMS - Player Process Supervision & Telemetry Dispatcher
+ * Aura DIMS - Player Process Supervision, Hardware Telemetry & Operations Dispatcher
  * Company: Aurainteract Private Limited
  * Product: Aura Digital Information Management System (Aura DIMS)
  *
  * Implements:
  * - Periodic publication update checks
- * - Periodic heartbeat reporting with real delivery and playback telemetry
- * - Differentiates heartbeat presence from actual presentation start
- * - Local storage metrics evaluation
+ * - Periodic heartbeat reporting with real delivery, playback, hardware, and capability telemetry
+ * - Differentiates connectivity, download readiness, active publication, and actual presentation start
+ * - Durable device operation polling with immediate wakeup when heartbeat indicates pending operations
  * - Safe error backoff
  */
 
-import * as fs from 'node:fs';
+import * as os from 'node:os';
 import type { PlayerConfig } from './config.js';
 import type { Logger } from './logger.js';
 import type { DeviceIdentity } from './identity.js';
 import type { SyncEngine } from './syncEngine.js';
 import type { LocalServer } from './localServer.js';
+import { HardwareAdapter } from './hardwareAdapter.js';
+import { OperationsAgent } from './operationsAgent.js';
 import type {
   DeviceHeartbeatRequest,
+  DeviceHeartbeatResponse,
   StorageMetrics,
 } from '@aura-dims/display-schema';
 
@@ -28,6 +31,8 @@ export class Supervisor {
   private identity: DeviceIdentity;
   private syncEngine: SyncEngine;
   private server: LocalServer;
+  private hardwareAdapter: HardwareAdapter;
+  private operationsAgent: OperationsAgent;
   private syncTimer: NodeJS.Timeout | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private isRunning = false;
@@ -37,16 +42,37 @@ export class Supervisor {
     logger: Logger,
     identity: DeviceIdentity,
     syncEngine: SyncEngine,
-    server: LocalServer
+    server: LocalServer,
+    hardwareAdapter?: HardwareAdapter,
+    operationsAgent?: OperationsAgent
   ) {
     this.config = config;
     this.logger = logger;
     this.identity = identity;
     this.syncEngine = syncEngine;
     this.server = server;
+    this.hardwareAdapter = hardwareAdapter || new HardwareAdapter(config, logger);
+    this.operationsAgent =
+      operationsAgent ||
+      new OperationsAgent({
+        config,
+        logger,
+        identity,
+        syncEngine,
+        hardwareAdapter: this.hardwareAdapter,
+        onRefreshRenderer: () => this.server.triggerRendererRefresh(),
+      });
   }
 
-  start(): void {
+  public getHardwareAdapter(): HardwareAdapter {
+    return this.hardwareAdapter;
+  }
+
+  public getOperationsAgent(): OperationsAgent {
+    return this.operationsAgent;
+  }
+
+  public start(): void {
     if (this.isRunning) return;
     this.isRunning = true;
 
@@ -64,13 +90,15 @@ export class Supervisor {
       this.triggerHeartbeat();
     }, this.config.heartbeatIntervalMs);
 
-    // Initial heartbeat after 2s
+    // Initial heartbeat & operation check after 2s
     setTimeout(() => {
-      this.triggerHeartbeat();
+      if (this.isRunning) {
+        this.triggerHeartbeat();
+      }
     }, 2000);
   }
 
-  stop(): void {
+  public stop(): void {
     this.isRunning = false;
     if (this.syncTimer) {
       clearInterval(this.syncTimer);
@@ -89,76 +117,94 @@ export class Supervisor {
     this.syncEngine.checkForUpdates().catch((err) => {
       this.logger.warn('Error during periodic sync check:', err?.message || err);
     });
+
+    this.operationsAgent.pollAndExecuteNext().catch((err) => {
+      this.logger.warn('Error during periodic operations poll:', err?.message || err);
+    });
   }
 
-  private getStorageMetrics(): StorageMetrics {
-    try {
-      if (typeof fs.statfsSync === 'function') {
-        const stats = fs.statfsSync(this.config.dataDir);
-        const total = stats.blocks * stats.bsize;
-        const free = stats.bfree * stats.bsize;
-        return {
-          totalBytes: total,
-          usedBytes: Math.max(0, total - free),
-          freeBytes: free,
-        };
-      }
-    } catch {
-      // Fallback
+  private getStorageMetrics(): StorageMetrics | null {
+    const disk = this.hardwareAdapter.readDiskMetrics();
+    if (
+      disk.diskTotalBytes !== null &&
+      disk.diskFreeBytes !== null &&
+      disk.diskTotalBytes > 0
+    ) {
+      return {
+        totalBytes: disk.diskTotalBytes,
+        usedBytes: Math.max(0, disk.diskTotalBytes - disk.diskFreeBytes),
+        freeBytes: disk.diskFreeBytes,
+      };
     }
-
-    // Default estimate if statfs unsupported
-    return {
-      totalBytes: 32 * 1024 * 1024 * 1024, // 32 GB
-      usedBytes: 2 * 1024 * 1024 * 1024, // 2 GB
-      freeBytes: 30 * 1024 * 1024 * 1024,
-    };
+    return null;
   }
 
-  private async triggerHeartbeat(): Promise<void> {
+  public async triggerHeartbeat(): Promise<DeviceHeartbeatResponse | null> {
     const displayId = this.identity.getDisplayId();
-    if (!displayId) return;
+    if (!displayId) return null;
 
     const token = await this.identity.getIdToken();
     if (!token) {
-      // Offline: cannot dispatch heartbeat to server
-      return;
+      return null;
     }
 
+    const hardwareMetrics = this.hardwareAdapter.collectMetrics();
+    const capabilities = this.hardwareAdapter.getCapabilities();
     const storage = this.getStorageMetrics();
     const playback = this.server.getPlaybackState();
     const rendererHealth = this.server.getRendererHealth();
+    const cacheInventory = this.syncEngine.getCacheInventory();
+    const assetProgress = this.syncEngine.getAssetProgress();
 
     const payload: DeviceHeartbeatRequest = {
       displayId,
       appVersion: this.config.appVersion,
+      rendererVersion: this.config.rendererVersion,
       clientKind: 'player',
-      desiredPublicationId: null, // populated by server or syncEngine
+      diagnostics: {
+        ...(hardwareMetrics.diskFreeBytes !== null
+          ? { availableStorageBytes: hardwareMetrics.diskFreeBytes }
+          : {}),
+        uptimeSeconds: Math.floor(os.uptime()),
+      },
+      desiredPublicationId: this.syncEngine.getDesiredPublicationId(),
       downloadingPublicationId: this.syncEngine.getDownloadingPublicationId(),
       readyPublicationId: this.syncEngine.getReadyPublicationId(),
       activePublicationId: this.syncEngine.getActivePublicationId(),
+      presentedPublicationId: playback.presentedPublicationId ?? null,
+      firstPresentedAt: playback.firstPresentedAt ?? null,
       deliveryStage: this.syncEngine.getCurrentStage(),
-      lastSyncAt: new Date().toISOString(),
+      lastSyncAt: this.syncEngine.getLastSyncAt() || new Date().toISOString(),
       storage,
+      hardwareMetrics,
+      capabilities,
+      assetProgress,
+      cacheInventory,
+      lastInventoryAt: cacheInventory.reportedAt,
       playback,
       rendererHealth,
       lastError: this.syncEngine.getLastError(),
       errorCount: this.syncEngine.getLastError() ? 1 : 0,
     };
 
-    const heartbeatUrl = `${this.config.functionBaseUrl}/reportDeviceHeartbeat`;
+
     try {
-      await fetch(heartbeatUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ data: payload }),
-      });
+      const transport = this.identity.getTransport();
+      const response = await transport.callAuthenticatedFunction<
+        DeviceHeartbeatRequest,
+        DeviceHeartbeatResponse
+      >('reportDeviceHeartbeat', payload, this.identity);
+
+      if ((response.pendingOperationCount ?? 0) > 0) {
+        await this.operationsAgent.pollAndExecuteNext(true);
+      }
+      return response;
     } catch (err: any) {
-      this.logger.warn('Failed to dispatch heartbeat to server (operating offline):', err?.message || err);
+      this.logger.warn(
+        'Failed to dispatch heartbeat to server (operating offline):',
+        err?.message || err
+      );
+      return null;
     }
   }
 }
-

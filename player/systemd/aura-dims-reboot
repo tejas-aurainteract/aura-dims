@@ -1,0 +1,9 @@
+#!/bin/sh
+# Aura DIMS Controlled Digital Display Reboot Helper
+# Install to: /usr/local/libexec/aura-dims-reboot (root:root, mode 0755)
+# Sudoers entry (/etc/sudoers.d/auradims-reboot, mode 0440):
+#   auradims ALL=(root) NOPASSWD: /usr/local/libexec/aura-dims-reboot
+set -eu
+logger -t aura-dims-reboot "Executing Administrator-confirmed digital display OS reboot"
+exec /usr/bin/systemctl reboot
+

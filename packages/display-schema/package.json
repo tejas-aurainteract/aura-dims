@@ -12,12 +12,12 @@
       "default": "./dist/index.js"
     }
   },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "lint": "echo \"@aura-dims/display-schema lint ok\""
-  },
-  "devDependencies": {
-    "typescript": "^5.7.3"
   }
 }
