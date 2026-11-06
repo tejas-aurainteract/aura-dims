@@ -10,6 +10,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Tv,
+  Calendar,
+  Film,
   Plus,
   Search,
   RefreshCw,
@@ -41,6 +43,8 @@ import type {
   DigitalDisplay,
   DisplayView,
   DisplayOrientation,
+  ScheduleRecord,
+  ScheduleRule,
 } from '@aura-dims/display-schema';
 import { BulkImportModal } from '@/components/Rollout/BulkImportModal';
 import { BulkAssignmentModal } from '@/components/Rollout/BulkAssignmentModal';
@@ -49,11 +53,59 @@ import { RolloutInventoryView } from '@/components/Rollout/RolloutInventoryView'
 import { downloadDisplaysCsv } from '@/components/Rollout/displayExport';
 import { DisplayDetailsDrawer } from '@/components/Displays/DisplayDetailsDrawer';
 
+
+// Helper to evaluate schedule broadcast window in Asia/Kolkata
+function isScheduleActiveNow(rule?: ScheduleRule | null): boolean {
+  if (!rule) return false;
+  try {
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(now);
+    const getPart = (type: string) => parts.find((p) => p.type === type)?.value || '';
+    const todayStr = `${getPart('year')}-${getPart('month')}-${getPart('day')}`;
+    const currentTimeStr = `${getPart('hour')}:${getPart('minute')}`;
+
+    if (rule.startDate && todayStr < rule.startDate) return false;
+    if (rule.endDate && todayStr > rule.endDate) return false;
+
+    if (rule.scheduleType === 'recurring' && Array.isArray(rule.daysOfWeek) && rule.daysOfWeek.length > 0) {
+      const dayFormatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Kolkata',
+        weekday: 'short',
+      });
+      const dayName = dayFormatter.format(now);
+      const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+      const currentDay = dayMap[dayName] ?? now.getDay();
+      if (!rule.daysOfWeek.includes(currentDay)) return false;
+    }
+
+    const { startTime, endTime, isOvernight } = rule;
+    if (!startTime || !endTime) return true;
+
+    if (isOvernight) {
+      return currentTimeStr >= startTime || currentTimeStr <= endTime;
+    } else {
+      return currentTimeStr >= startTime && currentTimeStr <= endTime;
+    }
+  } catch {
+    return true;
+  }
+}
+
 export const DisplaysPage: React.FC = () => {
   const { userProfile } = useAuth();
   const isAdmin = userProfile?.role === 'admin';
 
   const [displays, setDisplays] = useState<DisplayView[]>([]);
+  const [schedules, setSchedules] = useState<ScheduleRecord[]>([]);
   const [sites, setSites] = useState<Record<string, string>>({});
   const [departments, setDepartments] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<boolean>(true);
@@ -135,6 +187,35 @@ export const DisplaysPage: React.FC = () => {
     }
   };
 
+
+  // Stream authoritative schedules for fleet card assignment visibility
+  useEffect(() => {
+    let sQuery: Query;
+    if (isAdmin) {
+      sQuery = collection(db, 'schedules');
+    } else if (userProfile?.departmentId) {
+      sQuery = query(collection(db, 'schedules'), where('departmentId', '==', userProfile.departmentId));
+    } else {
+      return;
+    }
+
+    const unsub = onSnapshot(
+      sQuery,
+      (snapshot) => {
+        const list: ScheduleRecord[] = [];
+        snapshot.forEach((doc) => {
+          list.push({ id: doc.id, ...(doc.data() as any) });
+        });
+        setSchedules(list);
+      },
+      (err) => {
+        console.warn('[DisplaysPage] Schedule subscription warning:', err);
+      }
+    );
+
+    return () => unsub();
+  }, [isAdmin, userProfile?.departmentId]);
+
   // Load reference metadata: Sites & Departments
   useEffect(() => {
     async function loadMetadata() {
@@ -187,6 +268,44 @@ export const DisplaysPage: React.FC = () => {
         connectivity = nowMs - lastHeartbeatMs <= 180_000 ? 'online' : 'offline';
       }
 
+      // Resolve broadcast schedule & playlist info
+      let activeScheduleTitle = d.publishedScheduleTitle || null;
+      let activePlaylistTitle = d.publishedPlaylistTitle || null;
+      let activeScheduleWindow = d.publishedScheduleWindow || null;
+      let isScheduleInWindow = false;
+
+      const matchingSchedule = schedules.find(
+        (s) =>
+          (d.publishedScheduleId && s.id === d.publishedScheduleId) ||
+          (d.desiredPublicationId && s.publishedPublicationId === d.desiredPublicationId) ||
+          (s.targetDisplayIds && s.targetDisplayIds.includes(id) && s.status === 'active')
+      );
+
+      if (matchingSchedule) {
+        if (!activeScheduleTitle) activeScheduleTitle = matchingSchedule.title;
+        if (!activePlaylistTitle) activePlaylistTitle = matchingSchedule.playlistTitle;
+        if (!activeScheduleWindow && matchingSchedule.scheduleRule) {
+          activeScheduleWindow = `${matchingSchedule.scheduleRule.startTime} - ${matchingSchedule.scheduleRule.endTime}`;
+        }
+        isScheduleInWindow = isScheduleActiveNow(matchingSchedule.scheduleRule);
+      } else if (activeScheduleWindow) {
+        const parts = activeScheduleWindow.split('-').map((s: string) => s.trim());
+        if (parts.length === 2) {
+          isScheduleInWindow = isScheduleActiveNow({
+            scheduleType: 'recurring',
+            startDate: '',
+            endDate: '',
+            daysOfWeek: [],
+            startTime: parts[0],
+            endTime: parts[1],
+            isOvernight: parts[0] > parts[1],
+            timezone: 'Asia/Kolkata',
+            priority: 5,
+            overrideExpiresAt: null,
+          });
+        }
+      }
+
       return {
         id,
         name: d.name || 'Unnamed Digital Display',
@@ -222,6 +341,14 @@ export const DisplaysPage: React.FC = () => {
         installationRef: d.installationRef || null,
         installationOwner: d.installationOwner || null,
         assignedUserIds: d.assignedUserIds || [],
+        publishedScheduleId: d.publishedScheduleId || matchingSchedule?.id || null,
+        publishedScheduleTitle: activeScheduleTitle,
+        publishedPlaylistTitle: activePlaylistTitle,
+        publishedScheduleWindow: activeScheduleWindow,
+        activeScheduleTitle,
+        activePlaylistTitle,
+        activeScheduleWindow,
+        isScheduleInWindow,
       };
     };
 
@@ -273,7 +400,7 @@ export const DisplaysPage: React.FC = () => {
     );
 
     return () => unsubscribe();
-  }, [isAdmin, userProfile?.departmentId, sites, departments]);
+  }, [isAdmin, userProfile?.departmentId, sites, departments, schedules]);
 
   // Filtered displays with actionable fleet operations filters
   const filteredDisplays = useMemo(() => {
@@ -751,6 +878,67 @@ export const DisplaysPage: React.FC = () => {
                             Delivery / Sync Error
                           </span>
                         )}
+                      </div>
+
+                      {/* Published Broadcast & Schedule Block */}
+                      <div className="mt-3 p-3 rounded-lg bg-slate-950/70 border border-slate-800/80 space-y-2">
+                        {/* Schedule Title */}
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400 flex items-center gap-1.5">
+                            <Calendar className="w-3.5 h-3.5 text-teal-400" />
+                            Schedule:
+                          </span>
+                          <span
+                            className="font-medium text-slate-200 truncate max-w-[180px]"
+                            title={display.activeScheduleTitle || 'No Schedule Published'}
+                          >
+                            {display.activeScheduleTitle || (
+                              <span className="text-slate-500 italic">None Assigned</span>
+                            )}
+                          </span>
+                        </div>
+
+                        {/* Playlist Title */}
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400 flex items-center gap-1.5">
+                            <Film className="w-3.5 h-3.5 text-indigo-400" />
+                            Playlist:
+                          </span>
+                          <span
+                            className="font-medium text-indigo-300 truncate max-w-[180px]"
+                            title={display.activePlaylistTitle || 'None Assigned'}
+                          >
+                            {display.activePlaylistTitle || (
+                              <span className="text-slate-500 italic">None Assigned</span>
+                            )}
+                          </span>
+                        </div>
+
+                        {/* Broadcast Window & Active Status */}
+                        <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-800/60">
+                          <span className="text-slate-400 flex items-center gap-1.5">
+                            <Clock className="w-3.5 h-3.5 text-amber-400" />
+                            Window:
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-300 font-mono text-[11px]">
+                              {display.activeScheduleWindow ? `${display.activeScheduleWindow} IST` : 'All Day'}
+                            </span>
+                            {display.activeScheduleTitle && (
+                              display.isScheduleInWindow ? (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                  Active
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                                  Off-Hours
+                                </span>
+                              )
+                            )}
+                          </div>
+                        </div>
                       </div>
 
                       {/* Telemetry & Delivery Progress Bar */}

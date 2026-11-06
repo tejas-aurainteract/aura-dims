@@ -3,6 +3,63 @@
  * Company: Aurainteract Private Limited
  */
 
+/* Local Offline Fonts (Guarantees bold typography & scripts even with zero internet) */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/inter-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./fonts/inter-latin-600-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/inter-latin-700-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans Gujarati';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/noto-sans-gujarati-gujarati-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans Gujarati';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/noto-sans-gujarati-gujarati-700-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans Devanagari';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/noto-sans-devanagari-devanagari-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans Devanagari';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/noto-sans-devanagari-devanagari-700-normal.woff2') format('woff2');
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -222,6 +279,26 @@ html, body {
   display: block;
 }
 
+/* Pre-rendered High-Resolution Slide Image */
+.rendered-slide-container {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-color: #0b0f19;
+}
+
+.rendered-slide-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
 /* Fallback badge indicator in corner */
 .status-indicator {
   position: fixed;
@@ -249,4 +326,3 @@ html, body {
 .dot.offline {
   background-color: #eab308;
 }
-

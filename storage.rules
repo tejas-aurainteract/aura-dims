@@ -57,6 +57,21 @@ service firebase.storage {
       allow read: if isAdmin() || isDepartmentHead(departmentId);
     }
 
+    // Rendered slide images for pixel-perfect digital display presentation:
+    // renders/{departmentId}/{designId}/{fileName}
+    match /renders/{departmentId}/{designId}/{fileName} {
+      allow read: if true;
+      allow create, update: if isAuthenticated() && (
+        isAdmin() ||
+        isDepartmentHead(departmentId) ||
+        departmentId == 'global'
+      );
+      allow delete: if isAuthenticated() && (
+        isAdmin() ||
+        isDepartmentHead(departmentId)
+      );
+    }
+
     // On-demand digital display software previews: previews/{displayId}/{fileName}
     // Privately stored and accessed strictly via server-authorized Cloud Functions (getDisplayPreviewUrl).
     match /previews/{displayId}/{fileName} {

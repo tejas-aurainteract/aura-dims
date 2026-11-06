@@ -1585,11 +1585,16 @@ export const preparePublication = onCall(
 
     // Atomically commit desired publication version to all targeted digital displays
     const batch = db.batch();
+    const scheduleWindow = `${schedule.scheduleRule.startTime} - ${schedule.scheduleRule.endTime}`;
     for (const dId of displayIds) {
       const dRef = db.collection('displays').doc(dId);
       batch.update(dRef, {
         desiredPublicationId: pubRef.id,
         currentPublicationId: pubRef.id,
+        publishedScheduleId: schedule.id,
+        publishedScheduleTitle: schedule.title,
+        publishedPlaylistTitle: schedule.playlistTitle,
+        publishedScheduleWindow: scheduleWindow,
         publicationUpdatedAt: now,
         updatedAt: now,
       });

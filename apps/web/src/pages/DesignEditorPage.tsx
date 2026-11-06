@@ -37,6 +37,7 @@ import {
   clearDraftRecovery,
 } from '@/lib/designStorage';
 import { resolveAssetsBatch } from '@/lib/assetResolver';
+import { rasterizeSlide, uploadSlideRender } from '@/lib/slideRasterizer';
 
 // Subcomponents
 import { EditorHeader, SaveStatus } from '@/components/Editor/EditorHeader';
@@ -211,11 +212,46 @@ export const DesignEditorPage: React.FC = () => {
       setIsSaving(true);
       setSaveStatus('saving');
 
+      // Pre-render slides into high-resolution images for pixel-perfect digital display presentation
+      let docToPersist = doc;
+      try {
+        const updatedSlides: DesignSlide[] = [];
+        for (const s of doc.slides) {
+          try {
+            const { blob, dataUrl } = await rasterizeSlide(s, doc.dimensions, assetsMap);
+            let renderedUrl = dataUrl;
+            try {
+              renderedUrl = await uploadSlideRender(
+                design.id,
+                design.departmentId || 'global',
+                s.id,
+                blob
+              );
+            } catch (upErr) {
+              console.warn('[DesignEditor] Storage upload for slide render failed, falling back to dataUrl:', upErr);
+            }
+            updatedSlides.push({
+              ...s,
+              renderedImageUrl: renderedUrl,
+            });
+          } catch (rErr) {
+            console.warn('[DesignEditor] Rasterization for slide failed:', rErr);
+            updatedSlides.push(s);
+          }
+        }
+        docToPersist = {
+          ...doc,
+          slides: updatedSlides,
+        };
+      } catch (overallRasterErr) {
+        console.warn('[DesignEditor] Slide pre-rendering failed:', overallRasterErr);
+      }
+
       const res = await api.updateDesign({
         designId: design.id,
         title: currentTitle.trim(),
         expectedRevision: design.revision,
-        document: doc,
+        document: docToPersist,
       });
 
       setDesign(res.design);

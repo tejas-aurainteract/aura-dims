@@ -329,6 +329,51 @@ export const DisplayDetailsDrawer: React.FC<DisplayDetailsDrawerProps> = ({
                 </div>
               </div>
 
+              {/* Published Broadcast & Content */}
+              <div className="p-5 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-white">
+                    Published Broadcast & Content
+                  </h3>
+                  {(display.publishedScheduleTitle || display.activeScheduleTitle) && (
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-500/10 text-teal-400 border border-teal-500/30">
+                      Published
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                  <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
+                    <div className="text-slate-400">Broadcast Schedule</div>
+                    <div className="text-sm font-semibold text-white mt-1">
+                      {display.publishedScheduleTitle || display.activeScheduleTitle || 'None Assigned'}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1">
+                      ID: {display.publishedScheduleId || 'N/A'}
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
+                    <div className="text-slate-400">Active Playlist</div>
+                    <div className="text-sm font-semibold text-indigo-300 mt-1">
+                      {display.publishedPlaylistTitle || display.activePlaylistTitle || 'None Assigned'}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1">
+                      Orientation: {display.orientation}
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
+                    <div className="text-slate-400">Broadcast Window & State</div>
+                    <div className="text-sm font-semibold text-amber-300 mt-1">
+                      {display.publishedScheduleWindow || display.activeScheduleWindow
+                        ? `${display.publishedScheduleWindow || display.activeScheduleWindow} IST`
+                        : 'All Day'}
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-1">
+                      Playing Slide: {reported?.playback?.currentSlideId || 'Fallback'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Real Hardware Telemetry */}
               <div className="p-5 rounded-xl bg-slate-950 border border-slate-800 space-y-4">
                 <div className="flex items-center justify-between">

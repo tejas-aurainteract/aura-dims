@@ -446,6 +446,15 @@
   }
 
   function buildSlideInnerHtml(slide) {
+    const renderedUrl = (slide.renderedAssetId && getAssetUrl(slide.renderedAssetId)) || slide.renderedImageUrl;
+    if (renderedUrl) {
+      return `
+        <div class="rendered-slide-container">
+          <img class="rendered-slide-img" src="${renderedUrl}" alt="" loading="eager" />
+        </div>
+      `;
+    }
+
     return (slide.elements || [])
       .slice()
       .sort((a, b) => (a.zIndex || 1) - (b.zIndex || 1))
@@ -469,11 +478,14 @@
 
     if (el.type === 'text') {
       const font = getFontCss(el.fontFamily);
+      const isBold = el.fontWeight === 'bold' || el.fontWeight === 700 || el.fontWeight === '700';
+      const isMedium = el.fontWeight === 'medium' || el.fontWeight === 600 || el.fontWeight === '600';
+      const weight = isBold ? 700 : isMedium ? 600 : 400;
       return `
         <div class="canvas-element" style="${style}
           font-family: ${font};
-          font-size: ${el.fontSize || 32}px;
-          font-weight: ${el.fontWeight || 500};
+          font-size: ${el.fontSize || 32}px;
+          font-weight: ${weight};
           font-style: ${el.italic ? 'italic' : 'normal'};
           text-decoration: ${el.underline ? 'underline' : 'none'};
           color: ${el.color || '#ffffff'};

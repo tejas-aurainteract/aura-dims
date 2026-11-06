@@ -282,6 +282,11 @@ export interface DigitalDisplay {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  /** Resolved broadcast schedule and playlist metadata for fleet digital display cards. */
+  publishedScheduleId?: string | null;
+  publishedScheduleTitle?: string | null;
+  publishedPlaylistTitle?: string | null;
+  publishedScheduleWindow?: string | null;
 }
 
 /** Display view enriched with derived connectivity and resolved labels. */
@@ -292,6 +297,10 @@ export interface DisplayView extends DigitalDisplay {
   groupNames: string[];
   assignedUserIds?: string[];
   assignedUserNames?: string[];
+  activeScheduleTitle?: string | null;
+  activePlaylistTitle?: string | null;
+  activeScheduleWindow?: string | null;
+  isScheduleInWindow?: boolean;
 }
 
 /**
@@ -950,6 +959,9 @@ export interface DesignSlide {
   durationSeconds: number;
   background: SlideBackground;
   elements: CanvasElement[];
+  /** Rendered high-resolution raster image (1080p WebP) for pixel-perfect offline display. */
+  renderedImageUrl?: string | null;
+  renderedAssetId?: string | null;
 }
 
 export interface DesignDocument {
