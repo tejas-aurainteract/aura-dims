@@ -5,6 +5,11 @@
 **Expansion:** Aura Digital Information Management System  
 **Purpose:** Enterprise Digital Signage and Content Management Platform  
 
+> [!IMPORTANT]
+> **Complete Technical Architecture & Developer Guide:**  
+> For the comprehensive end-to-end system architecture, operational flows (canvas rasterization, immutable publication, 4-stage edge sync pipeline, pairing), Firestore collections schema, player daemon internals, and troubleshooting runbooks, please consult:  
+> 📖 [**Master Architecture & Developer Guide**](docs/MASTER_ARCHITECTURE_AND_DEVELOPMENT_GUIDE.md)
+
 ---
 
 ## 1. Executive Summary & Deployment Context
