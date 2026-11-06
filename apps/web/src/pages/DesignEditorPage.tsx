@@ -217,6 +217,15 @@ export const DesignEditorPage: React.FC = () => {
       try {
         const updatedSlides: DesignSlide[] = [];
         for (const s of doc.slides) {
+          const hasVideo = (s.elements || []).some((el) => el.type === 'video');
+          if (hasVideo) {
+            // Keep video slides dynamic: do not overwrite with static image render
+            updatedSlides.push({
+              ...s,
+              renderedImageUrl: undefined,
+            });
+            continue;
+          }
           try {
             const { blob, dataUrl } = await rasterizeSlide(s, doc.dimensions, assetsMap);
             let renderedUrl = dataUrl;
@@ -482,7 +491,19 @@ export const DesignEditorPage: React.FC = () => {
 
     // Check if replacing an existing element or adding new
     if (selectedElement && (selectedElement.type === 'image' || selectedElement.type === 'video')) {
-      handleUpdateElement(selectedElement.id, { assetId: asset.id });
+      const isVideo = asset.mediaType === 'video';
+      const vidDuration = isVideo && asset.durationSeconds && asset.durationSeconds > 0
+        ? Math.round(asset.durationSeconds)
+        : currentSlide.durationSeconds || 10;
+      const updatedSlides = slides.map((slide, sIdx) => {
+        if (sIdx !== activeSlideIndex) return slide;
+        return {
+          ...slide,
+          durationSeconds: isVideo ? vidDuration : slide.durationSeconds,
+          elements: slide.elements.map((el) => (el.id === selectedElement.id ? { ...el, assetId: asset.id } : el)),
+        };
+      });
+      commitChange({ ...design.document, slides: updatedSlides as DesignSlide[] });
       return;
     }
 
@@ -509,6 +530,9 @@ export const DesignEditorPage: React.FC = () => {
       setSelectedElementId(newImg.id);
       commitChange({ ...design.document, slides: updatedSlides as DesignSlide[] });
     } else if (asset.mediaType === 'video') {
+      const vidDuration = asset.durationSeconds && asset.durationSeconds > 0
+        ? Math.round(asset.durationSeconds)
+        : currentSlide.durationSeconds || 10;
       const newVid: VideoElement = {
         id: `el_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         type: 'video',
@@ -527,7 +551,11 @@ export const DesignEditorPage: React.FC = () => {
       };
       const updatedSlides = slides.map((slide, sIdx) => {
         if (sIdx !== activeSlideIndex) return slide;
-        return { ...slide, elements: [...slide.elements, newVid] };
+        return {
+          ...slide,
+          durationSeconds: vidDuration,
+          elements: [...slide.elements, newVid],
+        };
       });
       setSelectedElementId(newVid.id);
       commitChange({ ...design.document, slides: updatedSlides as DesignSlide[] });

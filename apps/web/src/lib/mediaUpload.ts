@@ -42,8 +42,14 @@ export function validateMediaFileClient(file: File): { valid: boolean; error?: s
     return { valid: false, error: 'No file selected.' };
   }
 
-  const isImage = file.type === 'image/jpeg' || file.type === 'image/png';
-  const isVideo = file.type === 'video/mp4';
+  const isImage =
+    file.type === 'image/jpeg' ||
+    file.type === 'image/png' ||
+    /\.(jpe?g|png)$/i.test(file.name);
+  const isVideo =
+    file.type === 'video/mp4' ||
+    file.type === 'video/quicktime' ||
+    /\.(mp4|m4v|mov)$/i.test(file.name);
 
   if (!isImage && !isVideo) {
     return {

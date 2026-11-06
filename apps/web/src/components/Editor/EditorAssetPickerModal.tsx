@@ -4,10 +4,10 @@
  * Product: Aura Digital Information Management System (Aura DIMS)
  *
  * Integrated departmental asset picker for inserting Ready media into
- * digital display layouts. References immutable assetId records.
+ * digital display layouts. Supports direct in-modal media uploads.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { MediaAsset } from '@aura-dims/display-schema';
 import { api } from '@/lib/api';
 import {
@@ -18,8 +18,12 @@ import {
   Clock,
   Loader2,
   FolderOpen,
+  UploadCloud,
+  AlertCircle,
 } from 'lucide-react';
 import { resolveAssetUrl } from '@/lib/assetResolver';
+import { useAuth } from '@/contexts/AuthContext';
+import { startMediaUpload, validateMediaFileClient, type UploadProgressEvent } from '@/lib/mediaUpload';
 
 export interface EditorAssetPickerModalProps {
   isOpen: boolean;
@@ -34,60 +38,93 @@ export const EditorAssetPickerModal: React.FC<EditorAssetPickerModalProps> = ({
   mediaType,
   onSelectAsset,
 }) => {
+  const { userProfile } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [thumbnails, setThumbnails] = useState<Map<string, string>>(new Map());
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // In-modal direct upload states
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgressEvent | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const fetchAssets = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await api.listMediaAssets({
+        mediaType,
+        status: 'ready',
+        search: search.trim() || undefined,
+        pageSize: 24,
+        includeArchived: false,
+      });
+
+      setAssets(res.assets);
+
+      // Resolve thumbnail URLs for retrieved assets
+      const thumbMap = new Map<string, string>();
+      await Promise.all(
+        res.assets.map(async (a) => {
+          const url = await resolveAssetUrl(a.id, 'thumbnail');
+          if (url) thumbMap.set(a.id, url);
+        })
+      );
+      setThumbnails(thumbMap);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load media assets');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!isOpen) return;
-
-    let isMounted = true;
-    const fetchAssets = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const res = await api.listMediaAssets({
-          mediaType,
-          status: 'ready',
-          search: search.trim() || undefined,
-          pageSize: 24,
-          includeArchived: false,
-        });
-
-        if (isMounted) {
-          setAssets(res.assets);
-
-          // Resolve thumbnail URLs for retrieved assets
-          const thumbMap = new Map<string, string>();
-          await Promise.all(
-            res.assets.map(async (a) => {
-              const url = await resolveAssetUrl(a.id, 'thumbnail');
-              if (url) thumbMap.set(a.id, url);
-            })
-          );
-          if (isMounted) {
-            setThumbnails(thumbMap);
-          }
-        }
-      } catch (err: any) {
-        if (isMounted) {
-          setError(err.message || 'Failed to load media assets');
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-
     fetchAssets();
-
-    return () => {
-      isMounted = false;
-    };
   }, [isOpen, mediaType, search]);
+
+  const handleDirectUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadError(null);
+    const validation = validateMediaFileClient(file);
+    if (!validation.valid) {
+      setUploadError(validation.error || 'Invalid file');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    const deptId = userProfile?.departmentId || 'global';
+    setIsUploading(true);
+
+    try {
+      const cleanTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+      const handle = startMediaUpload({
+        file,
+        departmentId: deptId,
+        title: cleanTitle,
+        onProgress: (evt) => {
+          setUploadProgress(evt);
+        },
+      });
+
+      const readyAsset = await handle.done;
+      // Auto-select the newly uploaded and verified asset
+      onSelectAsset(readyAsset);
+      onClose();
+    } catch (err: any) {
+      setUploadError(err.message || 'Failed to upload and validate asset on server.');
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -109,7 +146,7 @@ export const EditorAssetPickerModal: React.FC<EditorAssetPickerModalProps> = ({
                 Select {mediaType === 'image' ? 'Image' : 'Video'} Asset
               </h2>
               <p className="text-xs text-slate-500">
-                Choose a validated departmental asset from Aura DIMS Media Library
+                Choose or upload an asset for this digital display slide
               </p>
             </div>
           </div>
@@ -123,7 +160,39 @@ export const EditorAssetPickerModal: React.FC<EditorAssetPickerModalProps> = ({
           </button>
         </div>
 
-        {/* Search Toolbar */}
+        {/* Hidden File Input for Direct Upload */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          accept={
+            mediaType === 'image'
+              ? '.jpg,.jpeg,.png,image/jpeg,image/png'
+              : '.mp4,.mov,.m4v,video/mp4,video/quicktime'
+          }
+          onChange={handleDirectUpload}
+        />
+
+        {/* Uploading progress notification bar */}
+        {isUploading && uploadProgress && (
+          <div className="px-6 py-2.5 bg-teal-50 border-b border-teal-100 flex items-center justify-between text-xs text-teal-900 animate-in fade-in duration-100">
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-4 h-4 text-teal-600 animate-spin shrink-0" />
+              <span>{uploadProgress.message || `Processing ${uploadProgress.progressPercent}%`}</span>
+            </div>
+            <span className="font-mono text-teal-700 font-bold">{uploadProgress.progressPercent}%</span>
+          </div>
+        )}
+
+        {/* Upload error banner */}
+        {uploadError && (
+          <div className="px-6 py-2 bg-rose-50 border-b border-rose-100 flex items-center gap-2 text-xs text-rose-700">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{uploadError}</span>
+          </div>
+        )}
+
+        {/* Search & Upload Action Toolbar */}
         <div className="px-6 py-3 border-b border-slate-100 bg-slate-50 flex items-center gap-3">
           <div className="relative flex-1">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -135,8 +204,24 @@ export const EditorAssetPickerModal: React.FC<EditorAssetPickerModalProps> = ({
               className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:border-teal-500 focus:outline-hidden"
             />
           </div>
-          <span className="text-xs text-slate-500 font-mono">
-            {assets.length} Ready {mediaType}s
+
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-medium shadow-xs transition-colors shrink-0 disabled:opacity-50"
+            title={`Upload a new ${mediaType} file directly from your computer`}
+          >
+            {isUploading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <UploadCloud className="w-3.5 h-3.5" />
+            )}
+            <span>{isUploading ? 'Uploading...' : `Upload ${mediaType === 'image' ? 'Image' : 'Video'}`}</span>
+          </button>
+
+          <span className="text-xs text-slate-500 font-mono whitespace-nowrap">
+            {assets.length} Ready
           </span>
         </div>
 
@@ -158,8 +243,17 @@ export const EditorAssetPickerModal: React.FC<EditorAssetPickerModalProps> = ({
                 No ready {mediaType} assets found
               </span>
               <span className="text-xs text-slate-400 max-w-sm text-center">
-                Upload and validate {mediaType} files in the Content &gt; Media Library tab first.
+                Upload an MP4 video or select an existing asset to display on this slide.
               </span>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-medium shadow-xs transition-colors"
+              >
+                <UploadCloud className="w-4 h-4" />
+                <span>Upload {mediaType === 'image' ? 'Image' : 'Video'} Now</span>
+              </button>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
@@ -221,17 +315,6 @@ export const EditorAssetPickerModal: React.FC<EditorAssetPickerModalProps> = ({
               })}
             </div>
           )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 text-xs font-semibold rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 transition-colors"
-          >
-            Cancel
-          </button>
         </div>
       </div>
     </div>

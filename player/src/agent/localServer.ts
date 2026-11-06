@@ -112,7 +112,11 @@ export class LocalServer {
   stop(): Promise<void> {
     return new Promise((resolve) => {
       if (this.server) {
+        if (typeof (this.server as any).closeAllConnections === 'function') {
+          (this.server as any).closeAllConnections();
+        }
         this.server.close(() => resolve());
+        setTimeout(() => resolve(), 1000).unref();
       } else {
         resolve();
       }
@@ -153,7 +157,7 @@ export class LocalServer {
     // 3. Set strict security headers on all responses
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; font-src 'self' data: https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none';"
+      "default-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https://firebasestorage.googleapis.com https://*.firebasestorage.app; media-src 'self' blob:; font-src 'self' data: https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none';"
     );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');

@@ -36,7 +36,8 @@ function loadImageSafe(url: string): Promise<HTMLImageElement | null> {
       console.warn('[slideRasterizer] Failed to load image asset for rasterization:', url);
       resolve(null);
     };
-    img.src = url;
+    const sep = url.includes('?') ? '&' : '?';
+    img.src = `${url}${sep}_cors=1`;
   });
 }
 

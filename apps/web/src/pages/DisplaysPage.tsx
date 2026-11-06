@@ -480,6 +480,15 @@ export const DisplaysPage: React.FC = () => {
 
   // Generate pairing code handler
   const handleGeneratePairingCode = async (display: DigitalDisplay) => {
+    if (display.lifecycle === 'active') {
+      const confirmed = window.confirm(
+        `CAUTION: Digital display "${display.name}" is already registered and active.\n\n` +
+        `Generating a new pairing code will revoke the existing credentials and disconnect the live hardware.\n\n` +
+        `Only proceed if you are replacing the physical hardware device. Do you want to proceed?`
+      );
+      if (!confirmed) return;
+    }
+
     setPairingModalDisplay(display);
     setPairingLoading(true);
     setPairingCode(null);
@@ -1068,13 +1077,16 @@ export const DisplaysPage: React.FC = () => {
                       </div>
 
                       {isAdmin && (
-                        <button
-                          onClick={() => handleGeneratePairingCode(display)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-teal-400 hover:text-teal-300 text-xs font-medium transition-colors"
-                        >
-                          <Key className="w-3 h-3" />
-                          Pairing Code
-                        </button>
+                        display.lifecycle === 'pending_enrollment' ? (
+                          <button
+                            onClick={() => handleGeneratePairingCode(display)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 text-xs font-medium border border-teal-500/30 transition-colors"
+                            title="Generate one-time pairing code for initial device commissioning"
+                          >
+                            <Key className="w-3 h-3" />
+                            Pairing Code
+                          </button>
+                        ) : null
                       )}
                     </div>
                   </div>

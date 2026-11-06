@@ -446,13 +446,16 @@
   }
 
   function buildSlideInnerHtml(slide) {
-    const renderedUrl = (slide.renderedAssetId && getAssetUrl(slide.renderedAssetId)) || slide.renderedImageUrl;
-    if (renderedUrl) {
-      return `
-        <div class="rendered-slide-container">
-          <img class="rendered-slide-img" src="${renderedUrl}" alt="" loading="eager" />
-        </div>
-      `;
+    const hasVideo = (slide.elements || []).some((el) => el.type === 'video');
+    if (!hasVideo) {
+      const renderedUrl = (slide.renderedAssetId && getAssetUrl(slide.renderedAssetId)) || slide.renderedImageUrl;
+      if (renderedUrl) {
+        return `
+          <div class="rendered-slide-container">
+            <img class="rendered-slide-img" src="${renderedUrl}" alt="" loading="eager" />
+          </div>
+        `;
+      }
     }
 
     return (slide.elements || [])
