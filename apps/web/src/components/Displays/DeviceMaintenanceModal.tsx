@@ -636,7 +636,6 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                     <button
                       key={item.label}
                       onClick={() => handleRunTerminalCommand(item.cmd)}
-                      disabled={isExecuting}
                       className="px-2.5 py-1.5 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/70 text-slate-200 text-xs rounded-lg transition-all flex items-center gap-1.5 hover:border-teal-500/50 disabled:opacity-40"
                       title={item.cmd}
                     >

@@ -292,8 +292,9 @@ export class OperationsAgent {
   }
 
   /**
-   * Polls, claims, and executes at most one queued operation for this digital display.
-   * Respects single-flight lock and exponential backoff on transport errors.
+   * Polls, claims, and executes queued operations for this digital display.
+   * Drains the queue sequentially: when an operation finishes, it immediately
+   * claims the next queued operation until the queue is empty.
    */
   public async pollAndExecuteNext(immediate = false): Promise<DeviceOperationRecord | null> {
     if (immediate) {
@@ -312,13 +313,32 @@ export class OperationsAgent {
       return null;
     }
 
+    this.inFlight = true;
+    let lastExecuted: DeviceOperationRecord | null = null;
+
+    try {
+      while (true) {
+        const op = await this.pollAndExecuteOne();
+        if (!op) break;
+        lastExecuted = op;
+        // Terminate queue draining loop if operation was a reboot or service restart
+        if (op.type === 'REBOOT' || op.type === 'RESTART_PLAYER') {
+          break;
+        }
+      }
+      return lastExecuted;
+    } finally {
+      this.inFlight = false;
+    }
+  }
+
+  private async pollAndExecuteOne(): Promise<DeviceOperationRecord | null> {
     const displayId = this.identity.getDisplayId();
     if (!displayId) return null;
 
     const token = await this.identity.getIdToken();
     if (!token) return null;
 
-    this.inFlight = true;
     const transport = this.identity.getTransport();
 
     try {
@@ -360,8 +380,6 @@ export class OperationsAgent {
         err?.message || err
       );
       return null;
-    } finally {
-      this.inFlight = false;
     }
   }
 
@@ -775,6 +793,10 @@ export class OperationsAgent {
             ).trim();
             const isSuccess = execResult.exitCode === 0;
 
+            this.logger.info(
+              `[OperationsAgent] Diagnostic [${action}] finished with exit code ${execResult.exitCode}. Output bytes: ${combined.length}`
+            );
+
             await this.reportAndRecord(displayId, op, claimLeaseId, {
               state: isSuccess ? 'succeeded' : 'failed',
               resultSummary: isSuccess
@@ -840,6 +862,10 @@ export class OperationsAgent {
               execResult.stdout + (execResult.stderr ? `\n[STDERR]\n${execResult.stderr}` : '')
             ).trim();
             const isSuccess = execResult.exitCode === 0;
+
+            this.logger.info(
+              `[OperationsAgent] Command "${rawCmd}" finished with exit code ${execResult.exitCode}. Output bytes: ${combined.length}`
+            );
 
             await this.reportAndRecord(displayId, op, claimLeaseId, {
               state: isSuccess ? 'succeeded' : 'failed',

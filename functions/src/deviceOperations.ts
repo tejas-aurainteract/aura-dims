@@ -594,7 +594,9 @@ export const requestDisplayOperation = onCall<
   const col = operationsCol(displayId);
 
   return db.runTransaction(async (tx) => {
-    const recentSnap = await tx.get(col.orderBy('requestedAt', 'desc').limit(25));
+    const recentSnap = await tx.get(
+      col.where('state', 'in', ['queued', 'claimed', 'in_progress', 'awaiting_reconnect'])
+    );
 
     for (const doc of recentSnap.docs) {
       const existing = doc.data() as DeviceOperationRecord;
@@ -615,7 +617,8 @@ export const requestDisplayOperation = onCall<
       // Deduplicate matching active operation type or idempotencyKey
       const isMatchingOp =
         (rawType === 'RUN_DIAGNOSTICS' && existing.type === 'RUN_DIAGNOSTICS' && existing.diagnosticAction === request.data?.diagnosticAction) ||
-        (rawType !== 'RUN_DIAGNOSTICS' && existing.type === rawType) ||
+        (rawType === 'EXEC_COMMAND' && existing.type === 'EXEC_COMMAND' && existing.command === (request.data?.command || '').trim()) ||
+        (rawType !== 'RUN_DIAGNOSTICS' && rawType !== 'EXEC_COMMAND' && existing.type === rawType) ||
         (idempotencyKey && existing.idempotencyKey === idempotencyKey);
 
       if (isMatchingOp) {
@@ -770,13 +773,22 @@ export const claimDeviceOperation = onCall<
   const nowIso = new Date(nowMs).toISOString();
 
   const claimedOp = await db.runTransaction(async (tx) => {
-    const snap = await tx.get(col.orderBy('requestedAt', 'asc').limit(30));
+    const snap = await tx.get(
+      col.where('state', 'in', ['queued', 'claimed', 'in_progress', 'awaiting_reconnect'])
+    );
     if (snap.empty) return null;
+
+    // Process active operations oldest-first (FIFO queue)
+    const sortedDocs = [...snap.docs].sort((a, b) => {
+      const aTime = a.data().requestedAt || '';
+      const bTime = b.data().requestedAt || '';
+      return aTime.localeCompare(bTime);
+    });
 
     let candidateDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
     let candidateOp: DeviceOperationRecord | null = null;
 
-    for (const doc of snap.docs) {
+    for (const doc of sortedDocs) {
       const op = doc.data() as DeviceOperationRecord;
       if (!ACTIVE_OPERATION_STATES.has(op.state)) continue;
 
