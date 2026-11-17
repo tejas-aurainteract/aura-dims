@@ -140,6 +140,11 @@ export interface DeviceCapabilities {
   reboot: boolean;
   rebootReason?: string | null;
   safeCacheCleanup: boolean;
+  restartPlayer?: boolean;
+  restartPlayerReason?: string | null;
+  runDiagnostics?: boolean;
+  runDiagnosticsReason?: string | null;
+  supportedOperationTypes?: DeviceOperationType[];
 }
 
 export type AssetTransferStage =
@@ -2730,6 +2735,16 @@ export interface RetryPublicationTargetResponse {
 // Milestone: Hardware Integration & Durable Device Operations
 // ==========================================
 
+export type DiagnosticActionType =
+  | 'SYSTEM_INFO'
+  | 'NETWORK_IPS'
+  | 'PING'
+  | 'DISK'
+  | 'MEMORY'
+  | 'SERVICE_STATUS'
+  | 'PLAYER_LOGS'
+  | 'CPU_TEMP';
+
 export type DeviceOperationType =
   | 'SYNC_NOW'
   | 'REFRESH_RENDERER'
@@ -2737,6 +2752,7 @@ export type DeviceOperationType =
   | 'SAFE_CLEANUP_CACHE'
   | 'REBOOT'
   | 'RESTART_PLAYER'
+  | 'RUN_DIAGNOSTICS'
   | 'EXEC_COMMAND';
 
 export type DeviceOperationState =
@@ -2770,6 +2786,9 @@ export interface DeviceOperationRecord {
   completedAt?: string | null;
   preRebootBootId?: string | null;
   preRebootUptimeSeconds?: number | null;
+  diagnosticAction?: DiagnosticActionType | null;
+  retryOf?: string | null;
+  maxRuntimeSeconds?: number | null;
   resultSummary?: string | null;
   command?: string | null;
   output?: string | null;
@@ -2790,6 +2809,7 @@ export interface DeviceOperationRecord {
 export interface RequestDisplayOperationRequest {
   displayId: string;
   type: DeviceOperationType;
+  diagnosticAction?: DiagnosticActionType;
   idempotencyKey?: string;
   reason?: string;
   command?: string;
@@ -2817,6 +2837,36 @@ export interface ClaimDeviceOperationRequest {
 
 export interface ClaimDeviceOperationResponse {
   operation: DeviceOperationRecord | null;
+  serverTimestamp: string;
+}
+
+export interface CancelDisplayOperationRequest {
+  displayId: string;
+  operationId: string;
+  reason?: string;
+}
+
+export interface CancelDisplayOperationResponse {
+  operation: DeviceOperationRecord;
+}
+
+export interface RetryDisplayOperationRequest {
+  displayId: string;
+  operationId: string;
+}
+
+export interface RetryDisplayOperationResponse {
+  operation: DeviceOperationRecord;
+}
+
+export interface RenewOperationLeaseRequest {
+  displayId: string;
+  operationId: string;
+  claimLeaseId: string;
+}
+
+export interface RenewOperationLeaseResponse {
+  claimExpiresAt: string;
   serverTimestamp: string;
 }
 

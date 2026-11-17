@@ -17,27 +17,35 @@ import * as crypto from 'node:crypto';
 import * as admin from 'firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import type {
   AssetTransferProgress,
   CacheInventoryItem,
   CacheInventorySummary,
+  CancelDisplayOperationRequest,
+  CancelDisplayOperationResponse,
   ClaimDeviceOperationRequest,
   ClaimDeviceOperationResponse,
   DeviceCapabilities,
   DeviceOperationRecord,
   DeviceOperationType,
+  DiagnosticActionType,
   DisplayPreviewMetadata,
   GetDisplayPreviewUrlRequest,
   GetDisplayPreviewUrlResponse,
   HardwareMetrics,
   ListDisplayOperationsRequest,
   ListDisplayOperationsResponse,
+  RenewOperationLeaseRequest,
+  RenewOperationLeaseResponse,
   ReportDeviceOperationRequest,
   ReportDeviceOperationResponse,
   ReportDeviceShutdownRequest,
   ReportDeviceShutdownResponse,
   RequestDisplayOperationRequest,
   RequestDisplayOperationResponse,
+  RetryDisplayOperationRequest,
+  RetryDisplayOperationResponse,
   UploadDevicePreviewRequest,
   UploadDevicePreviewResponse,
 } from '@aura-dims/display-schema';
@@ -65,8 +73,30 @@ const ALLOWED_OPERATION_TYPES = new Set<DeviceOperationType>([
   'SAFE_CLEANUP_CACHE',
   'REBOOT',
   'RESTART_PLAYER',
-  'EXEC_COMMAND',
+  'RUN_DIAGNOSTICS',
 ]);
+
+export const ALLOWED_DIAGNOSTIC_ACTIONS = new Set<DiagnosticActionType>([
+  'SYSTEM_INFO',
+  'NETWORK_IPS',
+  'PING',
+  'DISK',
+  'MEMORY',
+  'SERVICE_STATUS',
+  'PLAYER_LOGS',
+  'CPU_TEMP',
+]);
+
+export const OPERATION_MAX_RUNTIME_SECONDS: Record<DeviceOperationType, number> = {
+  SYNC_NOW: 180,
+  REFRESH_RENDERER: 30,
+  CAPTURE_PREVIEW: 60,
+  SAFE_CLEANUP_CACHE: 60,
+  REBOOT: 120,
+  RESTART_PLAYER: 60,
+  RUN_DIAGNOSTICS: 30,
+  EXEC_COMMAND: 30,
+};
 
 const ACTIVE_OPERATION_STATES = new Set<DeviceOperationRecord['state']>([
   'queued',
@@ -204,6 +234,15 @@ export function sanitizeCapabilities(
     reboot: Boolean(raw.reboot),
     rebootReason: strOrNull(raw.rebootReason),
     safeCacheCleanup: Boolean(raw.safeCacheCleanup ?? true),
+    restartPlayer: Boolean(raw.restartPlayer),
+    restartPlayerReason: strOrNull(raw.restartPlayerReason),
+    runDiagnostics: Boolean(raw.runDiagnostics),
+    runDiagnosticsReason: strOrNull(raw.runDiagnosticsReason),
+    supportedOperationTypes: strArray<DeviceOperationType>(
+      raw.supportedOperationTypes,
+      10,
+      new Set(['SYNC_NOW', 'REFRESH_RENDERER', 'CAPTURE_PREVIEW', 'SAFE_CLEANUP_CACHE', 'REBOOT', 'RESTART_PLAYER', 'RUN_DIAGNOSTICS'])
+    ),
   };
 }
 
@@ -350,6 +389,34 @@ export async function reconcileAndCountOperationsOnHeartbeat(params: {
       }
     }
 
+    // Reconcile awaiting_reconnect RESTART_PLAYER upon successful heartbeat
+    if (op.type === 'RESTART_PLAYER' && op.state === 'awaiting_reconnect') {
+      const summary = `Verified digital display player service restart (reconnected with uptime ${uptimeSeconds ?? 'unknown'}s).`;
+      batch.update(doc.ref, {
+        state: 'succeeded',
+        resultSummary: summary,
+        completedAt: nowIso,
+        updatedAt: nowIso,
+      });
+      batch.create(
+        db.collection('auditEvents').doc(),
+        buildAuditRecord({
+          actorId: deviceUid,
+          action: 'display.operation_completed',
+          targetId: op.id,
+          targetType: 'display_operation',
+          newState: {
+            displayId,
+            type: op.type,
+            state: 'succeeded',
+            resultSummary: summary,
+          },
+        })
+      );
+      hasWrites = true;
+      continue;
+    }
+
     // Expire past-TTL operations
     if (Number.isFinite(expiresMs) && nowMs >= expiresMs) {
       batch.update(doc.ref, {
@@ -415,15 +482,33 @@ export const requestDisplayOperation = onCall<
   const displayId = requireId(request.data?.displayId, 'Display ID');
   const rawType = String(request.data?.type || '').trim() as DeviceOperationType;
 
-  if (!ALLOWED_OPERATION_TYPES.has(rawType)) {
+  if (rawType === 'EXEC_COMMAND') {
     throw new HttpsError(
       'invalid-argument',
-      `Unsupported or forbidden digital display operation type: "${rawType}". Arbitrary remote shell execution is prohibited.`
+      'Arbitrary remote shell execution is prohibited. Use authorized diagnostics or interactive terminal.'
     );
   }
 
-  // REBOOT and EXEC_COMMAND require Admin permission and explicit safety checks
-  if (rawType === 'REBOOT' || rawType === 'EXEC_COMMAND') {
+  if (!ALLOWED_OPERATION_TYPES.has(rawType)) {
+    throw new HttpsError(
+      'invalid-argument',
+      `Unsupported or forbidden digital display operation type: "${rawType}".`
+    );
+  }
+
+  // Diagnostic Action Validation
+  if (rawType === 'RUN_DIAGNOSTICS') {
+    const action = request.data?.diagnosticAction as DiagnosticActionType | undefined;
+    if (!action || !ALLOWED_DIAGNOSTIC_ACTIONS.has(action)) {
+      throw new HttpsError(
+        'invalid-argument',
+        `Invalid or missing diagnostic action: "${action}". Allowed: ${Array.from(ALLOWED_DIAGNOSTIC_ACTIONS).join(', ')}.`
+      );
+    }
+  }
+
+  // REBOOT and RESTART_PLAYER require Admin permission
+  if (rawType === 'REBOOT' || rawType === 'RESTART_PLAYER') {
     await assertAdminCaller(request.auth);
     if (rawType === 'REBOOT' && request.data?.confirmed !== true) {
       throw new HttpsError(
@@ -444,8 +529,26 @@ export const requestDisplayOperation = onCall<
     );
   }
 
-  // Check advertised device capabilities when present
+  // Check advertised device capabilities & player version
   const reportedCaps = displayData.reported?.capabilities as DeviceCapabilities | undefined | null;
+  const reportedAppVer = String(displayData.reported?.appVersion || '1.1.0').trim();
+
+  // Strict Player 1.1.0 and capability gating:
+  if (rawType === 'RUN_DIAGNOSTICS' || rawType === 'RESTART_PLAYER') {
+    const isOldVersion = reportedAppVer === '1.1.0' || reportedAppVer.startsWith('1.0');
+    const supported = Boolean(
+      reportedCaps?.supportedOperationTypes?.includes(rawType) ||
+      (rawType === 'RESTART_PLAYER' && reportedCaps?.restartPlayer) ||
+      (rawType === 'RUN_DIAGNOSTICS' && reportedCaps?.runDiagnostics)
+    );
+    if (isOldVersion || !supported) {
+      throw new HttpsError(
+        'failed-precondition',
+        `Digital display "${displayData.name}" is running Player ${reportedAppVer}, which does not support ${rawType}. Please update the player software on this digital display.`
+      );
+    }
+  }
+
   if (reportedCaps) {
     if (rawType === 'CAPTURE_PREVIEW' && !reportedCaps.capturePreview) {
       throw new HttpsError(
@@ -510,11 +613,12 @@ export const requestDisplayOperation = onCall<
       }
 
       // Deduplicate matching active operation type or idempotencyKey
-      if (
-        (rawType !== 'EXEC_COMMAND' && existing.type === rawType) ||
-        (rawType === 'EXEC_COMMAND' && existing.type === 'EXEC_COMMAND' && existing.command === request.data?.command) ||
-        (idempotencyKey && existing.idempotencyKey === idempotencyKey)
-      ) {
+      const isMatchingOp =
+        (rawType === 'RUN_DIAGNOSTICS' && existing.type === 'RUN_DIAGNOSTICS' && existing.diagnosticAction === request.data?.diagnosticAction) ||
+        (rawType !== 'RUN_DIAGNOSTICS' && existing.type === rawType) ||
+        (idempotencyKey && existing.idempotencyKey === idempotencyKey);
+
+      if (isMatchingOp) {
         return {
           operation: existing,
           deduplicated: true,
@@ -523,11 +627,13 @@ export const requestDisplayOperation = onCall<
     }
 
     const operationId = crypto.randomUUID();
+    const isNonIdempotent = rawType === 'REBOOT' || rawType === 'RESTART_PLAYER' || rawType === 'RUN_DIAGNOSTICS';
     const newOp: DeviceOperationRecord = {
       id: operationId,
       displayId,
       departmentId: String(displayData.departmentId || ''),
       type: rawType,
+      diagnosticAction: rawType === 'RUN_DIAGNOSTICS' ? (request.data?.diagnosticAction as DiagnosticActionType) : null,
       state: 'queued',
       requestedBy: caller.uid,
       requestedByRole: caller.role,
@@ -539,7 +645,8 @@ export const requestDisplayOperation = onCall<
       claimLeaseId: null,
       claimExpiresAt: null,
       attemptCount: 0,
-      maxAttempts: rawType === 'REBOOT' ? 1 : 3,
+      maxAttempts: isNonIdempotent ? 1 : 3,
+      maxRuntimeSeconds: OPERATION_MAX_RUNTIME_SECONDS[rawType] || 60,
       startedAt: null,
       completedAt: null,
       preRebootBootId:
@@ -552,10 +659,7 @@ export const requestDisplayOperation = onCall<
         rawType === 'REBOOT' && typeof displayData.reported?.uptimeSeconds === 'number'
           ? displayData.reported.uptimeSeconds
           : null,
-      command:
-        rawType === 'EXEC_COMMAND'
-          ? (String(request.data?.command || '').trim().slice(0, 500) || 'uptime')
-          : null,
+      command: null,
       output: null,
       exitCode: null,
       resultSummary: null,
@@ -750,6 +854,14 @@ export const claimDeviceOperation = onCall<
         unsupportedReason =
           capabilities.rebootReason ||
           'Controlled reboot is not supported on this digital display.';
+      } else if (candidateOp.type === 'RESTART_PLAYER' && capabilities.restartPlayer === false) {
+        unsupportedReason =
+          capabilities.restartPlayerReason ||
+          'Restarting player service is not supported on this digital display.';
+      } else if (candidateOp.type === 'RUN_DIAGNOSTICS' && capabilities.runDiagnostics === false) {
+        unsupportedReason =
+          capabilities.runDiagnosticsReason ||
+          'Diagnostics are not supported on this digital display.';
       }
 
       if (unsupportedReason) {
@@ -859,7 +971,11 @@ export const reportDeviceOperation = onCall<
       return op;
     }
 
+    // Late report tolerance: allow completion if claimLeaseId matches, even if claimExpiresAt expired
     if (op.claimLeaseId !== claimLeaseId) {
+      if (op.state === 'succeeded' || op.state === 'failed') {
+        return op; // Idempotent return
+      }
       throw new HttpsError(
         'failed-precondition',
         'Operation claimLeaseId does not match the active lease for this digital display operation.'
@@ -1258,3 +1374,300 @@ export const reportDeviceShutdown = onCall<
 
   return { success: true };
 });
+
+
+// ---------------------------------------------------------------------------
+// 8. Device Callable: renewOperationLease
+// ---------------------------------------------------------------------------
+
+export const renewOperationLease = onCall<
+  RenewOperationLeaseRequest,
+  Promise<RenewOperationLeaseResponse>
+>(opts, async (request) => {
+  const displayId = requireId(request.data?.displayId, 'Display ID');
+  const operationId = requireId(request.data?.operationId, 'Operation ID');
+  const claimLeaseId = requireId(request.data?.claimLeaseId, 'Claim Lease ID');
+
+  await assertActiveDeviceForDisplay(request.auth, displayId);
+  const opRef = operationsCol(displayId).doc(operationId);
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const cfg = getConfig();
+
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(opRef);
+    if (!snap.exists) {
+      throw new HttpsError('not-found', 'Operation not found.');
+    }
+    const op = snap.data() as DeviceOperationRecord;
+    if (op.claimLeaseId !== claimLeaseId) {
+      throw new HttpsError('failed-precondition', 'Claim lease does not match.');
+    }
+    if (op.state !== 'claimed' && op.state !== 'in_progress') {
+      throw new HttpsError('failed-precondition', `Cannot extend lease in state "${op.state}".`);
+    }
+
+    const startedAtMs = op.startedAt ? new Date(op.startedAt).getTime() : (op.claimedAt ? new Date(op.claimedAt).getTime() : nowMs);
+    const maxRuntime = (op.maxRuntimeSeconds ?? OPERATION_MAX_RUNTIME_SECONDS[op.type] ?? 90) * 1000;
+    if (nowMs - startedAtMs > maxRuntime) {
+      tx.update(opRef, {
+        state: 'failed',
+        errorCode: 'OPERATION_TIMED_OUT',
+        errorMessage: `Operation exceeded maximum runtime limit of ${Math.round(maxRuntime / 1000)}s.`,
+        completedAt: nowIso,
+        updatedAt: nowIso,
+      });
+      throw new HttpsError('deadline-exceeded', 'Operation exceeded maximum runtime limit.');
+    }
+
+    const newExpiresAt = new Date(nowMs + cfg.operationClaimLeaseSeconds * 1000).toISOString();
+    tx.update(opRef, {
+      claimExpiresAt: newExpiresAt,
+      updatedAt: nowIso,
+    });
+
+    return {
+      claimExpiresAt: newExpiresAt,
+      serverTimestamp: nowIso,
+    };
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. User Callable: cancelDisplayOperation
+// ---------------------------------------------------------------------------
+
+export const cancelDisplayOperation = onCall<
+  CancelDisplayOperationRequest,
+  Promise<CancelDisplayOperationResponse>
+>(opts, async (request) => {
+  const caller = await getAuthenticatedCaller(request.auth);
+  const displayId = requireId(request.data?.displayId, 'Display ID');
+  const operationId = requireId(request.data?.operationId, 'Operation ID');
+  const reason = request.data?.reason ? String(request.data.reason).trim().slice(0, 300) : 'Cancelled by operator.';
+
+  await loadAuthorizedDisplay(caller, displayId);
+  const opRef = operationsCol(displayId).doc(operationId);
+  const nowIso = new Date().toISOString();
+
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(opRef);
+    if (!snap.exists) {
+      throw new HttpsError('not-found', 'Operation not found.');
+    }
+    const op = snap.data() as DeviceOperationRecord;
+    if (op.state !== 'queued') {
+      throw new HttpsError('failed-precondition', `Only queued operations can be cancelled. Current state is "${op.state}".`);
+    }
+
+    const cancelled: DeviceOperationRecord = {
+      ...op,
+      state: 'cancelled',
+      resultSummary: reason,
+      completedAt: nowIso,
+      updatedAt: nowIso,
+    };
+    tx.update(opRef, {
+      state: 'cancelled',
+      resultSummary: reason,
+      completedAt: nowIso,
+      updatedAt: nowIso,
+    });
+
+    tx.create(
+      db.collection('auditEvents').doc(),
+      buildAuditRecord({
+        actorId: caller.uid,
+        action: 'display.operation_cancelled',
+        targetId: operationId,
+        targetType: 'display_operation',
+        newState: {
+          displayId,
+          type: op.type,
+          state: 'cancelled',
+          reason,
+        },
+      })
+    );
+
+    return { operation: cancelled };
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10. User Callable: retryDisplayOperation
+// ---------------------------------------------------------------------------
+
+export const retryDisplayOperation = onCall<
+  RetryDisplayOperationRequest,
+  Promise<RetryDisplayOperationResponse>
+>(opts, async (request) => {
+  const caller = await getAuthenticatedCaller(request.auth);
+  const displayId = requireId(request.data?.displayId, 'Display ID');
+  const operationId = requireId(request.data?.operationId, 'Operation ID');
+
+  const displaySnap = await loadAuthorizedDisplay(caller, displayId);
+  const displayData = displaySnap.data()!;
+  const opRef = operationsCol(displayId).doc(operationId);
+
+  const originalSnap = await opRef.get();
+  if (!originalSnap.exists) {
+    throw new HttpsError('not-found', 'Original operation not found.');
+  }
+  const original = originalSnap.data() as DeviceOperationRecord;
+  const terminalStates = new Set(['failed', 'expired', 'cancelled']);
+  if (!terminalStates.has(original.state)) {
+    throw new HttpsError('failed-precondition', `Cannot retry operation in active state "${original.state}".`);
+  }
+
+  // Capability check
+  const reportedCaps = displayData.reported?.capabilities as DeviceCapabilities | undefined | null;
+  const reportedAppVer = String(displayData.reported?.appVersion || '1.1.0').trim();
+  if (original.type === 'RUN_DIAGNOSTICS' || original.type === 'RESTART_PLAYER') {
+    const isOldVersion = reportedAppVer === '1.1.0' || reportedAppVer.startsWith('1.0');
+    const supported = Boolean(
+      reportedCaps?.supportedOperationTypes?.includes(original.type) ||
+      (original.type === 'RESTART_PLAYER' && reportedCaps?.restartPlayer) ||
+      (original.type === 'RUN_DIAGNOSTICS' && reportedCaps?.runDiagnostics)
+    );
+    if (isOldVersion || !supported) {
+      throw new HttpsError(
+        'failed-precondition',
+        `Digital display "${displayData.name}" is running Player ${reportedAppVer}, which does not support ${original.type}. Please update the player software on this digital display.`
+      );
+    }
+  }
+
+  const newOpId = crypto.randomUUID();
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const cfg = getConfig();
+  const ttlSeconds = original.type === 'REBOOT' ? cfg.operationRebootTtlSeconds : cfg.operationDefaultTtlSeconds;
+  const isNonIdempotent = original.type === 'REBOOT' || original.type === 'RESTART_PLAYER' || original.type === 'RUN_DIAGNOSTICS';
+
+  const newOp: DeviceOperationRecord = {
+    id: newOpId,
+    retryOf: original.id,
+    displayId,
+    departmentId: String(displayData.departmentId || ''),
+    type: original.type,
+    diagnosticAction: original.diagnosticAction || null,
+    state: 'queued',
+    requestedBy: caller.uid,
+    requestedByRole: caller.role,
+    requestedAt: nowIso,
+    expiresAt: new Date(nowMs + ttlSeconds * 1000).toISOString(),
+    idempotencyKey: null,
+    reason: `Manual retry of operation ${original.id}.`,
+    claimedAt: null,
+    claimLeaseId: null,
+    claimExpiresAt: null,
+    attemptCount: 0,
+    maxAttempts: isNonIdempotent ? 1 : 3,
+    maxRuntimeSeconds: original.maxRuntimeSeconds || OPERATION_MAX_RUNTIME_SECONDS[original.type] || 60,
+    startedAt: null,
+    completedAt: null,
+    preRebootBootId: null,
+    preRebootUptimeSeconds: null,
+    resultSummary: null,
+    command: null,
+    output: null,
+    exitCode: null,
+    errorCode: null,
+    errorMessage: null,
+    previewMetadata: null,
+    cleanupSummary: null,
+    updatedAt: nowIso,
+  };
+
+  await operationsCol(displayId).doc(newOpId).set(newOp);
+
+  await db.collection('auditEvents').add(
+    buildAuditRecord({
+      actorId: caller.uid,
+      action: 'display.operation_retried',
+      targetId: newOpId,
+      targetType: 'display_operation',
+      newState: {
+        displayId,
+        retryOf: original.id,
+        type: original.type,
+      },
+    })
+  );
+
+  return { operation: newOp };
+});
+
+// ---------------------------------------------------------------------------
+// 11. Scheduled Sweeper: expireStaleOperationsScheduled
+// ---------------------------------------------------------------------------
+
+export const expireStaleOperationsScheduled = onSchedule(
+  {
+    schedule: 'every 5 minutes',
+    region: 'asia-south1',
+    timeZone: 'Asia/Kolkata',
+  },
+  async () => {
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+
+    const displaysSnap = await db.collection(COL.displays).where('lifecycle', '==', 'active').get();
+    for (const dispDoc of displaysSnap.docs) {
+      const opsCol = operationsCol(dispDoc.id);
+      const activeOps = await opsCol
+        .where('state', 'in', ['queued', 'claimed', 'in_progress', 'awaiting_reconnect'])
+        .limit(20)
+        .get();
+
+      if (activeOps.empty) continue;
+
+      const batch = db.batch();
+      let hasWrites = false;
+
+      for (const opDoc of activeOps.docs) {
+        const op = opDoc.data() as DeviceOperationRecord;
+        const expiresMs = new Date(op.expiresAt).getTime();
+
+        if (nowMs >= expiresMs) {
+          batch.update(opDoc.ref, {
+            state: 'expired',
+            errorCode: 'OPERATION_EXPIRED',
+            errorMessage: `Operation expired at ${op.expiresAt} while digital display was offline.`,
+            completedAt: nowIso,
+            updatedAt: nowIso,
+          });
+          hasWrites = true;
+        } else if (
+          (op.state === 'claimed' || op.state === 'in_progress') &&
+          op.claimExpiresAt &&
+          nowMs >= new Date(op.claimExpiresAt).getTime()
+        ) {
+          if (op.attemptCount < op.maxAttempts) {
+            batch.update(opDoc.ref, {
+              state: 'queued',
+              claimLeaseId: null,
+              claimExpiresAt: null,
+              updatedAt: nowIso,
+            });
+            hasWrites = true;
+          } else {
+            batch.update(opDoc.ref, {
+              state: 'failed',
+              errorCode: 'CLAIM_LEASE_EXPIRED',
+              errorMessage: 'Digital display did not complete operation before claim lease expired.',
+              completedAt: nowIso,
+              updatedAt: nowIso,
+            });
+            hasWrites = true;
+          }
+        }
+      }
+
+      if (hasWrites) {
+        await batch.commit();
+      }
+    }
+  }
+);

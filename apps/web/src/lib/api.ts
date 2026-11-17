@@ -152,6 +152,12 @@ import type {
   RequestDisplayOperationResponse,
   ListDisplayOperationsRequest,
   ListDisplayOperationsResponse,
+  CancelDisplayOperationRequest,
+  CancelDisplayOperationResponse,
+  RetryDisplayOperationRequest,
+  RetryDisplayOperationResponse,
+  RenewOperationLeaseRequest,
+  RenewOperationLeaseResponse,
   GetDisplayPreviewUrlRequest,
   GetDisplayPreviewUrlResponse,
 } from '@aura-dims/display-schema';
@@ -605,6 +611,24 @@ export const api = {
 
   listDisplayOperations: async (req: ListDisplayOperationsRequest): Promise<ListDisplayOperationsResponse> => {
     const fn = httpsCallable<ListDisplayOperationsRequest, ListDisplayOperationsResponse>(functions, 'listDisplayOperations');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  cancelDisplayOperation: async (req: CancelDisplayOperationRequest): Promise<CancelDisplayOperationResponse> => {
+    const fn = httpsCallable<CancelDisplayOperationRequest, CancelDisplayOperationResponse>(functions, 'cancelDisplayOperation');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  retryDisplayOperation: async (req: RetryDisplayOperationRequest): Promise<RetryDisplayOperationResponse> => {
+    const fn = httpsCallable<RetryDisplayOperationRequest, RetryDisplayOperationResponse>(functions, 'retryDisplayOperation');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  renewOperationLease: async (req: RenewOperationLeaseRequest): Promise<RenewOperationLeaseResponse> => {
+    const fn = httpsCallable<RenewOperationLeaseRequest, RenewOperationLeaseResponse>(functions, 'renewOperationLease');
     const result = await fn(req);
     return result.data;
   },

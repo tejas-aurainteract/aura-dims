@@ -114,11 +114,11 @@ export class Supervisor {
   private triggerSync(): void {
     if (!this.identity.isEnrolled()) return;
 
-    this.syncEngine.checkForUpdates().catch((err) => {
+    this.syncEngine.checkForUpdates().catch((err: any) => {
       this.logger.warn('Error during periodic sync check:', err?.message || err);
     });
 
-    this.operationsAgent.pollAndExecuteNext().catch((err) => {
+    this.operationsAgent.pollAndExecuteNext().catch((err: any) => {
       this.logger.warn('Error during periodic operations poll:', err?.message || err);
     });
   }

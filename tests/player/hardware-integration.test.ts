@@ -908,5 +908,224 @@ describe('Aura DIMS - Hardware Integration & Player Runtime Suite', () => {
       expect(reportedPayloads[1].state).toBe('succeeded');
       expect(reportedPayloads[1].resultSummary).toMatch(/verified OS reboot/);
     });
+
+    it('transitions RESTART_PLAYER to awaiting_reconnect and reconciles to succeeded upon daemon restart', async () => {
+      const cfg = loadConfig({ dataDir: TMP_ROOT });
+      const logger = new Logger(cfg.logsDir);
+      const identity = new DeviceIdentity(cfg, logger);
+      identity.saveCredentials({
+        displayId: 'disp-restart-01',
+        deviceSecret: 'secret-1',
+        deviceUid: 'device:disp-restart-01',
+        enrolledAt: new Date().toISOString(),
+      });
+      vi.spyOn(identity, 'getIdToken').mockResolvedValue('valid-id-token');
+
+      const hwAdapter = new HardwareAdapter(cfg, logger);
+      const syncEngine = new SyncEngine(cfg, logger, identity, hwAdapter);
+
+      const opsAgent = new OperationsAgent({
+        config: cfg,
+        logger,
+        identity,
+        syncEngine,
+        hardwareAdapter: hwAdapter,
+        onRefreshRenderer: () => 1,
+      });
+
+      const restartOp: DeviceOperationRecord = {
+        id: 'op-restart-777',
+        displayId: 'disp-restart-01',
+        departmentId: 'dept-1',
+        type: 'RESTART_PLAYER',
+        state: 'claimed',
+        requestedBy: 'admin-1',
+        requestedByRole: 'admin',
+        requestedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 300_000).toISOString(),
+        claimLeaseId: 'lease-restart-1',
+        claimExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+        attemptCount: 1,
+        maxAttempts: 1,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const reportedPayloads: any[] = [];
+      let shouldReturnOp = true;
+
+      vi.spyOn(identity.getTransport(), 'callAuthenticatedFunction').mockImplementation(
+        async (fnName: string, payload: any) => {
+          if (fnName === 'claimDeviceOperation') {
+            const op = shouldReturnOp ? restartOp : null;
+            shouldReturnOp = false;
+            return { operation: op, serverTimestamp: new Date().toISOString() } as any;
+          }
+          if (fnName === 'reportDeviceOperation') {
+            reportedPayloads.push(payload);
+            return {
+              operation: { ...restartOp, state: payload.state },
+              serverReceivedAt: new Date().toISOString(),
+            } as any;
+          }
+          throw new Error(`Unexpected callable: ${fnName}`);
+        }
+      );
+
+      // 1. Claim and execute RESTART_PLAYER -> must report awaiting_reconnect
+      await opsAgent.pollAndExecuteNext(true);
+      expect(reportedPayloads).toHaveLength(1);
+      expect(reportedPayloads[0].state).toBe('awaiting_reconnect');
+
+      // 2. Reconcile on restart -> must report succeeded with player service summary
+      await opsAgent.reconcilePendingOperations();
+      expect(reportedPayloads).toHaveLength(2);
+      expect(reportedPayloads[1].state).toBe('succeeded');
+      expect(reportedPayloads[1].resultSummary).toMatch(/player service restarted cleanly/);
+    });
+
+    it('reports failed and UNSUPPORTED_OPERATION for unknown or disallowed operation types', async () => {
+      const cfg = loadConfig({ dataDir: TMP_ROOT });
+      const logger = new Logger(cfg.logsDir);
+      const identity = new DeviceIdentity(cfg, logger);
+      identity.saveCredentials({
+        displayId: 'disp-unsupported-01',
+        deviceSecret: 'secret-1',
+        deviceUid: 'device:disp-unsupported-01',
+        enrolledAt: new Date().toISOString(),
+      });
+      vi.spyOn(identity, 'getIdToken').mockResolvedValue('valid-id-token');
+
+      const hwAdapter = new HardwareAdapter(cfg, logger);
+      const syncEngine = new SyncEngine(cfg, logger, identity, hwAdapter);
+
+      const opsAgent = new OperationsAgent({
+        config: cfg,
+        logger,
+        identity,
+        syncEngine,
+        hardwareAdapter: hwAdapter,
+        onRefreshRenderer: () => 1,
+      });
+
+      const unknownOp = {
+        id: 'op-unknown-404',
+        displayId: 'disp-unsupported-01',
+        departmentId: 'dept-1',
+        type: 'CUSTOM_UNSUPPORTED_OP' as any,
+        state: 'claimed' as const,
+        requestedBy: 'admin-1',
+        requestedByRole: 'admin' as const,
+        requestedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 300_000).toISOString(),
+        claimLeaseId: 'lease-unsupported-1',
+        claimExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+        attemptCount: 1,
+        maxAttempts: 1,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const reportedPayloads: any[] = [];
+      let shouldReturnOp = true;
+
+      vi.spyOn(identity.getTransport(), 'callAuthenticatedFunction').mockImplementation(
+        async (fnName: string, payload: any) => {
+          if (fnName === 'claimDeviceOperation') {
+            const op = shouldReturnOp ? unknownOp : null;
+            shouldReturnOp = false;
+            return { operation: op, serverTimestamp: new Date().toISOString() } as any;
+          }
+          if (fnName === 'reportDeviceOperation') {
+            reportedPayloads.push(payload);
+            return {
+              operation: { ...unknownOp, state: payload.state },
+              serverReceivedAt: new Date().toISOString(),
+            } as any;
+          }
+          throw new Error(`Unexpected callable: ${fnName}`);
+        }
+      );
+
+      await opsAgent.pollAndExecuteNext(true);
+      const finalReport = reportedPayloads.find((p) => p.state === 'failed');
+      expect(finalReport).toBeDefined();
+      expect(finalReport.errorCode).toBe('UNSUPPORTED_OPERATION');
+      expect(finalReport.errorMessage).toMatch(/unsupported or disallowed/);
+    });
+
+    it('executes RUN_DIAGNOSTICS for CPU_TEMP safely and reports succeeded with temperature reading', async () => {
+      const cfg = loadConfig({ dataDir: TMP_ROOT });
+      const logger = new Logger(cfg.logsDir);
+      const identity = new DeviceIdentity(cfg, logger);
+      identity.saveCredentials({
+        displayId: 'disp-diag-01',
+        deviceSecret: 'secret-1',
+        deviceUid: 'device:disp-diag-01',
+        enrolledAt: new Date().toISOString(),
+      });
+      vi.spyOn(identity, 'getIdToken').mockResolvedValue('valid-id-token');
+
+      const thermalFile = path.join(TMP_ROOT, 'thermal_zone0_temp');
+      fs.writeFileSync(thermalFile, '48250\n', 'utf8');
+
+      const hwAdapter = new HardwareAdapter(cfg, logger, {
+        thermalFilePath: thermalFile,
+      });
+      const syncEngine = new SyncEngine(cfg, logger, identity, hwAdapter);
+
+      const opsAgent = new OperationsAgent({
+        config: cfg,
+        logger,
+        identity,
+        syncEngine,
+        hardwareAdapter: hwAdapter,
+        onRefreshRenderer: () => 1,
+      });
+
+      const diagOp: DeviceOperationRecord = {
+        id: 'op-diag-temp-01',
+        displayId: 'disp-diag-01',
+        departmentId: 'dept-1',
+        type: 'RUN_DIAGNOSTICS',
+        diagnosticAction: 'CPU_TEMP',
+        state: 'claimed',
+        requestedBy: 'admin-1',
+        requestedByRole: 'admin',
+        requestedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 300_000).toISOString(),
+        claimLeaseId: 'lease-diag-1',
+        claimExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+        attemptCount: 1,
+        maxAttempts: 1,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const reportedPayloads: any[] = [];
+      let shouldReturnOp = true;
+
+      vi.spyOn(identity.getTransport(), 'callAuthenticatedFunction').mockImplementation(
+        async (fnName: string, payload: any) => {
+          if (fnName === 'claimDeviceOperation') {
+            const op = shouldReturnOp ? diagOp : null;
+            shouldReturnOp = false;
+            return { operation: op, serverTimestamp: new Date().toISOString() } as any;
+          }
+          if (fnName === 'reportDeviceOperation') {
+            reportedPayloads.push(payload);
+            return {
+              operation: { ...diagOp, state: payload.state },
+              serverReceivedAt: new Date().toISOString(),
+            } as any;
+          }
+          throw new Error(`Unexpected callable: ${fnName}`);
+        }
+      );
+
+      await opsAgent.pollAndExecuteNext(true);
+      const finalReport = reportedPayloads.find((p) => p.state === 'succeeded');
+      expect(finalReport).toBeDefined();
+      expect(finalReport.exitCode).toBe(0);
+      expect(finalReport.output).toContain('48.3°C');
+    });
+
   });
 });

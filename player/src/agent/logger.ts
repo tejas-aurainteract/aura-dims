@@ -72,6 +72,12 @@ export class Logger {
     }
   }
 
+  debug(message: string, meta?: unknown) {
+    if (process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development') {
+      this.write('DEBUG', message, meta);
+    }
+  }
+
   info(message: string, meta?: unknown) {
     this.write('INFO', message, meta);
   }

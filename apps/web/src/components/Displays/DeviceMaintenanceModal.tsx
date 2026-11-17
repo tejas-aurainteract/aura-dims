@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Terminal,
   RefreshCw,
@@ -22,6 +22,8 @@ import {
   Shield,
   Server,
   Code2,
+  Ban,
+  RotateCw,
 } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -29,6 +31,7 @@ import { api, getApiErrorMessage } from '@/lib/api';
 import type {
   DeviceOperationRecord,
   DeviceOperationType,
+  DiagnosticActionType,
   DisplayView,
 } from '@aura-dims/display-schema';
 
@@ -39,15 +42,21 @@ interface DeviceMaintenanceModalProps {
   onDisplayUpdated?: () => void;
 }
 
-const PRESET_COMMANDS = [
-  { label: 'System Info', cmd: 'uname -a && uptime' },
-  { label: 'Network IPs', cmd: 'ip -br a' },
-  { label: 'Ping Internet', cmd: 'ping -c 3 8.8.8.8' },
-  { label: 'Disk Space', cmd: 'df -h /' },
-  { label: 'Memory (RAM)', cmd: 'free -h' },
-  { label: 'Player Status', cmd: 'systemctl status aura-player --no-pager -l' },
-  { label: 'Player Logs (50)', cmd: 'journalctl -u aura-player -n 50 --no-pager' },
-  { label: 'CPU Temp', cmd: 'cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null | awk \'{print $1/1000 "°C"}\'' },
+interface DiagnosticButtonDef {
+  action: DiagnosticActionType;
+  label: string;
+  desc: string;
+}
+
+const SAFE_DIAGNOSTICS: DiagnosticButtonDef[] = [
+  { action: 'SYSTEM_INFO', label: 'System Info', desc: 'OS kernel, platform & system uptime' },
+  { action: 'NETWORK_IPS', label: 'Network IPs', desc: 'Local network interfaces & IP routing' },
+  { action: 'PING', label: 'Ping Gateway', desc: '3 ping packets to 8.8.8.8' },
+  { action: 'DISK', label: 'Disk Space', desc: 'Root filesystem usage (df -h /)' },
+  { action: 'MEMORY', label: 'Memory (RAM)', desc: 'System memory metrics (free -h)' },
+  { action: 'SERVICE_STATUS', label: 'Player Status', desc: 'systemctl status aura-player' },
+  { action: 'PLAYER_LOGS', label: 'Player Logs', desc: 'Recent 50 lines from journalctl' },
+  { action: 'CPU_TEMP', label: 'CPU Temp', desc: 'Raspberry Pi thermal zone readout' },
 ];
 
 export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
@@ -58,13 +67,12 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'controls' | 'terminal' | 'audit'>('controls');
   const [operations, setOperations] = useState<DeviceOperationRecord[]>([]);
-  const [actionBusy, setActionBusy] = useState<DeviceOperationType | null>(null);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [bannerError, setBannerError] = useState<string | null>(null);
   const [bannerSuccess, setBannerSuccess] = useState<string | null>(null);
 
-  // Terminal State
-  const [commandInput, setCommandInput] = useState<string>('');
-  const [executingCmd, setExecutingCmd] = useState<boolean>(false);
+  // Terminal & Diagnostics State
+  const [executingDiag, setExecutingDiag] = useState<DiagnosticActionType | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedOpId, setExpandedOpId] = useState<string | null>(null);
 
@@ -72,14 +80,12 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
   const [showRebootModal, setShowRebootModal] = useState<boolean>(false);
   const [rebootReason, setRebootReason] = useState<string>('');
 
-  const terminalEndRef = useRef<HTMLDivElement>(null);
-
   // Real-time operations subscription
   useEffect(() => {
     const opsQuery = query(
       collection(db, 'displays', display.id, 'operations'),
       orderBy('requestedAt', 'desc'),
-      limit(40)
+      limit(50)
     );
 
     const unsubscribe = onSnapshot(
@@ -101,7 +107,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
 
   const handleRequestOperation = async (
     type: DeviceOperationType,
-    options?: { command?: string; confirmed?: boolean; reason?: string }
+    options?: { command?: string; confirmed?: boolean; reason?: string; diagnosticAction?: DiagnosticActionType }
   ) => {
     setBannerError(null);
     setBannerSuccess(null);
@@ -114,6 +120,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
         command: options?.command,
         confirmed: options?.confirmed,
         reason: options?.reason,
+        diagnosticAction: options?.diagnosticAction,
       });
 
       const labelMap: Record<DeviceOperationType, string> = {
@@ -123,7 +130,8 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
         SAFE_CLEANUP_CACHE: 'Safe Cache Cleanup',
         REBOOT: 'Controlled OS Reboot',
         RESTART_PLAYER: 'Player Daemon Restart',
-        EXEC_COMMAND: 'Remote Command Execution',
+        RUN_DIAGNOSTICS: options?.diagnosticAction ? `Diagnostic (${options.diagnosticAction})` : 'Run Diagnostics',
+        EXEC_COMMAND: 'Command Execution',
       };
 
       setBannerSuccess(
@@ -149,32 +157,65 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
     }
   };
 
-  const handleRunCommand = async (cmdToRun?: string) => {
-    const cmd = (cmdToRun ?? commandInput).trim();
-    if (!cmd) return;
-
+  const handleRunDiagnostic = async (action: DiagnosticActionType) => {
     if (!isAdmin) {
-      setBannerError('Only administrators are authorized to execute remote diagnostic commands.');
+      setBannerError('Only administrators are authorized to execute remote diagnostic actions.');
       return;
     }
 
-    setExecutingCmd(true);
+    setExecutingDiag(action);
     setBannerError(null);
     setBannerSuccess(null);
 
     try {
       await api.requestDisplayOperation({
         displayId: display.id,
-        type: 'EXEC_COMMAND',
-        command: cmd,
+        type: 'RUN_DIAGNOSTICS',
+        diagnosticAction: action,
         confirmed: true,
       });
-      setBannerSuccess(`Dispatched command: "${cmd}". Awaiting digital display player execution...`);
-      setCommandInput('');
+      setBannerSuccess(`Dispatched diagnostic "${action}". Awaiting digital display player execution...`);
     } catch (err: any) {
-      setBannerError(getApiErrorMessage(err, 'Failed to dispatch command to digital display.'));
+      setBannerError(getApiErrorMessage(err, `Failed to dispatch diagnostic "${action}".`));
     } finally {
-      setExecutingCmd(false);
+      setExecutingDiag(null);
+    }
+  };
+
+  const handleRetryOperation = async (op: DeviceOperationRecord) => {
+    setBannerError(null);
+    setBannerSuccess(null);
+    setActionBusy(`retry-${op.id}`);
+
+    try {
+      const res = await api.retryDisplayOperation({
+        displayId: display.id,
+        operationId: op.id,
+      });
+      setBannerSuccess(`Retried operation ${op.type} (new operation ID: ${res.operation.id.slice(0, 8)}).`);
+    } catch (err: any) {
+      setBannerError(getApiErrorMessage(err, `Failed to retry operation ${op.id}.`));
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const handleCancelOperation = async (op: DeviceOperationRecord) => {
+    setBannerError(null);
+    setBannerSuccess(null);
+    setActionBusy(`cancel-${op.id}`);
+
+    try {
+      await api.cancelDisplayOperation({
+        displayId: display.id,
+        operationId: op.id,
+        reason: 'Cancelled by operator in Maintenance Modal',
+      });
+      setBannerSuccess(`Cancelled operation ${op.type}.`);
+    } catch (err: any) {
+      setBannerError(getApiErrorMessage(err, `Failed to cancel operation ${op.id}.`));
+    } finally {
+      setActionBusy(null);
     }
   };
 
@@ -190,11 +231,12 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
   const osInfo = hw?.osRelease ? `Linux ${hw.osRelease}` : (hw?.osPlatform || 'Linux (Raspberry Pi OS)');
   const model = hw?.arch ? `Raspberry Pi (${hw.arch})` : 'Raspberry Pi Hardware';
   const appVer = reported?.appVersion || 'v0.1.0';
-  const hostLabel = display.name.toLowerCase().replace(/[^a-z0-9]/g, '-') || 'pi';
   const ip = (display as any).ipAddress || display.installationRef || '192.168.1.140';
 
-  // Filter commands for terminal tab
-  const commandOperations = operations.filter((op) => op.type === 'EXEC_COMMAND');
+  // Filter commands and diagnostics for terminal tab
+  const diagnosticOperations = operations.filter(
+    (op) => op.type === 'RUN_DIAGNOSTICS' || op.type === 'EXEC_COMMAND'
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-fade-in overflow-y-auto">
@@ -292,9 +334,9 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
           >
             <Terminal className="w-4 h-4" />
             <span>Terminal & Diagnostics</span>
-            {commandOperations.length > 0 && (
+            {diagnosticOperations.length > 0 && (
               <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-slate-800 text-slate-300">
-                {commandOperations.length}
+                {diagnosticOperations.length}
               </span>
             )}
           </button>
@@ -376,8 +418,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                       <h4 className="text-sm font-semibold text-white">Restart Player Service</h4>
                       <p className="text-xs text-slate-400 mt-1">
                         Restarts the <code className="text-amber-300">aura-player</code> systemd
-                        daemon. Reloads published manifests, runtime agents, and hardware watchdog
-                        without rebooting the host OS.
+                        daemon. Reloads published manifests and runtime agents without rebooting the host OS.
                       </p>
                     </div>
                   </div>
@@ -476,9 +517,8 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                     <div>
                       <h4 className="text-sm font-semibold text-white">Refresh Local Renderer</h4>
                       <p className="text-xs text-slate-400 mt-1">
-                        Forces the Chromium display presentation window on the digital display to
-                        reload its local HTML5 viewport canvas without terminating background
-                        services.
+                        Forces the presentation canvas window on the digital display to
+                        reload its viewport canvas without terminating background services.
                       </p>
                     </div>
                   </div>
@@ -552,76 +592,64 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
           {/* TAB 2: TERMINAL CONSOLE & DIAGNOSTICS */}
           {activeTab === 'terminal' && (
             <div className="space-y-4">
-              {/* Presets Bar */}
+              {/* Diagnostics Actions Bar */}
               <div>
-                <label className="text-xs font-semibold text-slate-300 mb-2 block">
-                  Quick Diagnostic Commands
+                <label className="text-xs font-semibold text-slate-300 mb-2 block flex items-center justify-between">
+                  <span>Authorized Remote Diagnostics</span>
+                  <span className="text-[11px] text-slate-500 font-normal">Fixed commands • Safe read-only checks</span>
                 </label>
-                <div className="flex flex-wrap gap-2">
-                  {PRESET_COMMANDS.map((item) => (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {SAFE_DIAGNOSTICS.map((item) => (
                     <button
-                      key={item.label}
-                      onClick={() => handleRunCommand(item.cmd)}
-                      disabled={executingCmd || !isAdmin}
-                      className="px-2.5 py-1.5 bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/70 text-slate-200 text-xs rounded-lg transition-all flex items-center gap-1.5 hover:border-teal-500/50"
-                      title={item.cmd}
+                      key={item.action}
+                      onClick={() => handleRunDiagnostic(item.action)}
+                      disabled={executingDiag !== null || !isAdmin}
+                      className="p-2.5 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/70 text-left rounded-xl transition-all hover:border-teal-500/50 flex flex-col justify-between group disabled:opacity-40"
+                      title={item.desc}
                     >
-                      <Code2 className="w-3 h-3 text-teal-400" />
-                      <span>{item.label}</span>
+                      <div className="flex items-center justify-between w-full mb-1">
+                        <span className="text-xs font-semibold text-slate-200 group-hover:text-teal-300">
+                          {item.label}
+                        </span>
+                        {executingDiag === item.action ? (
+                          <RefreshCw className="w-3.5 h-3.5 text-teal-400 animate-spin" />
+                        ) : (
+                          <Code2 className="w-3.5 h-3.5 text-slate-500 group-hover:text-teal-400" />
+                        )}
+                      </div>
+                      <span className="text-[10px] text-slate-400 line-clamp-1">{item.desc}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Command Input Bar */}
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleRunCommand();
-                }}
-                className="flex items-center gap-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 focus-within:border-teal-500/80 transition-colors"
-              >
-                <div className="flex items-center gap-1.5 text-xs font-mono text-teal-400 pl-2 select-none">
-                  <Terminal className="w-4 h-4 text-teal-400" />
-                  <span>aura@{hostLabel}:~$</span>
+              {/* Terminal Notice / Phase 2 placeholder */}
+              <div className="bg-slate-950/70 border border-slate-800/90 rounded-xl p-3 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-teal-500/10 text-teal-400 border border-teal-500/20">
+                    <Terminal className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-semibold text-slate-200">Interactive Remote Terminal</span>
+                    <p className="text-[11px] text-slate-400">
+                      Live interactive PTY terminal over WebSocket is coming soon in Phase 2. Free-text shell execution is disabled for security.
+                    </p>
+                  </div>
                 </div>
-                <input
-                  type="text"
-                  value={commandInput}
-                  onChange={(e) => setCommandInput(e.target.value)}
-                  placeholder="Enter shell command (e.g. ping -c 3 google.com, df -h, uptime)..."
-                  disabled={executingCmd || !isAdmin}
-                  className="flex-1 bg-transparent text-xs font-mono text-white placeholder-slate-500 outline-none px-2"
-                />
-                <button
-                  type="submit"
-                  disabled={!commandInput.trim() || executingCmd || !isAdmin}
-                  className="px-4 py-1.5 bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white font-semibold text-xs rounded-lg transition-all flex items-center gap-1.5 shadow-sm"
-                >
-                  {executingCmd ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Sending...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-3.5 h-3.5" />
-                      <span>Run</span>
-                    </>
-                  )}
-                </button>
-              </form>
+                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-teal-300 border border-slate-700">
+                  Phase 2 Feature
+                </span>
+              </div>
 
               {!isAdmin && (
                 <p className="text-[11px] text-amber-400/90 flex items-center gap-1">
                   <Shield className="w-3 h-3" />
-                  Terminal execution is restricted to System Administrators.
+                  Diagnostic execution is restricted to System Administrators.
                 </p>
               )}
 
-              {/* Interactive Terminal Screen */}
+              {/* Diagnostic Output Screen */}
               <div className="bg-slate-950 rounded-xl border border-slate-800 shadow-inner overflow-hidden flex flex-col">
-                {/* Terminal Window Header */}
                 <div className="bg-slate-900/90 px-4 py-2 border-b border-slate-800 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-1.5">
@@ -630,25 +658,25 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80 inline-block" />
                     </div>
                     <span className="text-[11px] font-mono text-slate-400 ml-2">
-                      bash — aura@{ip}
+                      diagnostics — aura@{ip}
                     </span>
                   </div>
                   <span className="text-[10px] text-slate-500">
-                    Durable Queue • Execution Output History
+                    Execution Output History
                   </span>
                 </div>
 
-                {/* Terminal Output Log Body */}
+                {/* Output Log Body */}
                 <div className="p-4 font-mono text-xs text-slate-200 max-h-[380px] overflow-y-auto space-y-4">
-                  {commandOperations.length === 0 ? (
+                  {diagnosticOperations.length === 0 ? (
                     <div className="text-slate-500 py-8 text-center">
-                      <p>No terminal commands have been run on this digital display yet.</p>
+                      <p>No diagnostic checks have been executed on this digital display yet.</p>
                       <p className="text-[11px] text-slate-600 mt-1">
-                        Select a quick diagnostic button above or type a command to execute remotely.
+                        Select a diagnostic check above to run it remotely on the player.
                       </p>
                     </div>
                   ) : (
-                    commandOperations.map((op) => {
+                    diagnosticOperations.map((op) => {
                       const isPending = op.state === 'queued' || op.state === 'claimed' || op.state === 'in_progress' || op.state === 'awaiting_reconnect';
                       const isSuccess = op.state === 'succeeded';
                       const isFailed = op.state === 'failed' || op.state === 'expired' || op.state === 'cancelled';
@@ -658,11 +686,12 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                           key={op.id}
                           className="border border-slate-800/80 rounded-lg p-3 bg-slate-900/50 space-y-2"
                         >
-                          {/* Command Header Line */}
                           <div className="flex items-center justify-between text-[11px]">
                             <div className="flex items-center gap-2">
                               <span className="text-teal-400">$</span>
-                              <span className="font-semibold text-white">{op.command || 'uptime'}</span>
+                              <span className="font-semibold text-white">
+                                {op.diagnosticAction || op.command || 'DIAGNOSTIC'}
+                              </span>
                             </div>
                             <div className="flex items-center gap-2">
                               {/* State Badge */}
@@ -681,7 +710,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                               {isFailed && (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-red-500/20 text-red-300 border border-red-500/30">
                                   <AlertTriangle className="w-2.5 h-2.5" />
-                                  {op.state} (Exit {op.exitCode ?? 1})
+                                  {op.state}
                                 </span>
                               )}
 
@@ -694,6 +723,32 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                                   second: '2-digit',
                                 })}
                               </span>
+
+                              {/* Cancel button for queued */}
+                              {op.state === 'queued' && isAdmin && (
+                                <button
+                                  onClick={() => handleCancelOperation(op)}
+                                  disabled={actionBusy !== null}
+                                  className="text-red-400 hover:text-red-300 text-[10px] px-1.5 py-0.5 rounded border border-red-800 bg-red-950/40 inline-flex items-center gap-1"
+                                  title="Cancel queued operation"
+                                >
+                                  <Ban className="w-2.5 h-2.5" />
+                                  Cancel
+                                </button>
+                              )}
+
+                              {/* Retry button for failed */}
+                              {isFailed && isAdmin && (
+                                <button
+                                  onClick={() => handleRetryOperation(op)}
+                                  disabled={actionBusy !== null}
+                                  className="text-amber-300 hover:text-amber-200 text-[10px] px-1.5 py-0.5 rounded border border-amber-800 bg-amber-950/40 inline-flex items-center gap-1"
+                                  title="Retry operation"
+                                >
+                                  <RotateCw className="w-2.5 h-2.5" />
+                                  Retry
+                                </button>
+                              )}
 
                               {/* Copy Button */}
                               {op.output && (
@@ -712,7 +767,14 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                             </div>
                           </div>
 
-                          {/* Command Output Content */}
+                          {/* Error message display */}
+                          {op.errorMessage && (
+                            <div className="text-[11px] text-red-300 bg-red-950/50 p-2 rounded border border-red-900/60 font-sans">
+                              <strong>Error: </strong> {op.errorMessage}
+                            </div>
+                          )}
+
+                          {/* Output content */}
                           {op.output ? (
                             <pre className="text-[11px] leading-relaxed text-slate-300 whitespace-pre-wrap break-all bg-black/60 p-2.5 rounded border border-slate-900 overflow-x-auto">
                               {op.output}
@@ -722,50 +784,50 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                               <RefreshCw className="w-3 h-3 animate-spin" />
                               Awaiting digital display agent execution...
                             </div>
-                          ) : op.errorMessage ? (
-                            <div className="text-[11px] text-red-400 bg-red-950/40 p-2 rounded border border-red-900/40">
-                              Error: {op.errorMessage}
-                            </div>
-                          ) : (
-                            <div className="text-[11px] text-slate-500 italic">
-                              (Command executed with no standard output)
-                            </div>
-                          )}
+                          ) : null}
                         </div>
                       );
                     })
                   )}
-                  <div ref={terminalEndRef} />
                 </div>
               </div>
             </div>
           )}
 
-          {/* TAB 3: AUDIT & ALL OPERATIONS */}
+          {/* TAB 3: OPERATIONS AUDIT LOG */}
           {activeTab === 'audit' && (
             <div className="space-y-3">
-              <div className="text-xs text-slate-400 flex items-center justify-between">
-                <span>All durable operations queued or executed for this digital display</span>
-                <span className="text-[11px] text-slate-500">Live streamed via Firestore</span>
+              <div className="text-xs text-slate-400 flex items-center justify-between pb-1">
+                <span>Durable Operations Audit History</span>
+                <span>{operations.length} recorded events</span>
               </div>
 
               {operations.length === 0 ? (
-                <div className="p-8 text-center text-slate-500 border border-slate-800 rounded-xl bg-slate-950/50">
-                  No durable operations on record for this digital display.
+                <div className="p-8 text-center bg-slate-950/50 rounded-xl border border-slate-800 text-slate-500 text-xs">
+                  No operations recorded for this digital display.
                 </div>
               ) : (
-                <div className="border border-slate-800 rounded-xl overflow-hidden divide-y divide-slate-800/80 bg-slate-950/60">
+                <div className="space-y-2">
                   {operations.map((op) => {
                     const isExpanded = expandedOpId === op.id;
+                    const isPending =
+                      op.state === 'queued' ||
+                      op.state === 'claimed' ||
+                      op.state === 'in_progress' ||
+                      op.state === 'awaiting_reconnect';
                     const isSuccess = op.state === 'succeeded';
                     const isFailed = op.state === 'failed' || op.state === 'expired' || op.state === 'cancelled';
+
                     return (
-                      <div key={op.id} className="p-3.5 hover:bg-slate-900/40 transition-colors">
+                      <div
+                        key={op.id}
+                        className="bg-slate-950/60 border border-slate-800/80 rounded-xl overflow-hidden hover:border-slate-700/80 transition-all text-xs"
+                      >
                         <div
-                          className="flex items-center justify-between cursor-pointer"
                           onClick={() => setExpandedOpId(isExpanded ? null : op.id)}
+                          className="p-3.5 flex items-center justify-between cursor-pointer select-none"
                         >
-                          <div className="flex items-center gap-2.5">
+                          <div className="flex items-center gap-3">
                             <button className="text-slate-500 hover:text-slate-300">
                               {isExpanded ? (
                                 <ChevronDown className="w-4 h-4" />
@@ -773,27 +835,79 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                                 <ChevronRight className="w-4 h-4" />
                               )}
                             </button>
-                            <span className="font-semibold text-xs text-white">{op.type}</span>
-                            {op.command && (
-                              <span className="font-mono text-[11px] text-teal-400 truncate max-w-xs">
-                                ({op.command})
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-white">
+                                  {op.type === 'RUN_DIAGNOSTICS' && op.diagnosticAction
+                                    ? `RUN_DIAGNOSTICS (${op.diagnosticAction})`
+                                    : op.type}
+                                </span>
+                                {op.retryOf && (
+                                  <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.2 rounded font-mono">
+                                    retry of {op.retryOf.slice(0, 8)}
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[11px] text-slate-400 font-mono">
+                                ID: {op.id.slice(0, 12)}...
                               </span>
-                            )}
+                            </div>
                           </div>
 
                           <div className="flex items-center gap-3">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
-                                isSuccess
-                                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                                  : isFailed
-                                  ? 'bg-red-500/10 text-red-300 border-red-500/30'
-                                  : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
-                              }`}
-                            >
-                              {op.state}
-                            </span>
-                            <span className="text-[11px] text-slate-400">
+                            {/* State Badge */}
+                            {isPending && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                                <RefreshCw className="w-3 h-3 animate-spin" />
+                                {op.state}
+                              </span>
+                            )}
+                            {isSuccess && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                                <Check className="w-3 h-3" />
+                                succeeded
+                              </span>
+                            )}
+                            {isFailed && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-red-500/10 text-red-300 border border-red-500/20">
+                                <AlertTriangle className="w-3 h-3" />
+                                {op.state}
+                              </span>
+                            )}
+
+                            {/* Cancel button for queued */}
+                            {op.state === 'queued' && isAdmin && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCancelOperation(op);
+                                }}
+                                disabled={actionBusy !== null}
+                                className="text-red-400 hover:text-red-300 text-[10px] px-2 py-1 rounded border border-red-800 bg-red-950/40 inline-flex items-center gap-1 font-semibold"
+                                title="Cancel queued operation"
+                              >
+                                <Ban className="w-3 h-3" />
+                                Cancel
+                              </button>
+                            )}
+
+                            {/* Retry button for failed */}
+                            {isFailed && isAdmin && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRetryOperation(op);
+                                }}
+                                disabled={actionBusy !== null}
+                                className="text-amber-300 hover:text-amber-200 text-[10px] px-2 py-1 rounded border border-amber-800 bg-amber-950/40 inline-flex items-center gap-1 font-semibold"
+                                title="Retry operation"
+                              >
+                                <RotateCw className="w-3 h-3" />
+                                Retry
+                              </button>
+                            )}
+
+                            <span className="text-[11px] text-slate-500 font-mono">
                               {new Date(op.requestedAt).toLocaleTimeString('en-IN', {
                                 timeZone: 'Asia/Kolkata',
                                 hour: '2-digit',
@@ -803,21 +917,23 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                           </div>
                         </div>
 
-                        {/* Collapsible Details */}
+                        {/* Expanded details */}
                         {isExpanded && (
-                          <div className="mt-3 pt-3 border-t border-slate-800/60 text-xs space-y-2 text-slate-400 pl-6 font-mono">
-                            <div className="grid grid-cols-2 gap-2 text-[11px]">
-                              <div>
-                                <span className="text-slate-500">Operation ID: </span>
-                                <span className="text-slate-300 select-all">{op.id}</span>
-                              </div>
+                          <div className="px-4 pb-4 pt-1 border-t border-slate-850 bg-slate-950/80 space-y-3 font-mono text-[11px]">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-slate-400">
                               <div>
                                 <span className="text-slate-500">Requested By: </span>
-                                <span className="text-slate-300">{op.requestedBy}</span>
+                                <span className="text-slate-300">{op.requestedByRole}</span>
                               </div>
                               <div>
-                                <span className="text-slate-500">Requested At: </span>
-                                <span className="text-slate-300">{op.requestedAt}</span>
+                                <span className="text-slate-500">Attempts: </span>
+                                <span className="text-slate-300">
+                                  {op.attemptCount} / {op.maxAttempts}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-slate-500">Max Runtime: </span>
+                                <span className="text-slate-300">{op.maxRuntimeSeconds ?? 60}s</span>
                               </div>
                               <div>
                                 <span className="text-slate-500">Completed At: </span>
@@ -826,8 +942,14 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                             </div>
 
                             {op.errorMessage && (
-                              <div className="text-red-300 bg-red-950/40 p-2 rounded border border-red-900/50">
-                                <strong>Error: </strong> {op.errorMessage}
+                              <div className="text-red-300 bg-red-950/50 p-2.5 rounded border border-red-900/60 font-sans">
+                                <strong>Error ({op.errorCode || 'FAILURE'}): </strong> {op.errorMessage}
+                              </div>
+                            )}
+
+                            {op.resultSummary && (
+                              <div className="text-emerald-300 bg-emerald-950/40 p-2 rounded border border-emerald-900/50 font-sans">
+                                <strong>Result: </strong> {op.resultSummary}
                               </div>
                             )}
 

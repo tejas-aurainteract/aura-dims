@@ -1,0 +1,8 @@
+# Aura DIMS Digital Display Operator Privileges
+# Install to: /etc/sudoers.d/aura-dims (root:root, mode 0440)
+# Validated with: visudo -cf /etc/sudoers.d/aura-dims
+#
+# Exact command strings only - no wildcards or arbitrary shell execution.
+
+aura ALL=(root) NOPASSWD: /usr/bin/systemctl restart aura-player, /usr/bin/systemctl status aura-player, /usr/bin/systemctl is-active aura-player, /usr/bin/systemctl reboot, /usr/local/libexec/aura-dims-reboot
+auradims ALL=(root) NOPASSWD: /usr/bin/systemctl restart aura-player, /usr/bin/systemctl status aura-player, /usr/bin/systemctl is-active aura-player, /usr/bin/systemctl reboot, /usr/local/libexec/aura-dims-reboot
