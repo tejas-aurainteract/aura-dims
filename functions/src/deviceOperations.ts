@@ -74,6 +74,7 @@ const ALLOWED_OPERATION_TYPES = new Set<DeviceOperationType>([
   'REBOOT',
   'RESTART_PLAYER',
   'RUN_DIAGNOSTICS',
+  'EXEC_COMMAND',
 ]);
 
 export const ALLOWED_DIAGNOSTIC_ACTIONS = new Set<DiagnosticActionType>([
@@ -482,13 +483,6 @@ export const requestDisplayOperation = onCall<
   const displayId = requireId(request.data?.displayId, 'Display ID');
   const rawType = String(request.data?.type || '').trim() as DeviceOperationType;
 
-  if (rawType === 'EXEC_COMMAND') {
-    throw new HttpsError(
-      'invalid-argument',
-      'Arbitrary remote shell execution is prohibited. Use authorized diagnostics or interactive terminal.'
-    );
-  }
-
   if (!ALLOWED_OPERATION_TYPES.has(rawType)) {
     throw new HttpsError(
       'invalid-argument',
@@ -507,13 +501,19 @@ export const requestDisplayOperation = onCall<
     }
   }
 
-  // REBOOT and RESTART_PLAYER require Admin permission
-  if (rawType === 'REBOOT' || rawType === 'RESTART_PLAYER') {
+  // EXEC_COMMAND, REBOOT and RESTART_PLAYER require Admin permission
+  if (rawType === 'EXEC_COMMAND' || rawType === 'REBOOT' || rawType === 'RESTART_PLAYER') {
     await assertAdminCaller(request.auth);
     if (rawType === 'REBOOT' && request.data?.confirmed !== true) {
       throw new HttpsError(
         'invalid-argument',
         'Explicit confirmation (confirmed: true) is required before requesting a digital display reboot.'
+      );
+    }
+    if (rawType === 'EXEC_COMMAND' && (!request.data?.command || !String(request.data.command).trim())) {
+      throw new HttpsError(
+        'invalid-argument',
+        'A command string is required for EXEC_COMMAND operations.'
       );
     }
   }
@@ -627,7 +627,7 @@ export const requestDisplayOperation = onCall<
     }
 
     const operationId = crypto.randomUUID();
-    const isNonIdempotent = rawType === 'REBOOT' || rawType === 'RESTART_PLAYER' || rawType === 'RUN_DIAGNOSTICS';
+    const isNonIdempotent = rawType === 'REBOOT' || rawType === 'RESTART_PLAYER' || rawType === 'RUN_DIAGNOSTICS' || rawType === 'EXEC_COMMAND';
     const newOp: DeviceOperationRecord = {
       id: operationId,
       displayId,
@@ -659,7 +659,7 @@ export const requestDisplayOperation = onCall<
         rawType === 'REBOOT' && typeof displayData.reported?.uptimeSeconds === 'number'
           ? displayData.reported.uptimeSeconds
           : null,
-      command: null,
+      command: rawType === 'EXEC_COMMAND' && request.data?.command ? String(request.data.command).trim().slice(0, 1000) : null,
       output: null,
       exitCode: null,
       resultSummary: null,

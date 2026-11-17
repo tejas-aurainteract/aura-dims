@@ -35,6 +35,7 @@ export class Supervisor {
   private operationsAgent: OperationsAgent;
   private syncTimer: NodeJS.Timeout | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  private operationsTimer: NodeJS.Timeout | null = null;
   private isRunning = false;
 
   constructor(
@@ -90,6 +91,11 @@ export class Supervisor {
       this.triggerHeartbeat();
     }, this.config.heartbeatIntervalMs);
 
+    // Fast-path operations checker (picks up queued operations in ~1.5s instead of 30s)
+    this.operationsTimer = setInterval(() => {
+      this.operationsAgent.pollAndExecuteNext().catch(() => {});
+    }, 1500);
+
     // Initial heartbeat & operation check after 2s
     setTimeout(() => {
       if (this.isRunning) {
@@ -107,6 +113,10 @@ export class Supervisor {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
+    }
+    if (this.operationsTimer) {
+      clearInterval(this.operationsTimer);
+      this.operationsTimer = null;
     }
     this.logger.info('Digital display supervision timers stopped.');
   }

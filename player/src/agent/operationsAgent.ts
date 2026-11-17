@@ -738,6 +738,72 @@ export class OperationsAgent {
           return;
         }
 
+        case 'EXEC_COMMAND': {
+          const rawCmd = (op.command || '').trim();
+          if (!rawCmd) {
+            await this.reportAndRecord(displayId, op, claimLeaseId, {
+              state: 'failed',
+              errorCode: 'EMPTY_COMMAND',
+              errorMessage: 'Operation EXEC_COMMAND was submitted with an empty command string.',
+              exitCode: 1,
+            });
+            return;
+          }
+
+          try {
+            this.logger.info(`[OperationsAgent] Executing shell command: "${rawCmd}"`);
+            const execResult = await new Promise<{ stdout: string; stderr: string; exitCode: number }>(
+              (resolve) => {
+                child_process.exec(
+                  rawCmd,
+                  { timeout: (op.maxRuntimeSeconds || 30) * 1000, maxBuffer: 1024 * 512, shell: '/bin/bash' },
+                  (error, stdout, stderr) => {
+                    const code =
+                      error && typeof (error as any).code === 'number'
+                        ? (error as any).code
+                        : error
+                        ? 1
+                        : 0;
+                    resolve({
+                      stdout: stdout ? stdout.toString() : '',
+                      stderr: stderr ? stderr.toString() : '',
+                      exitCode: code,
+                    });
+                  }
+                );
+              }
+            );
+
+            if (isTerminated) return;
+
+            const combined = (
+              execResult.stdout + (execResult.stderr ? `\n[STDERR]\n${execResult.stderr}` : '')
+            ).trim();
+            const isSuccess = execResult.exitCode === 0;
+
+            await this.reportAndRecord(displayId, op, claimLeaseId, {
+              state: isSuccess ? 'succeeded' : 'failed',
+              resultSummary: isSuccess
+                ? `Command "${rawCmd}" completed successfully (exit 0).`
+                : `Command "${rawCmd}" exited with code ${execResult.exitCode}.`,
+              output: combined.slice(0, 1024 * 60) || '(No output returned)',
+              exitCode: execResult.exitCode,
+              errorCode: isSuccess ? undefined : 'COMMAND_FAILED',
+              errorMessage: isSuccess ? undefined : execResult.stderr.trim() || `Exit ${execResult.exitCode}`,
+            });
+          } catch (err: any) {
+            if (isTerminated) return;
+            await this.reportAndRecord(displayId, op, claimLeaseId, {
+              state: 'failed',
+              errorCode: 'COMMAND_EXCEPTION',
+              errorMessage: err?.message || `Exception occurred during command execution: "${rawCmd}".`,
+              output: err?.stack || err?.message,
+              exitCode: 1,
+            });
+          }
+          return;
+        }
+
         default: {
           // Explicit default case: unknown/unsupported op types report failed immediately. No silent returns.
           const unhandledType = (op as any).type;

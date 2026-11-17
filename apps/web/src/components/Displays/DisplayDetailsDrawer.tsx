@@ -6,20 +6,22 @@
  * Terminology rule: Always use "digital display" in all user-facing copy.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import type {
   DeviceOperationRecord,
   DeviceOperationType,
   DisplayView,
 } from '@aura-dims/display-schema';
 import { api, getApiErrorMessage } from '../../lib/api';
+import { deriveConnectivity, useNowTick } from '../../lib/connectivity';
 
-export interface DisplayDetailsDrawerProps {
+interface DisplayDetailsDrawerProps {
   display: DisplayView;
-  initialTab?: DrawerTab;
   isAdmin: boolean;
   onClose: () => void;
   onDisplayUpdated: () => void;
+  /** Tab to open first (e.g. 'operations' for the Maintenance entry point). */
+  initialTab?: DrawerTab;
 }
 
 export type DrawerTab = 'health' | 'delivery' | 'files' | 'operations';
@@ -62,13 +64,23 @@ function formatTimestamp(iso: string | null | undefined): string {
 
 export const DisplayDetailsDrawer: React.FC<DisplayDetailsDrawerProps> = ({
   display: initialDisplay,
-  initialTab,
   isAdmin,
   onClose,
   onDisplayUpdated,
+  initialTab = 'health',
 }) => {
-  const [activeTab, setActiveTab] = useState<DrawerTab>(initialTab || 'health');
-  const [display, setDisplay] = useState<DisplayView>(initialDisplay);
+  const [activeTab, setActiveTab] = useState<DrawerTab>(initialTab);
+  const [fetchedDisplay, setDisplay] = useState<DisplayView>(initialDisplay);
+
+  // Live connectivity: re-evaluated every tick so a powered-off digital display
+  // shows offline without needing a refetch.
+  const nowTick = useNowTick();
+  const display = useMemo<DisplayView>(() => {
+    const connectivity = deriveConnectivity(fetchedDisplay.lastHeartbeatAt, nowTick);
+    return connectivity === fetchedDisplay.connectivity
+      ? fetchedDisplay
+      : { ...fetchedDisplay, connectivity };
+  }, [fetchedDisplay, nowTick]);
   const [operations, setOperations] = useState<DeviceOperationRecord[]>([]);
   const [loadingOps, setLoadingOps] = useState(false);
   const [actionBusy, setActionBusy] = useState<DeviceOperationType | null>(null);
@@ -149,9 +161,9 @@ export const DisplayDetailsDrawer: React.FC<DisplayDetailsDrawerProps> = ({
         CAPTURE_PREVIEW: 'Software Preview Capture',
         SAFE_CLEANUP_CACHE: 'Safe Cache Cleanup',
         REBOOT: 'Controlled OS Reboot',
-        RESTART_PLAYER: 'Restart Player Service',
-        RUN_DIAGNOSTICS: 'Run Safe Diagnostics',
-        EXEC_COMMAND: 'Remote Command Execution',
+        RESTART_PLAYER: 'Player Daemon Restart',
+        RUN_DIAGNOSTICS: 'Run Diagnostics',
+        EXEC_COMMAND: 'Command Execution',
       };
 
       setBannerSuccess(
@@ -195,13 +207,12 @@ export const DisplayDetailsDrawer: React.FC<DisplayDetailsDrawerProps> = ({
             <div className="flex items-center gap-2.5">
               <h2 className="text-lg font-bold text-white">{display.name}</h2>
               <span
-                className={`px-2 py-0.5 text-xs font-medium rounded-full border ${
-                  display.connectivity === 'online'
-                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                    : display.connectivity === 'offline'
-                      ? 'bg-red-500/10 text-red-400 border-red-500/30'
-                      : 'bg-slate-800 text-slate-400 border-slate-700'
-                }`}
+                className={`px-2 py-0.5 text-xs font-medium rounded-full border ${display.connectivity === 'online'
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                  : display.connectivity === 'offline'
+                    ? 'bg-red-500/10 text-red-400 border-red-500/30'
+                    : 'bg-slate-800 text-slate-400 border-slate-700'
+                  }`}
               >
                 {display.connectivity === 'online'
                   ? 'Online'
@@ -245,18 +256,17 @@ export const DisplayDetailsDrawer: React.FC<DisplayDetailsDrawerProps> = ({
               { id: 'health', label: 'Hardware & Health' },
               { id: 'delivery', label: 'Package Delivery & Presentation' },
               { id: 'files', label: 'Verified Cache & Files' },
-              { id: 'operations', label: 'Device Operations & Preview' },
+              { id: 'operations', label: 'Maintenance & Device Control' },
             ] as Array<{ id: DrawerTab; label: string }>
           ).map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               data-testid={`drawer-tab-${tab.id}`}
-              className={`py-3 text-xs font-semibold border-b-2 transition-colors ${
-                activeTab === tab.id
-                  ? 'border-teal-500 text-teal-400'
-                  : 'border-transparent text-slate-400 hover:text-slate-200'
-              }`}
+              className={`py-3 text-xs font-semibold border-b-2 transition-colors ${activeTab === tab.id
+                ? 'border-teal-500 text-teal-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
             >
               {tab.label}
             </button>
@@ -304,13 +314,12 @@ export const DisplayDetailsDrawer: React.FC<DisplayDetailsDrawerProps> = ({
                   <div className="text-xs text-slate-400">Renderer & Playback State</div>
                   <div className="text-sm font-semibold text-white mt-1 flex items-center gap-2">
                     <span
-                      className={`px-2 py-0.5 text-xs rounded ${
-                        reported?.rendererHealth === 'healthy'
-                          ? 'bg-emerald-500/10 text-emerald-400'
-                          : reported?.rendererHealth === 'stalled'
-                            ? 'bg-amber-500/10 text-amber-400'
-                            : 'bg-slate-800 text-slate-300'
-                      }`}
+                      className={`px-2 py-0.5 text-xs rounded ${reported?.rendererHealth === 'healthy'
+                        ? 'bg-emerald-500/10 text-emerald-400'
+                        : reported?.rendererHealth === 'stalled'
+                          ? 'bg-amber-500/10 text-amber-400'
+                          : 'bg-slate-800 text-slate-300'
+                        }`}
                     >
                       {reported?.rendererHealth || 'Unknown'}
                     </span>
@@ -576,13 +585,12 @@ export const DisplayDetailsDrawer: React.FC<DisplayDetailsDrawerProps> = ({
                             </td>
                             <td className="py-2.5 px-3">
                               <span
-                                className={`px-2 py-0.5 rounded text-[11px] font-medium ${
-                                  item.stage === 'ready'
-                                    ? 'bg-emerald-500/10 text-emerald-400'
-                                    : item.stage === 'failed'
-                                      ? 'bg-red-500/10 text-red-400'
-                                      : 'bg-sky-500/10 text-sky-400'
-                                }`}
+                                className={`px-2 py-0.5 rounded text-[11px] font-medium ${item.stage === 'ready'
+                                  ? 'bg-emerald-500/10 text-emerald-400'
+                                  : item.stage === 'failed'
+                                    ? 'bg-red-500/10 text-red-400'
+                                    : 'bg-sky-500/10 text-sky-400'
+                                  }`}
                               >
                                 {item.stage}
                               </span>
@@ -595,9 +603,8 @@ export const DisplayDetailsDrawer: React.FC<DisplayDetailsDrawerProps> = ({
                             <td className="py-2.5 px-3 w-36">
                               <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
                                 <div
-                                  className={`h-full ${
-                                    item.stage === 'failed' ? 'bg-red-500' : 'bg-teal-500'
-                                  }`}
+                                  className={`h-full ${item.stage === 'failed' ? 'bg-red-500' : 'bg-teal-500'
+                                    }`}
                                   style={{ width: `${item.progressPercent}%` }}
                                 />
                               </div>
@@ -709,15 +716,14 @@ export const DisplayDetailsDrawer: React.FC<DisplayDetailsDrawerProps> = ({
                                 {item.references.map((ref) => (
                                   <span
                                     key={ref}
-                                    className={`px-2 py-0.5 rounded text-[10px] font-medium uppercase ${
-                                      ref === 'active'
-                                        ? 'bg-emerald-500/15 text-emerald-400'
-                                        : ref === 'previous'
-                                          ? 'bg-sky-500/15 text-sky-400'
-                                          : ref === 'staged'
-                                            ? 'bg-purple-500/15 text-purple-400'
-                                            : 'bg-amber-500/15 text-amber-400'
-                                    }`}
+                                    className={`px-2 py-0.5 rounded text-[10px] font-medium uppercase ${ref === 'active'
+                                      ? 'bg-emerald-500/15 text-emerald-400'
+                                      : ref === 'previous'
+                                        ? 'bg-sky-500/15 text-sky-400'
+                                        : ref === 'staged'
+                                          ? 'bg-purple-500/15 text-purple-400'
+                                          : 'bg-amber-500/15 text-amber-400'
+                                      }`}
                                   >
                                     {ref}
                                   </span>
@@ -915,15 +921,14 @@ export const DisplayDetailsDrawer: React.FC<DisplayDetailsDrawerProps> = ({
                             </td>
                             <td className="py-2.5 px-3">
                               <span
-                                className={`px-2 py-0.5 rounded text-[11px] font-medium ${
-                                  op.state === 'succeeded'
-                                    ? 'bg-emerald-500/15 text-emerald-400'
-                                    : op.state === 'failed' || op.state === 'expired'
-                                      ? 'bg-red-500/15 text-red-400'
-                                      : op.state === 'awaiting_reconnect'
-                                        ? 'bg-amber-500/15 text-amber-400'
-                                        : 'bg-sky-500/15 text-sky-400'
-                                }`}
+                                className={`px-2 py-0.5 rounded text-[11px] font-medium ${op.state === 'succeeded'
+                                  ? 'bg-emerald-500/15 text-emerald-400'
+                                  : op.state === 'failed' || op.state === 'expired'
+                                    ? 'bg-red-500/15 text-red-400'
+                                    : op.state === 'awaiting_reconnect'
+                                      ? 'bg-amber-500/15 text-amber-400'
+                                      : 'bg-sky-500/15 text-sky-400'
+                                  }`}
                               >
                                 {op.state}
                               </span>
