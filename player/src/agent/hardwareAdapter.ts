@@ -266,6 +266,20 @@ export class HardwareAdapter {
       reboot: canReboot,
       rebootReason,
       safeCacheCleanup: true,
+      restartPlayer: true,
+      restartPlayerReason: null,
+      runDiagnostics: true,
+      runDiagnosticsReason: null,
+      supportedOperationTypes: [
+        'SYNC_NOW',
+        'REFRESH_RENDERER',
+        'CAPTURE_PREVIEW',
+        'SAFE_CLEANUP_CACHE',
+        'REBOOT',
+        'RESTART_PLAYER',
+        'RUN_DIAGNOSTICS',
+        'EXEC_COMMAND',
+      ],
     };
 
     if (this.overrides.forceCapabilities) {

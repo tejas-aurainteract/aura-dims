@@ -171,9 +171,9 @@ export function loadConfig(overrides?: Partial<PlayerConfig>): PlayerConfig {
 
     syncIntervalMs: 15_000,
     heartbeatIntervalMs: 30_000,
-    appVersion: '1.1.0',
-    rendererVersion: '1.1.0',
-    protocolVersion: '1.1',
+    appVersion: '1.2.0',
+    rendererVersion: '1.2.0',
+    protocolVersion: '1.2',
     rebootHelperPath: overrides?.rebootHelperPath ?? process.env.AURA_REBOOT_HELPER ?? null,
     ...overrides,
   };

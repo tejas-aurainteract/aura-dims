@@ -432,15 +432,15 @@ exports.requestDisplayOperation = (0, https_1.onCall)(opts, async (request) => {
     }
     // Check advertised device capabilities & player version
     const reportedCaps = displayData.reported?.capabilities;
-    const reportedAppVer = String(displayData.reported?.appVersion || '1.1.0').trim();
-    // Strict Player 1.1.0 and capability gating:
-    if (rawType === 'RUN_DIAGNOSTICS' || rawType === 'RESTART_PLAYER') {
-        const isOldVersion = reportedAppVer === '1.1.0' || reportedAppVer.startsWith('1.0');
-        const supported = Boolean(reportedCaps?.supportedOperationTypes?.includes(rawType) ||
-            (rawType === 'RESTART_PLAYER' && reportedCaps?.restartPlayer) ||
-            (rawType === 'RUN_DIAGNOSTICS' && reportedCaps?.runDiagnostics));
-        if (isOldVersion || !supported) {
-            throw new https_1.HttpsError('failed-precondition', `Digital display "${displayData.name}" is running Player ${reportedAppVer}, which does not support ${rawType}. Please update the player software on this digital display.`);
+    // Capability gating for player operations
+    if (reportedCaps) {
+        if (rawType === 'RESTART_PLAYER' && reportedCaps.restartPlayer === false) {
+            throw new https_1.HttpsError('failed-precondition', reportedCaps.restartPlayerReason ||
+                `Digital display "${displayData.name}" does not support restarting player service.`);
+        }
+        if (rawType === 'RUN_DIAGNOSTICS' && reportedCaps.runDiagnostics === false) {
+            throw new https_1.HttpsError('failed-precondition', reportedCaps.runDiagnosticsReason ||
+                `Digital display "${displayData.name}" does not support diagnostics.`);
         }
     }
     if (reportedCaps) {
@@ -1223,14 +1223,14 @@ exports.retryDisplayOperation = (0, https_1.onCall)(opts, async (request) => {
     }
     // Capability check
     const reportedCaps = displayData.reported?.capabilities;
-    const reportedAppVer = String(displayData.reported?.appVersion || '1.1.0').trim();
-    if (original.type === 'RUN_DIAGNOSTICS' || original.type === 'RESTART_PLAYER') {
-        const isOldVersion = reportedAppVer === '1.1.0' || reportedAppVer.startsWith('1.0');
-        const supported = Boolean(reportedCaps?.supportedOperationTypes?.includes(original.type) ||
-            (original.type === 'RESTART_PLAYER' && reportedCaps?.restartPlayer) ||
-            (original.type === 'RUN_DIAGNOSTICS' && reportedCaps?.runDiagnostics));
-        if (isOldVersion || !supported) {
-            throw new https_1.HttpsError('failed-precondition', `Digital display "${displayData.name}" is running Player ${reportedAppVer}, which does not support ${original.type}. Please update the player software on this digital display.`);
+    if (reportedCaps) {
+        if (original.type === 'RESTART_PLAYER' && reportedCaps.restartPlayer === false) {
+            throw new https_1.HttpsError('failed-precondition', reportedCaps.restartPlayerReason ||
+                `Digital display "${displayData.name}" does not support restarting player service.`);
+        }
+        if (original.type === 'RUN_DIAGNOSTICS' && reportedCaps.runDiagnostics === false) {
+            throw new https_1.HttpsError('failed-precondition', reportedCaps.runDiagnosticsReason ||
+                `Digital display "${displayData.name}" does not support diagnostics.`);
         }
     }
     const newOpId = crypto.randomUUID();
