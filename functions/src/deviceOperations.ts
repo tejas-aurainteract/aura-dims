@@ -34,6 +34,8 @@ import type {
   ListDisplayOperationsResponse,
   ReportDeviceOperationRequest,
   ReportDeviceOperationResponse,
+  ReportDeviceShutdownRequest,
+  ReportDeviceShutdownResponse,
   RequestDisplayOperationRequest,
   RequestDisplayOperationResponse,
   UploadDevicePreviewRequest,
@@ -62,6 +64,8 @@ const ALLOWED_OPERATION_TYPES = new Set<DeviceOperationType>([
   'CAPTURE_PREVIEW',
   'SAFE_CLEANUP_CACHE',
   'REBOOT',
+  'RESTART_PLAYER',
+  'EXEC_COMMAND',
 ]);
 
 const ACTIVE_OPERATION_STATES = new Set<DeviceOperationRecord['state']>([
@@ -418,10 +422,10 @@ export const requestDisplayOperation = onCall<
     );
   }
 
-  // REBOOT requires Admin permission and explicit confirmation
-  if (rawType === 'REBOOT') {
+  // REBOOT and EXEC_COMMAND require Admin permission and explicit safety checks
+  if (rawType === 'REBOOT' || rawType === 'EXEC_COMMAND') {
     await assertAdminCaller(request.auth);
-    if (request.data?.confirmed !== true) {
+    if (rawType === 'REBOOT' && request.data?.confirmed !== true) {
       throw new HttpsError(
         'invalid-argument',
         'Explicit confirmation (confirmed: true) is required before requesting a digital display reboot.'
@@ -507,7 +511,8 @@ export const requestDisplayOperation = onCall<
 
       // Deduplicate matching active operation type or idempotencyKey
       if (
-        existing.type === rawType ||
+        (rawType !== 'EXEC_COMMAND' && existing.type === rawType) ||
+        (rawType === 'EXEC_COMMAND' && existing.type === 'EXEC_COMMAND' && existing.command === request.data?.command) ||
         (idempotencyKey && existing.idempotencyKey === idempotencyKey)
       ) {
         return {
@@ -547,6 +552,12 @@ export const requestDisplayOperation = onCall<
         rawType === 'REBOOT' && typeof displayData.reported?.uptimeSeconds === 'number'
           ? displayData.reported.uptimeSeconds
           : null,
+      command:
+        rawType === 'EXEC_COMMAND'
+          ? (String(request.data?.command || '').trim().slice(0, 500) || 'uptime')
+          : null,
+      output: null,
+      exitCode: null,
       resultSummary: null,
       errorCode: null,
       errorMessage: null,
@@ -912,6 +923,12 @@ export const reportDeviceOperation = onCall<
       completedAt: isTerminal ? nowIso : null,
       claimExpiresAt,
       resultSummary,
+      output:
+        request.data?.output !== undefined
+          ? (request.data.output ? String(request.data.output).slice(0, 1024 * 64) : null)
+          : (op.output ?? null),
+      exitCode:
+        request.data?.exitCode !== undefined ? request.data.exitCode : (op.exitCode ?? null),
       errorCode,
       errorMessage,
       preRebootBootId:
@@ -1210,4 +1227,34 @@ export const getDisplayPreviewUrl = onCall<
     expiresAt: urlExpiresAt,
     preview,
   };
+});
+
+// ---------------------------------------------------------------------------
+// 7. Device Callable: reportDeviceShutdown
+// ---------------------------------------------------------------------------
+
+export const reportDeviceShutdown = onCall<
+  ReportDeviceShutdownRequest,
+  Promise<ReportDeviceShutdownResponse>
+>(opts, async (request) => {
+  const displayId = requireId(request.data?.displayId, 'Display ID');
+  const reason = request.data?.reason
+    ? String(request.data.reason).slice(0, 200)
+    : 'Device shutdown or restart initiated';
+
+  await assertActiveDeviceForDisplay(request.auth, displayId);
+
+  const displayRef = db.collection(COL.displays).doc(displayId);
+  const nowIso = new Date().toISOString();
+
+  await displayRef.update({
+    lastHeartbeatAt: null,
+    'reported.playback.isPlaying': false,
+    'reported.deliveryStage': 'offline',
+    'reported.shutdownReason': reason,
+    'reported.shutdownAt': nowIso,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  return { success: true };
 });

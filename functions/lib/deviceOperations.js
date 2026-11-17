@@ -47,7 +47,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getDisplayPreviewUrl = exports.uploadDevicePreview = exports.reportDeviceOperation = exports.claimDeviceOperation = exports.listDisplayOperations = exports.requestDisplayOperation = void 0;
+exports.reportDeviceShutdown = exports.getDisplayPreviewUrl = exports.uploadDevicePreview = exports.reportDeviceOperation = exports.claimDeviceOperation = exports.listDisplayOperations = exports.requestDisplayOperation = void 0;
 exports.assertActiveDeviceForDisplay = assertActiveDeviceForDisplay;
 exports.sanitizeHardwareMetrics = sanitizeHardwareMetrics;
 exports.sanitizeCapabilities = sanitizeCapabilities;
@@ -69,6 +69,8 @@ const ALLOWED_OPERATION_TYPES = new Set([
     'CAPTURE_PREVIEW',
     'SAFE_CLEANUP_CACHE',
     'REBOOT',
+    'RESTART_PLAYER',
+    'EXEC_COMMAND',
 ]);
 const ACTIVE_OPERATION_STATES = new Set([
     'queued',
@@ -354,10 +356,10 @@ exports.requestDisplayOperation = (0, https_1.onCall)(opts, async (request) => {
     if (!ALLOWED_OPERATION_TYPES.has(rawType)) {
         throw new https_1.HttpsError('invalid-argument', `Unsupported or forbidden digital display operation type: "${rawType}". Arbitrary remote shell execution is prohibited.`);
     }
-    // REBOOT requires Admin permission and explicit confirmation
-    if (rawType === 'REBOOT') {
+    // REBOOT and EXEC_COMMAND require Admin permission and explicit safety checks
+    if (rawType === 'REBOOT' || rawType === 'EXEC_COMMAND') {
         await (0, common_js_1.assertAdminCaller)(request.auth);
-        if (request.data?.confirmed !== true) {
+        if (rawType === 'REBOOT' && request.data?.confirmed !== true) {
             throw new https_1.HttpsError('invalid-argument', 'Explicit confirmation (confirmed: true) is required before requesting a digital display reboot.');
         }
     }
@@ -417,7 +419,8 @@ exports.requestDisplayOperation = (0, https_1.onCall)(opts, async (request) => {
                 continue;
             }
             // Deduplicate matching active operation type or idempotencyKey
-            if (existing.type === rawType ||
+            if ((rawType !== 'EXEC_COMMAND' && existing.type === rawType) ||
+                (rawType === 'EXEC_COMMAND' && existing.type === 'EXEC_COMMAND' && existing.command === request.data?.command) ||
                 (idempotencyKey && existing.idempotencyKey === idempotencyKey)) {
                 return {
                     operation: existing,
@@ -453,6 +456,11 @@ exports.requestDisplayOperation = (0, https_1.onCall)(opts, async (request) => {
             preRebootUptimeSeconds: rawType === 'REBOOT' && typeof displayData.reported?.uptimeSeconds === 'number'
                 ? displayData.reported.uptimeSeconds
                 : null,
+            command: rawType === 'EXEC_COMMAND'
+                ? (String(request.data?.command || '').trim().slice(0, 500) || 'uptime')
+                : null,
+            output: null,
+            exitCode: null,
             resultSummary: null,
             errorCode: null,
             errorMessage: null,
@@ -752,6 +760,10 @@ exports.reportDeviceOperation = (0, https_1.onCall)(opts, async (request) => {
             completedAt: isTerminal ? nowIso : null,
             claimExpiresAt,
             resultSummary,
+            output: request.data?.output !== undefined
+                ? (request.data.output ? String(request.data.output).slice(0, 1024 * 64) : null)
+                : (op.output ?? null),
+            exitCode: request.data?.exitCode !== undefined ? request.data.exitCode : (op.exitCode ?? null),
             errorCode,
             errorMessage,
             preRebootBootId: request.data?.preRebootBootId !== undefined
@@ -976,5 +988,26 @@ exports.getDisplayPreviewUrl = (0, https_1.onCall)(opts, async (request) => {
         expiresAt: urlExpiresAt,
         preview,
     };
+});
+// ---------------------------------------------------------------------------
+// 7. Device Callable: reportDeviceShutdown
+// ---------------------------------------------------------------------------
+exports.reportDeviceShutdown = (0, https_1.onCall)(opts, async (request) => {
+    const displayId = (0, common_js_1.requireId)(request.data?.displayId, 'Display ID');
+    const reason = request.data?.reason
+        ? String(request.data.reason).slice(0, 200)
+        : 'Device shutdown or restart initiated';
+    await assertActiveDeviceForDisplay(request.auth, displayId);
+    const displayRef = common_js_1.db.collection(displayModel_js_1.COL.displays).doc(displayId);
+    const nowIso = new Date().toISOString();
+    await displayRef.update({
+        lastHeartbeatAt: null,
+        'reported.playback.isPlaying': false,
+        'reported.deliveryStage': 'offline',
+        'reported.shutdownReason': reason,
+        'reported.shutdownAt': nowIso,
+        updatedAt: firestore_1.FieldValue.serverTimestamp(),
+    });
+    return { success: true };
 });
 //# sourceMappingURL=deviceOperations.js.map

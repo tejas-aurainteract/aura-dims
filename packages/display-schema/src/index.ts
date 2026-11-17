@@ -2735,7 +2735,9 @@ export type DeviceOperationType =
   | 'REFRESH_RENDERER'
   | 'CAPTURE_PREVIEW'
   | 'SAFE_CLEANUP_CACHE'
-  | 'REBOOT';
+  | 'REBOOT'
+  | 'RESTART_PLAYER'
+  | 'EXEC_COMMAND';
 
 export type DeviceOperationState =
   | 'queued'
@@ -2769,6 +2771,9 @@ export interface DeviceOperationRecord {
   preRebootBootId?: string | null;
   preRebootUptimeSeconds?: number | null;
   resultSummary?: string | null;
+  command?: string | null;
+  output?: string | null;
+  exitCode?: number | null;
   errorCode?: string | null;
   errorMessage?: string | null;
   previewMetadata?: DisplayPreviewMetadata | null;
@@ -2787,6 +2792,7 @@ export interface RequestDisplayOperationRequest {
   type: DeviceOperationType;
   idempotencyKey?: string;
   reason?: string;
+  command?: string;
   confirmed?: boolean;
 }
 
@@ -2820,6 +2826,8 @@ export interface ReportDeviceOperationRequest {
   claimLeaseId: string;
   state: 'in_progress' | 'awaiting_reconnect' | 'succeeded' | 'failed';
   resultSummary?: string;
+  output?: string | null;
+  exitCode?: number | null;
   errorCode?: string;
   errorMessage?: string;
   preRebootBootId?: string | null;
@@ -2831,6 +2839,15 @@ export interface ReportDeviceOperationRequest {
     removedPartFiles: number;
     freedBytes: number;
   } | null;
+}
+
+export interface ReportDeviceShutdownRequest {
+  displayId: string;
+  reason?: string;
+}
+
+export interface ReportDeviceShutdownResponse {
+  success: boolean;
 }
 
 export interface ReportDeviceOperationResponse {

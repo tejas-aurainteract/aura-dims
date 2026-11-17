@@ -831,5 +831,6 @@ export {
   reportDeviceOperation,
   uploadDevicePreview,
   getDisplayPreviewUrl,
+  reportDeviceShutdown,
 } from './deviceOperations';
 

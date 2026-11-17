@@ -12,6 +12,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as child_process from 'node:child_process';
 import type { PlayerConfig } from './config.js';
 import type { Logger } from './logger.js';
 import type { DeviceIdentity } from './identity.js';
@@ -489,6 +490,74 @@ export class OperationsAgent {
         }
         return;
       }
+
+      case 'RESTART_PLAYER': {
+        try {
+          await this.reportAndRecord(displayId, op, claimLeaseId, {
+            state: 'succeeded',
+            resultSummary: 'Player service restart initiated cleanly.',
+          });
+          setTimeout(() => {
+            child_process.exec('sudo systemctl restart aura-player');
+          }, 1000);
+        } catch (err: any) {
+          await this.reportAndRecord(displayId, op, claimLeaseId, {
+            state: 'failed',
+            errorCode: 'RESTART_FAILED',
+            errorMessage: err?.message || 'Failed to restart player service.',
+          });
+        }
+        return;
+      }
+
+      case 'EXEC_COMMAND': {
+        const rawCmd = (op.command || '').trim();
+        if (!rawCmd) {
+          await this.reportAndRecord(displayId, op, claimLeaseId, {
+            state: 'failed',
+            errorCode: 'EMPTY_COMMAND',
+            errorMessage: 'Command string is empty.',
+          });
+          return;
+        }
+
+        try {
+          this.logger.info(`Executing remote maintenance command on digital display: ${rawCmd}`);
+          const execResult = await new Promise<{ stdout: string; stderr: string; exitCode: number }>((resolve) => {
+            child_process.exec(rawCmd, { timeout: 25000, maxBuffer: 1024 * 512 }, (error, stdout, stderr) => {
+              const code = error && typeof error.code === 'number' ? error.code : (error ? 1 : 0);
+              resolve({
+                stdout: stdout ? stdout.toString() : '',
+                stderr: stderr ? stderr.toString() : '',
+                exitCode: code,
+              });
+            });
+          });
+
+          const outputCombined = (execResult.stdout + (execResult.stderr ? `\n[STDERR]\n${execResult.stderr}` : '')).trim();
+          const isSuccess = execResult.exitCode === 0;
+
+          await this.reportAndRecord(displayId, op, claimLeaseId, {
+            state: isSuccess ? 'succeeded' : 'failed',
+            resultSummary: isSuccess
+              ? `Command exited 0 (${outputCombined.length} chars output)`
+              : `Command failed with exit code ${execResult.exitCode}`,
+            output: outputCombined.slice(0, 1024 * 60),
+            exitCode: execResult.exitCode,
+            errorCode: isSuccess ? undefined : 'COMMAND_EXITED_NON_ZERO',
+            errorMessage: isSuccess ? undefined : (execResult.stderr.trim() || `Exit code ${execResult.exitCode}`),
+          });
+        } catch (err: any) {
+          await this.reportAndRecord(displayId, op, claimLeaseId, {
+            state: 'failed',
+            errorCode: 'EXEC_EXCEPTION',
+            errorMessage: err?.message || 'Exception occurred during command execution.',
+            output: err?.stack || err?.message,
+            exitCode: 1,
+          });
+        }
+        return;
+      }
     }
   }
 
@@ -499,6 +568,8 @@ export class OperationsAgent {
     params: {
       state: 'succeeded' | 'failed';
       resultSummary?: string;
+      output?: string | null;
+      exitCode?: number | null;
       errorCode?: string;
       errorMessage?: string;
       cleanupSummary?: ReportDeviceOperationRequest['cleanupSummary'];
@@ -527,6 +598,8 @@ export class OperationsAgent {
         claimLeaseId,
         state: params.state,
         resultSummary: params.resultSummary,
+        output: params.output,
+        exitCode: params.exitCode,
         errorCode: params.errorCode,
         errorMessage: params.errorMessage,
         cleanupSummary: params.cleanupSummary,

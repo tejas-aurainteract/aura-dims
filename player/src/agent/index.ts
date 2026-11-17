@@ -121,6 +121,21 @@ async function main() {
   // Graceful shutdown handling
   const shutdown = async (signal: string) => {
     logger.info(`Received ${signal}. Shutting down player agent cleanly...`);
+    try {
+      if (identity.isEnrolled()) {
+        const displayId = identity.getDisplayId();
+        if (displayId) {
+          logger.info(`Notifying cloud of clean shutdown for digital display: ${displayId}...`);
+          await transport.callAuthenticatedFunction(
+            'reportDeviceShutdown',
+            { displayId, reason: `Digital display process received ${signal}` },
+            identity
+          );
+        }
+      }
+    } catch {
+      // Best-effort during process termination
+    }
     supervisor.stop();
     await server.stop();
     logger.info('Player agent stopped.');

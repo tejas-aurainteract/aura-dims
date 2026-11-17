@@ -7,7 +7,7 @@
  * Real-time monitoring of device delivery stages, storage, health, and playback presentation.
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Tv,
   Calendar,
@@ -34,6 +34,7 @@ import {
   CheckSquare,
   Square,
   AlertCircle,
+  Wrench,
 } from 'lucide-react';
 import { collection, onSnapshot, getDocs, query, where, type Query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -52,6 +53,7 @@ import { CommissioningDrawer } from '@/components/Rollout/CommissioningDrawer';
 import { RolloutInventoryView } from '@/components/Rollout/RolloutInventoryView';
 import { downloadDisplaysCsv } from '@/components/Rollout/displayExport';
 import { DisplayDetailsDrawer } from '@/components/Displays/DisplayDetailsDrawer';
+import { DeviceMaintenanceModal } from '@/components/Displays/DeviceMaintenanceModal';
 
 
 // Helper to evaluate schedule broadcast window in Asia/Kolkata
@@ -104,7 +106,17 @@ export const DisplaysPage: React.FC = () => {
   const { userProfile } = useAuth();
   const isAdmin = userProfile?.role === 'admin';
 
-  const [displays, setDisplays] = useState<DisplayView[]>([]);
+  const [rawDisplays, setRawDisplays] = useState<Array<{ id: string; data: any }>>([]);
+  const [nowTick, setNowTick] = useState<number>(Date.now());
+  const [maintenanceModalDisplay, setMaintenanceModalDisplay] = useState<DisplayView | null>(null);
+
+  // Dynamic 5-second interval timer for real-time heartbeat expiration and connectivity calculation
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowTick(Date.now());
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
   const [schedules, setSchedules] = useState<ScheduleRecord[]>([]);
   const [sites, setSites] = useState<Record<string, string>>({});
   const [departments, setDepartments] = useState<Record<string, string>>({});
@@ -250,12 +262,10 @@ export const DisplaysPage: React.FC = () => {
     loadMetadata();
   }, []);
 
-  // Real-time Firestore subscription to /displays with server fallback
-  useEffect(() => {
-    setLoading(true);
-
-    const mapDisplayRecord = (id: string, d: any): DisplayView => {
-      const nowMs = Date.now();
+  // Real-time calculation of digital display view model
+  const mapDisplayRecord = useCallback(
+    (id: string, d: any, currentNowMs: number): DisplayView => {
+      const nowMs = currentNowMs;
       let lastHeartbeatMs: number | null = null;
       if (d.lastHeartbeatAt) {
         lastHeartbeatMs = typeof d.lastHeartbeatAt.toMillis === 'function'
@@ -264,8 +274,11 @@ export const DisplaysPage: React.FC = () => {
       }
 
       let connectivity: 'never_connected' | 'online' | 'offline' = 'never_connected';
-      if (lastHeartbeatMs !== null && !isNaN(lastHeartbeatMs)) {
-        connectivity = nowMs - lastHeartbeatMs <= 180_000 ? 'online' : 'offline';
+      if (d.deliveryStage === 'offline' || d.reported?.deliveryStage === 'offline' || !d.lastHeartbeatAt) {
+        connectivity = 'offline';
+      } else if (lastHeartbeatMs !== null && !isNaN(lastHeartbeatMs)) {
+        // Fast offline detection: consider offline if no heartbeat received for > 60 seconds (2 missed 30s heartbeats)
+        connectivity = nowMs - lastHeartbeatMs <= 60_000 ? 'online' : 'offline';
       }
 
       // Resolve broadcast schedule & playlist info
@@ -350,16 +363,28 @@ export const DisplaysPage: React.FC = () => {
         activeScheduleWindow,
         isScheduleInWindow,
       };
-    };
+    },
+    [schedules, sites, departments]
+  );
+
+  // Authoritative displays with real-time connectivity ticker
+  const displays = useMemo<DisplayView[]>(() => {
+    return rawDisplays
+      .map(({ id, data }) => mapDisplayRecord(id, data, nowTick))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [rawDisplays, nowTick, mapDisplayRecord]);
+
+  // Real-time Firestore subscription to /displays with server fallback
+  useEffect(() => {
+    setLoading(true);
 
     const fetchViaApi = async () => {
       try {
         const res = await api.listDisplays({
           departmentId: isAdmin ? undefined : (userProfile?.departmentId || undefined),
         });
-        const items = (res.displays || []).map((d) => mapDisplayRecord(d.id, d));
-        items.sort((a, b) => a.name.localeCompare(b.name));
-        setDisplays(items);
+        const items = (res.displays || []).map((d) => ({ id: d.id, data: d }));
+        setRawDisplays(items);
         setError(null);
       } catch (apiErr: any) {
         console.error('[Aura DIMS] Failed to fetch digital displays via API:', apiErr);
@@ -383,12 +408,11 @@ export const DisplaysPage: React.FC = () => {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const items: DisplayView[] = [];
+        const items: Array<{ id: string; data: any }> = [];
         snapshot.forEach((doc) => {
-          items.push(mapDisplayRecord(doc.id, doc.data()));
+          items.push({ id: doc.id, data: doc.data() });
         });
-        items.sort((a, b) => a.name.localeCompare(b.name));
-        setDisplays(items);
+        setRawDisplays(items);
         setLoading(false);
         setError(null);
       },
@@ -1074,6 +1098,15 @@ export const DisplaysPage: React.FC = () => {
                           <ClipboardCheck className="w-3.5 h-3.5" />
                           Checklist
                         </button>
+
+                        <button
+                          onClick={() => setMaintenanceModalDisplay(display)}
+                          className="text-xs text-teal-400 hover:text-teal-300 inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded bg-teal-500/10 border border-teal-500/30 hover:bg-teal-500/20 transition-all shadow-sm"
+                          title="Digital Display Maintenance, Remote Terminal & Controls"
+                        >
+                          <Wrench className="w-3.5 h-3.5" />
+                          Maintenance
+                        </button>
                       </div>
 
                       {isAdmin && (
@@ -1390,6 +1423,16 @@ export const DisplaysPage: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Modal: Digital Display Maintenance, Remote Terminal & Diagnostics */}
+      {maintenanceModalDisplay && (
+        <DeviceMaintenanceModal
+          display={maintenanceModalDisplay}
+          isAdmin={isAdmin}
+          onClose={() => setMaintenanceModalDisplay(null)}
+          onDisplayUpdated={() => { }}
+        />
       )}
 
       {/* Drawer: Hardware Health, Delivery, Verified Cache Files & Durable Device Operations */}

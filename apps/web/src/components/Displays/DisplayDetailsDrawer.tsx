@@ -147,6 +147,8 @@ export const DisplayDetailsDrawer: React.FC<DisplayDetailsDrawerProps> = ({
         CAPTURE_PREVIEW: 'Software Preview Capture',
         SAFE_CLEANUP_CACHE: 'Safe Cache Cleanup',
         REBOOT: 'Controlled OS Reboot',
+        RESTART_PLAYER: 'Restart Player Service',
+        EXEC_COMMAND: 'Remote Command Execution',
       };
 
       setBannerSuccess(
