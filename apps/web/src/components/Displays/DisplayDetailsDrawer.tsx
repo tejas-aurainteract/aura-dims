@@ -14,14 +14,15 @@ import type {
 } from '@aura-dims/display-schema';
 import { api, getApiErrorMessage } from '../../lib/api';
 
-interface DisplayDetailsDrawerProps {
+export interface DisplayDetailsDrawerProps {
   display: DisplayView;
+  initialTab?: DrawerTab;
   isAdmin: boolean;
   onClose: () => void;
   onDisplayUpdated: () => void;
 }
 
-type DrawerTab = 'health' | 'delivery' | 'files' | 'operations';
+export type DrawerTab = 'health' | 'delivery' | 'files' | 'operations';
 
 function formatBytes(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) {
@@ -61,11 +62,12 @@ function formatTimestamp(iso: string | null | undefined): string {
 
 export const DisplayDetailsDrawer: React.FC<DisplayDetailsDrawerProps> = ({
   display: initialDisplay,
+  initialTab,
   isAdmin,
   onClose,
   onDisplayUpdated,
 }) => {
-  const [activeTab, setActiveTab] = useState<DrawerTab>('health');
+  const [activeTab, setActiveTab] = useState<DrawerTab>(initialTab || 'health');
   const [display, setDisplay] = useState<DisplayView>(initialDisplay);
   const [operations, setOperations] = useState<DeviceOperationRecord[]>([]);
   const [loadingOps, setLoadingOps] = useState(false);
@@ -148,6 +150,7 @@ export const DisplayDetailsDrawer: React.FC<DisplayDetailsDrawerProps> = ({
         SAFE_CLEANUP_CACHE: 'Safe Cache Cleanup',
         REBOOT: 'Controlled OS Reboot',
         RESTART_PLAYER: 'Restart Player Service',
+        RUN_DIAGNOSTICS: 'Run Safe Diagnostics',
         EXEC_COMMAND: 'Remote Command Execution',
       };
 

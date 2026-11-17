@@ -7,7 +7,7 @@
  * Real-time monitoring of device delivery stages, storage, health, and playback presentation.
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Tv,
   Calendar,
@@ -52,8 +52,9 @@ import { BulkAssignmentModal } from '@/components/Rollout/BulkAssignmentModal';
 import { CommissioningDrawer } from '@/components/Rollout/CommissioningDrawer';
 import { RolloutInventoryView } from '@/components/Rollout/RolloutInventoryView';
 import { downloadDisplaysCsv } from '@/components/Rollout/displayExport';
-import { DisplayDetailsDrawer } from '@/components/Displays/DisplayDetailsDrawer';
+import { DisplayDetailsDrawer, type DrawerTab } from '@/components/Displays/DisplayDetailsDrawer';
 import { DeviceMaintenanceModal } from '@/components/Displays/DeviceMaintenanceModal';
+import { deriveConnectivity, useNowTick } from '@/lib/connectivity';
 
 
 // Helper to evaluate schedule broadcast window in Asia/Kolkata
@@ -106,17 +107,20 @@ export const DisplaysPage: React.FC = () => {
   const { userProfile } = useAuth();
   const isAdmin = userProfile?.role === 'admin';
 
-  const [rawDisplays, setRawDisplays] = useState<Array<{ id: string; data: any }>>([]);
-  const [nowTick, setNowTick] = useState<number>(Date.now());
+  const [rawDisplays, setDisplays] = useState<DisplayView[]>([]);
   const [maintenanceModalDisplay, setMaintenanceModalDisplay] = useState<DisplayView | null>(null);
 
-  // Dynamic 5-second interval timer for real-time heartbeat expiration and connectivity calculation
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setNowTick(Date.now());
-    }, 5000);
-    return () => clearInterval(timer);
-  }, []);
+  // Re-derive connectivity on a ticking clock so a powered-off digital display
+  // flips to offline even though it no longer produces Firestore updates.
+  const nowTick = useNowTick();
+  const displays = useMemo<DisplayView[]>(
+    () =>
+      rawDisplays.map((d) => {
+        const connectivity = deriveConnectivity(d.lastHeartbeatAt, nowTick);
+        return connectivity === d.connectivity ? d : { ...d, connectivity };
+      }),
+    [rawDisplays, nowTick]
+  );
   const [schedules, setSchedules] = useState<ScheduleRecord[]>([]);
   const [sites, setSites] = useState<Record<string, string>>({});
   const [departments, setDepartments] = useState<Record<string, string>>({});
@@ -149,6 +153,11 @@ export const DisplaysPage: React.FC = () => {
   const [pairingLoading, setPairingLoading] = useState<boolean>(false);
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [detailsModalDisplay, setDetailsModalDisplay] = useState<DisplayView | null>(null);
+  const [detailsInitialTab, setDetailsInitialTab] = useState<DrawerTab>('health');
+  const openDetails = (display: DisplayView, tab: DrawerTab) => {
+    setDetailsInitialTab(tab);
+    setDetailsModalDisplay(display);
+  };
 
   // Form State for Register Modal
   const [formName, setFormName] = useState<string>('');
@@ -262,10 +271,12 @@ export const DisplaysPage: React.FC = () => {
     loadMetadata();
   }, []);
 
-  // Real-time calculation of digital display view model
-  const mapDisplayRecord = useCallback(
-    (id: string, d: any, currentNowMs: number): DisplayView => {
-      const nowMs = currentNowMs;
+  // Real-time Firestore subscription to /displays with server fallback
+  useEffect(() => {
+    setLoading(true);
+
+    const mapDisplayRecord = (id: string, d: any): DisplayView => {
+      const nowMs = Date.now();
       let lastHeartbeatMs: number | null = null;
       if (d.lastHeartbeatAt) {
         lastHeartbeatMs = typeof d.lastHeartbeatAt.toMillis === 'function'
@@ -274,11 +285,8 @@ export const DisplaysPage: React.FC = () => {
       }
 
       let connectivity: 'never_connected' | 'online' | 'offline' = 'never_connected';
-      if (d.deliveryStage === 'offline' || d.reported?.deliveryStage === 'offline' || !d.lastHeartbeatAt) {
-        connectivity = 'offline';
-      } else if (lastHeartbeatMs !== null && !isNaN(lastHeartbeatMs)) {
-        // Fast offline detection: consider offline if no heartbeat received for > 60 seconds (2 missed 30s heartbeats)
-        connectivity = nowMs - lastHeartbeatMs <= 60_000 ? 'online' : 'offline';
+      if (lastHeartbeatMs !== null && !isNaN(lastHeartbeatMs)) {
+        connectivity = deriveConnectivity(lastHeartbeatMs, nowMs);
       }
 
       // Resolve broadcast schedule & playlist info
@@ -363,28 +371,16 @@ export const DisplaysPage: React.FC = () => {
         activeScheduleWindow,
         isScheduleInWindow,
       };
-    },
-    [schedules, sites, departments]
-  );
-
-  // Authoritative displays with real-time connectivity ticker
-  const displays = useMemo<DisplayView[]>(() => {
-    return rawDisplays
-      .map(({ id, data }) => mapDisplayRecord(id, data, nowTick))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [rawDisplays, nowTick, mapDisplayRecord]);
-
-  // Real-time Firestore subscription to /displays with server fallback
-  useEffect(() => {
-    setLoading(true);
+    };
 
     const fetchViaApi = async () => {
       try {
         const res = await api.listDisplays({
           departmentId: isAdmin ? undefined : (userProfile?.departmentId || undefined),
         });
-        const items = (res.displays || []).map((d) => ({ id: d.id, data: d }));
-        setRawDisplays(items);
+        const items = (res.displays || []).map((d) => mapDisplayRecord(d.id, d));
+        items.sort((a, b) => a.name.localeCompare(b.name));
+        setDisplays(items);
         setError(null);
       } catch (apiErr: any) {
         console.error('[Aura DIMS] Failed to fetch digital displays via API:', apiErr);
@@ -408,11 +404,12 @@ export const DisplaysPage: React.FC = () => {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const items: Array<{ id: string; data: any }> = [];
+        const items: DisplayView[] = [];
         snapshot.forEach((doc) => {
-          items.push({ id: doc.id, data: doc.data() });
+          items.push(mapDisplayRecord(doc.id, doc.data()));
         });
-        setRawDisplays(items);
+        items.sort((a, b) => a.name.localeCompare(b.name));
+        setDisplays(items);
         setLoading(false);
         setError(null);
       },
@@ -575,7 +572,7 @@ export const DisplaysPage: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <Tv className="w-7 h-7 text-teal-400" />
-            <h1 className="text-2xl font-bold tracking-tight text-white">Digital Displays Fleet Management</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Digital Displays Fleet Management</h1>
           </div>
           <p className="text-sm text-slate-400 mt-1">
             Operational governance, publication verification, and live playback presentation monitoring across Aurainteract customer sites.
@@ -622,11 +619,10 @@ export const DisplaysPage: React.FC = () => {
         <div className="flex items-center gap-2 border-b border-slate-800">
           <button
             onClick={() => setActiveTab('fleet')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
-              activeTab === 'fleet'
-                ? 'border-teal-500 text-teal-300'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
-            }`}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${activeTab === 'fleet'
+              ? 'border-teal-500 text-teal-300'
+              : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+              }`}
           >
             <Tv className="w-4 h-4" />
             <span>Operational Fleet</span>
@@ -637,11 +633,10 @@ export const DisplaysPage: React.FC = () => {
 
           <button
             onClick={() => setActiveTab('rollout')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
-              activeTab === 'rollout'
-                ? 'border-teal-500 text-teal-300'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
-            }`}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${activeTab === 'rollout'
+              ? 'border-teal-500 text-teal-300'
+              : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+              }`}
           >
             <Layers className="w-4 h-4" />
             <span>Rollout Inventory (~20 Displays)</span>
@@ -802,11 +797,10 @@ export const DisplaysPage: React.FC = () => {
                 return (
                   <div
                     key={display.id}
-                    className={`bg-slate-900/70 border transition-all rounded-xl p-5 flex flex-col justify-between shadow-sm relative group ${
-                      isSelected
-                        ? 'border-teal-500/80 ring-1 ring-teal-500/50 bg-slate-900/90'
-                        : 'border-slate-800 hover:border-slate-700/80'
-                    }`}
+                    className={`bg-slate-900/70 border transition-all rounded-xl p-5 flex flex-col justify-between shadow-sm relative group ${isSelected
+                      ? 'border-teal-500/80 ring-1 ring-teal-500/50 bg-slate-900/90'
+                      : 'border-slate-800 hover:border-slate-700/80'
+                      }`}
                   >
                     {/* Header Badges */}
                     <div>
@@ -1054,7 +1048,7 @@ export const DisplaysPage: React.FC = () => {
                                     Math.round(
                                       ((display.reported.storage.usedBytes || 0) /
                                         (display.reported.storage.totalBytes || 1)) *
-                                        100
+                                      100
                                     )
                                   )}%`,
                                 }}
@@ -1069,11 +1063,11 @@ export const DisplaysPage: React.FC = () => {
                           <span>
                             {display.lastHeartbeatAt
                               ? new Date(display.lastHeartbeatAt).toLocaleTimeString('en-IN', {
-                                  timeZone: 'Asia/Kolkata',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  second: '2-digit',
-                                }) + ' IST'
+                                timeZone: 'Asia/Kolkata',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit',
+                              }) + ' IST'
                               : 'Never connected'}
                           </span>
                         </div>
@@ -1084,11 +1078,21 @@ export const DisplaysPage: React.FC = () => {
                     <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => setDetailsModalDisplay(display)}
+                          onClick={() => openDetails(display, 'health')}
                           className="text-xs text-slate-400 hover:text-slate-200 inline-flex items-center gap-1 font-medium"
                         >
                           <Activity className="w-3.5 h-3.5" />
                           Telemetry
+                        </button>
+
+                        <button
+                          onClick={() => setMaintenanceModalDisplay(display)}
+                          className="text-xs text-teal-400 hover:text-teal-300 inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded bg-teal-500/10 border border-teal-500/30 hover:bg-teal-500/20 transition-all shadow-sm"
+                          title="Restart, refresh, sync, clear cache, or capture a preview of this digital display"
+                          data-testid={`maintenance-btn-${display.id}`}
+                        >
+                          <Wrench className="w-3.5 h-3.5" />
+                          Maintenance
                         </button>
 
                         <button
@@ -1097,15 +1101,6 @@ export const DisplaysPage: React.FC = () => {
                         >
                           <ClipboardCheck className="w-3.5 h-3.5" />
                           Checklist
-                        </button>
-
-                        <button
-                          onClick={() => setMaintenanceModalDisplay(display)}
-                          className="text-xs text-teal-400 hover:text-teal-300 inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded bg-teal-500/10 border border-teal-500/30 hover:bg-teal-500/20 transition-all shadow-sm"
-                          title="Digital Display Maintenance, Remote Terminal & Controls"
-                        >
-                          <Wrench className="w-3.5 h-3.5" />
-                          Maintenance
                         </button>
                       </div>
 
@@ -1379,11 +1374,10 @@ export const DisplaysPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setFormOrientation('landscape')}
-                    className={`py-2 px-3 rounded-lg border text-xs font-medium flex items-center justify-center gap-2 transition-all ${
-                      formOrientation === 'landscape'
-                        ? 'border-teal-500 bg-teal-950/30 text-teal-300'
-                        : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
-                    }`}
+                    className={`py-2 px-3 rounded-lg border text-xs font-medium flex items-center justify-center gap-2 transition-all ${formOrientation === 'landscape'
+                      ? 'border-teal-500 bg-teal-950/30 text-teal-300'
+                      : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
+                      }`}
                   >
                     <span className="w-4 h-2.5 border border-current rounded-sm"></span>
                     Landscape (1920×1080)
@@ -1391,11 +1385,10 @@ export const DisplaysPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setFormOrientation('portrait')}
-                    className={`py-2 px-3 rounded-lg border text-xs font-medium flex items-center justify-center gap-2 transition-all ${
-                      formOrientation === 'portrait'
-                        ? 'border-teal-500 bg-teal-950/30 text-teal-300'
-                        : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
-                    }`}
+                    className={`py-2 px-3 rounded-lg border text-xs font-medium flex items-center justify-center gap-2 transition-all ${formOrientation === 'portrait'
+                      ? 'border-teal-500 bg-teal-950/30 text-teal-300'
+                      : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
+                      }`}
                   >
                     <span className="w-2.5 h-4 border border-current rounded-sm"></span>
                     Portrait (1080×1920)
@@ -1425,7 +1418,7 @@ export const DisplaysPage: React.FC = () => {
         </div>
       )}
 
-      {/* Modal: Digital Display Maintenance, Remote Terminal & Diagnostics */}
+      {/* Modal: Digital Display Maintenance, Remote Diagnostics & Service Controls */}
       {maintenanceModalDisplay && (
         <DeviceMaintenanceModal
           display={maintenanceModalDisplay}
@@ -1438,10 +1431,12 @@ export const DisplaysPage: React.FC = () => {
       {/* Drawer: Hardware Health, Delivery, Verified Cache Files & Durable Device Operations */}
       {detailsModalDisplay && (
         <DisplayDetailsDrawer
+          key={`${detailsModalDisplay.id}-${detailsInitialTab}`}
           display={detailsModalDisplay}
+          initialTab={detailsInitialTab}
           isAdmin={isAdmin}
           onClose={() => setDetailsModalDisplay(null)}
-          onDisplayUpdated={() => {}}
+          onDisplayUpdated={() => { }}
         />
       )}
     </div>
