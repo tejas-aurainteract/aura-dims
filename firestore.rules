@@ -167,7 +167,8 @@ service cloud.firestore {
     match /displays/{displayId} {
       allow read: if isAuthenticated() && (
         isAdmin() ||
-        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId())
+        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId()) ||
+        (request.auth.token.role == 'device' && request.auth.token.displayId == displayId)
       );
       allow write: if false;
 
@@ -179,7 +180,8 @@ service cloud.firestore {
           isAdmin() ||
           (isDepartmentHead() &&
            resource.data.departmentId == getCallerDepartmentId() &&
-           exists(/databases/$(database)/documents/displayAssignments/$(displayId + '__' + request.auth.uid)))
+           exists(/databases/$(database)/documents/displayAssignments/$(displayId + '__' + request.auth.uid))) ||
+          (request.auth.token.role == 'device' && request.auth.token.displayId == displayId)
         );
         allow write: if false;
       }

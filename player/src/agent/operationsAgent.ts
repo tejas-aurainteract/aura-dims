@@ -14,6 +14,15 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as child_process from 'node:child_process';
+import {
+  getFirestore,
+  collection,
+  query,
+  where,
+  onSnapshot,
+  connectFirestoreEmulator,
+  type Unsubscribe,
+} from 'firebase/firestore';
 import type { PlayerConfig } from './config.js';
 import type { Logger } from './logger.js';
 import type { DeviceIdentity } from './identity.js';
@@ -73,6 +82,57 @@ export class OperationsAgent {
   private inFlight = false;
   private consecutiveFailures = 0;
   private nextAllowedPollMs = 0;
+  private unsubscribeSnapshot: Unsubscribe | null = null;
+  private firestoreConnected = false;
+
+  public startRealtimeListener(): void {
+    if (this.unsubscribeSnapshot) return;
+    const displayId = this.identity.getDisplayId();
+    if (!displayId) return;
+
+    try {
+      const db = getFirestore(this.identity.getApp());
+      if (this.config.mode === 'emulator' && !this.firestoreConnected) {
+        try {
+          const hostPort = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
+          const [host, port] = hostPort.split(':');
+          connectFirestoreEmulator(db, host || '127.0.0.1', Number(port || 8080));
+          this.firestoreConnected = true;
+        } catch {
+          // Ignored if already connected
+        }
+      }
+
+      const opsCol = collection(db, 'displays', displayId, 'operations');
+      const q = query(opsCol, where('state', '==', 'queued'));
+
+      this.unsubscribeSnapshot = onSnapshot(
+        q,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            this.logger.info(`[OperationsAgent] Real-time wake-up: ${snapshot.docs.length} queued operation(s) detected via Firestore stream.`);
+            this.pollAndExecuteNext(true).catch((err) => {
+              this.logger.warn('[OperationsAgent] Real-time poll execution error:', err?.message || err);
+            });
+          }
+        },
+        (error) => {
+          this.logger.warn('[OperationsAgent] Real-time Firestore stream error (fallback to periodic timer):', error?.message || error);
+        }
+      );
+      this.logger.info(`[OperationsAgent] Real-time Firestore listener attached for digital display "${displayId}".`);
+    } catch (err: any) {
+      this.logger.warn('[OperationsAgent] Could not attach real-time Firestore listener:', err?.message || err);
+    }
+  }
+
+  public stopRealtimeListener(): void {
+    if (this.unsubscribeSnapshot) {
+      this.unsubscribeSnapshot();
+      this.unsubscribeSnapshot = null;
+      this.logger.info('[OperationsAgent] Real-time Firestore listener detached.');
+    }
+  }
 
   constructor(params: {
     config: PlayerConfig;

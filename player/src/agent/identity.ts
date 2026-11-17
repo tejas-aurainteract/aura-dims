@@ -94,6 +94,10 @@ export class DeviceIdentity implements TokenProvider {
     return this.transport;
   }
 
+  public getApp(): FirebaseApp {
+    return this.app;
+  }
+
   public isEnrolled(): boolean {
     return fs.existsSync(this.credsFilePath);
   }

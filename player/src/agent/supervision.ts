@@ -79,6 +79,9 @@ export class Supervisor {
 
     this.logger.info('Starting digital display supervision timers...');
 
+    // Attach real-time Firestore listener for zero-latency wake-up (< 50ms)
+    this.operationsAgent.startRealtimeListener();
+
     // Initial sync check
     this.triggerSync();
 
@@ -118,6 +121,7 @@ export class Supervisor {
       clearInterval(this.operationsTimer);
       this.operationsTimer = null;
     }
+    this.operationsAgent.stopRealtimeListener();
     this.logger.info('Digital display supervision timers stopped.');
   }
 

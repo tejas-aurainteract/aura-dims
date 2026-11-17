@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Terminal,
   RefreshCw,
@@ -13,6 +13,7 @@ import {
   Wifi,
   X,
   AlertTriangle,
+  AlertCircle,
   CheckCircle2,
   Check,
   ChevronDown,
@@ -22,7 +23,6 @@ import {
   Code2,
   Ban,
   RotateCw,
-  Radio,
   Send,
   Eraser,
 } from 'lucide-react';
@@ -43,12 +43,6 @@ interface DeviceMaintenanceModalProps {
   onDisplayUpdated?: () => void;
 }
 
-interface TerminalLogLine {
-  id: string;
-  type: 'cmd' | 'output' | 'progress' | 'error' | 'system';
-  text: string;
-}
-
 const QUICK_COMMANDS = [
   { label: 'System Info', cmd: 'uname -a && uptime' },
   { label: 'Network IPs', cmd: 'ip -br address' },
@@ -56,8 +50,8 @@ const QUICK_COMMANDS = [
   { label: 'Memory (RAM)', cmd: 'free -h' },
   { label: 'Player Status', cmd: 'systemctl status aura-player --no-pager -n 15' },
   { label: 'Player Logs', cmd: 'journalctl -u aura-player -n 50 --no-pager' },
-  { label: 'Restart Player', cmd: 'restart' },
-  { label: 'Reboot Pi', cmd: 'reboot' },
+  { label: 'Restart Player', cmd: 'systemctl restart aura-player' },
+  { label: 'Reboot Pi', cmd: 'systemctl reboot' },
 ];
 
 export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
@@ -77,18 +71,13 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
   const [rebootReason, setRebootReason] = useState<string>('');
   const [expandedOpId, setExpandedOpId] = useState<string | null>(null);
 
-  // Standalone Real-Time WebSocket Terminal State
-  const defaultWsHost = (display as any).ipAddress || display.installationRef || '192.168.1.140';
-  const [wsHost, setWsHost] = useState<string>(defaultWsHost);
-  const [wsPort, setWsPort] = useState<string>('8091');
-  const [wsStatus, setWsStatus] = useState<'connected' | 'connecting' | 'disconnected'>('disconnected');
-  const [wsLines, setWsLines] = useState<TerminalLogLine[]>([]);
+  // Real-Time Cloud Terminal State
   const [terminalInput, setTerminalInput] = useState<string>('');
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
-  const wsRef = useRef<WebSocket | null>(null);
+  const [terminalClearedAt, setTerminalClearedAt] = useState<number>(0);
   const terminalBottomRef = useRef<HTMLDivElement | null>(null);
 
-  // Real-time operations subscription (Audit tab)
+  // Real-time operations subscription (Audit & Terminal tabs)
   useEffect(() => {
     const opsQuery = query(
       collection(db, 'displays', display.id, 'operations'),
@@ -104,6 +93,10 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
           ops.push(doc.data() as DeviceOperationRecord);
         });
         setOperations(ops);
+        const hasRunning = ops.some(
+          (o) => o.state === 'queued' || o.state === 'claimed' || o.state === 'in_progress' || o.state === 'awaiting_reconnect'
+        );
+        setIsExecuting(hasRunning);
       },
       (err) => {
         console.warn('[DeviceMaintenanceModal] Operations snapshot warning:', err);
@@ -113,191 +106,41 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
     return () => unsubscribe();
   }, [display.id]);
 
-  // Direct WebSocket Connection Logic
-  const connectWs = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-
-    setWsStatus('connecting');
-    const wsUrl = `ws://${wsHost.trim()}:${wsPort.trim()}`;
-
-    try {
-      const socket = new WebSocket(wsUrl);
-
-      socket.onopen = () => {
-        setWsStatus('connected');
-        setWsLines((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            type: 'system',
-            text: `🟢 Connected to Digital Display Linux WebSocket at ${wsUrl}`,
-          },
-        ]);
-      };
-
-      socket.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-
-          if (msg.type === 'system') {
-            setWsLines((prev) => [
-              ...prev,
-              { id: crypto.randomUUID(), type: 'system', text: msg.message },
-            ]);
-          } else if (msg.type === 'progress') {
-            // Heartbeat: Linux replies "..." while executing
-            setWsLines((prev) => {
-              const last = prev[prev.length - 1];
-              if (last && last.type === 'progress') {
-                return [
-                  ...prev.slice(0, -1),
-                  {
-                    id: last.id,
-                    type: 'progress',
-                    text: `... (${msg.elapsedSeconds ? `${msg.elapsedSeconds}s` : 'running'})`,
-                  },
-                ];
-              }
-              return [
-                ...prev,
-                { id: crypto.randomUUID(), type: 'progress', text: '...' },
-              ];
-            });
-          } else if (msg.type === 'stdout' || msg.type === 'stderr') {
-            setWsLines((prev) => {
-              const filtered = prev.filter((p) => p.type !== 'progress');
-              return [
-                ...filtered,
-                { id: crypto.randomUUID(), type: 'output', text: msg.data },
-              ];
-            });
-          } else if (msg.type === 'completed') {
-            setIsExecuting(false);
-            setWsLines((prev) => {
-              const filtered = prev.filter((p) => p.type !== 'progress');
-              return [
-                ...filtered,
-                { id: crypto.randomUUID(), type: 'output', text: msg.output },
-                {
-                  id: crypto.randomUUID(),
-                  type: 'system',
-                  text: `[Finished: exit code ${msg.exitCode}]`,
-                },
-              ];
-            });
-          } else if (msg.type === 'error') {
-            setIsExecuting(false);
-            setWsLines((prev) => [
-              ...prev,
-              { id: crypto.randomUUID(), type: 'error', text: `Error: ${msg.message}` },
-            ]);
-          }
-        } catch {
-          setWsLines((prev) => [
-            ...prev,
-            { id: crypto.randomUUID(), type: 'output', text: String(event.data) },
-          ]);
-        }
-      };
-
-      socket.onerror = () => {
-        setWsStatus('disconnected');
-        setIsExecuting(false);
-        setWsLines((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            type: 'error',
-            text: `🔴 WebSocket connection error to ${wsUrl}. Verify the Pi agent is running on port ${wsPort}.`,
-          },
-        ]);
-      };
-
-      socket.onclose = () => {
-        setWsStatus('disconnected');
-        setIsExecuting(false);
-      };
-
-      wsRef.current = socket;
-    } catch (err: any) {
-      setWsStatus('disconnected');
-      setIsExecuting(false);
-      setWsLines((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          type: 'error',
-          text: `Failed to open WebSocket: ${err?.message || err}`,
-        },
-      ]);
-    }
-  }, [wsHost, wsPort]);
-
-  const disconnectWs = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    setWsStatus('disconnected');
-    setIsExecuting(false);
-  }, []);
-
-  // Connect automatically when Terminal tab is opened
-  useEffect(() => {
-    if (activeTab === 'terminal' && wsStatus === 'disconnected' && !wsRef.current) {
-      connectWs();
-    }
-  }, [activeTab, connectWs, wsStatus]);
-
-  // Clean up on unmount
-  useEffect(() => {
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-    };
-  }, []);
-
-  // Scroll to bottom when lines change
+  // Scroll to bottom when operations update
   useEffect(() => {
     if (activeTab === 'terminal') {
       terminalBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [wsLines, activeTab]);
+  }, [operations, activeTab]);
 
-  const sendWsCommand = (cmdToRun?: string) => {
+  const handleRunTerminalCommand = async (cmdToRun?: string) => {
     const cmd = (cmdToRun ?? terminalInput).trim();
     if (!cmd) return;
 
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      setWsLines((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          type: 'error',
-          text: 'WebSocket is not connected. Click "Connect" above to connect directly to the Pi.',
-        },
-      ]);
-      return;
-    }
-
+    setBannerError(null);
     setIsExecuting(true);
-    setWsLines((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), type: 'cmd', text: `aura@pi:~$ ${cmd}` },
-      { id: crypto.randomUUID(), type: 'progress', text: '...' },
-    ]);
-
-    wsRef.current.send(JSON.stringify({ command: cmd }));
     setTerminalInput('');
+
+    try {
+      if (cmd === 'restart' || cmd === 'restart-player' || cmd === 'systemctl restart aura-player') {
+        await handleRequestOperation('RESTART_PLAYER');
+      } else if (cmd === 'reboot' || cmd === 'systemctl reboot') {
+        await handleRequestOperation('REBOOT', { confirmed: true, reason: 'Manual remote terminal reboot' });
+      } else {
+        await api.requestDisplayOperation({
+          displayId: display.id,
+          type: 'EXEC_COMMAND',
+          command: cmd,
+        });
+      }
+    } catch (err: any) {
+      setBannerError(err?.message || 'Failed to dispatch command to digital display.');
+      setIsExecuting(false);
+    }
   };
 
   const handleClearTerminal = () => {
-    setWsLines([]);
+    setTerminalClearedAt(Date.now());
   };
 
   // Device Controls operations
@@ -396,7 +239,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
   const osInfo = hw?.osRelease ? `Linux ${hw.osRelease}` : (hw?.osPlatform || 'Linux (Raspberry Pi OS)');
   const model = hw?.arch ? `Raspberry Pi (${hw.arch})` : 'Raspberry Pi Hardware';
   const appVer = reported?.appVersion || 'v0.1.0';
-  const ip = defaultWsHost;
+  const ip = (display as any).ipAddress || display.installationRef || '192.168.1.140';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-fade-in overflow-y-auto">
@@ -493,16 +336,8 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
             }`}
           >
             <Terminal className="w-4 h-4" />
-            <span>Standalone Terminal (WebSocket)</span>
-            <span
-              className={`w-2 h-2 rounded-full ${
-                wsStatus === 'connected'
-                  ? 'bg-emerald-400'
-                  : wsStatus === 'connecting'
-                  ? 'bg-amber-400 animate-pulse'
-                  : 'bg-slate-600'
-              }`}
-            />
+            <span>Terminal & Diagnostics</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           </button>
           <button
             onClick={() => setActiveTab('audit')}
@@ -753,88 +588,34 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
             </div>
           )}
 
-          {/* TAB 2: STANDALONE REAL-TIME WEBSOCKET TERMINAL */}
+          {/* TAB 2: STANDALONE REAL-TIME TERMINAL & DIAGNOSTICS */}
           {activeTab === 'terminal' && (
             <div className="space-y-4">
-              {/* WebSocket Connection Bar */}
+              {/* Terminal Status Bar */}
               <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                    <Radio className="w-3.5 h-3.5 text-teal-400" />
-                    WebSocket Host:
+                    <Terminal className="w-3.5 h-3.5 text-teal-400" />
+                    Target:
                   </span>
-                  <input
-                    type="text"
-                    value={wsHost}
-                    onChange={(e) => setWsHost(e.target.value)}
-                    placeholder="192.168.1.140"
-                    disabled={wsStatus === 'connected'}
-                    className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-mono text-white w-36 outline-none focus:border-teal-500"
-                  />
-                  <span className="text-xs font-mono text-slate-500">:</span>
-                  <input
-                    type="text"
-                    value={wsPort}
-                    onChange={(e) => setWsPort(e.target.value)}
-                    placeholder="8091"
-                    disabled={wsStatus === 'connected'}
-                    className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs font-mono text-white w-16 outline-none focus:border-teal-500"
-                  />
-                  {wsStatus === 'connected' ? (
-                    <button
-                      onClick={disconnectWs}
-                      className="px-3 py-1 bg-red-950/60 hover:bg-red-900 border border-red-800/70 text-red-300 text-xs font-medium rounded-lg transition-colors"
-                    >
-                      Disconnect
-                    </button>
-                  ) : (
-                    <button
-                      onClick={connectWs}
-                      disabled={wsStatus === 'connecting'}
-                      className="px-3 py-1 bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
-                    >
-                      {wsStatus === 'connecting' ? (
-                        <>
-                          <RefreshCw className="w-3 h-3 animate-spin" />
-                          <span>Connecting...</span>
-                        </>
-                      ) : (
-                        <span>Connect</span>
-                      )}
-                    </button>
-                  )}
+                  <span className="text-xs font-mono text-white bg-slate-900 border border-slate-700/80 px-2 py-0.5 rounded-md">
+                    aura@{display.name}
+                  </span>
+                  <span className="text-xs text-slate-500 font-mono">
+                    ({(display as any).ipAddress || display.installationRef || 'remote'})
+                  </span>
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <span
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
-                      wsStatus === 'connected'
-                        ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
-                        : wsStatus === 'connecting'
-                        ? 'bg-amber-500/10 text-amber-300 border-amber-500/20'
-                        : 'bg-red-500/10 text-red-300 border-red-500/20'
-                    }`}
-                  >
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        wsStatus === 'connected'
-                          ? 'bg-emerald-400 animate-pulse'
-                          : wsStatus === 'connecting'
-                          ? 'bg-amber-400 animate-spin'
-                          : 'bg-red-400'
-                      }`}
-                    />
-                    {wsStatus === 'connected'
-                      ? 'Live WebSocket Connected'
-                      : wsStatus === 'connecting'
-                      ? 'Connecting...'
-                      : 'Disconnected'}
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border bg-emerald-500/10 text-emerald-300 border-emerald-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Live Cloud Stream Active
                   </span>
 
                   <button
                     onClick={handleClearTerminal}
                     className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
-                    title="Clear Terminal Output"
+                    title="Clear Terminal Screen"
                   >
                     <Eraser className="w-3.5 h-3.5" />
                   </button>
@@ -844,15 +625,15 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
               {/* Quick Action Buttons Bar */}
               <div>
                 <label className="text-xs font-semibold text-slate-300 mb-1.5 block flex items-center justify-between">
-                  <span>Quick Linux Commands (Sent directly over WebSocket)</span>
-                  <span className="text-[10px] text-slate-500">Zero database queue delay • Direct bash execution</span>
+                  <span>Quick Diagnostic & Control Commands</span>
+                  <span className="text-[10px] text-slate-500">Live remote execution via persistent stream</span>
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {QUICK_COMMANDS.map((item) => (
                     <button
                       key={item.label}
-                      onClick={() => sendWsCommand(item.cmd)}
-                      disabled={isExecuting || wsStatus !== 'connected'}
+                      onClick={() => handleRunTerminalCommand(item.cmd)}
+                      disabled={isExecuting}
                       className="px-2.5 py-1.5 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/70 text-slate-200 text-xs rounded-lg transition-all flex items-center gap-1.5 hover:border-teal-500/50 disabled:opacity-40"
                       title={item.cmd}
                     >
@@ -872,61 +653,79 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                     <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80 inline-block" />
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80 inline-block" />
                     <span className="text-[11px] text-slate-400 ml-2">
-                      bash — aura@{wsHost}:{wsPort}
+                      bash — aura@{display.name || 'digital-display'}
                     </span>
                   </div>
                   <span className="text-[10px] text-teal-400 font-mono">
-                    Direct WebSocket Pipeline
+                    Real-Time Cloud Pipeline
                   </span>
                 </div>
 
                 {/* Terminal Content Screen */}
-                <div className="p-4 text-xs text-slate-200 min-h-[300px] max-h-[420px] overflow-y-auto space-y-2 select-text">
-                  {wsLines.length === 0 ? (
+                <div className="p-4 text-xs text-slate-200 min-h-[300px] max-h-[440px] overflow-y-auto space-y-3 select-text">
+                  {operations.filter((op) => !terminalClearedAt || new Date(op.requestedAt).getTime() > terminalClearedAt).length === 0 ? (
                     <div className="text-slate-500 py-12 text-center font-sans">
                       <Terminal className="w-8 h-8 mx-auto text-slate-600 mb-2" />
-                      <p>WebSocket Terminal is ready.</p>
+                      <p>Remote Terminal is ready.</p>
                       <p className="text-[11px] text-slate-600 mt-1">
-                        Type any command below or click a quick action above to execute instantly on Linux.
+                        Type any Linux command below or click a quick action above to execute on the digital display.
                       </p>
                     </div>
                   ) : (
-                    wsLines.map((line) => {
-                      if (line.type === 'cmd') {
-                        return (
-                          <div key={line.id} className="text-teal-400 font-semibold pt-1">
-                            {line.text}
+                    operations
+                      .filter((op) => !terminalClearedAt || new Date(op.requestedAt).getTime() > terminalClearedAt)
+                      .slice(0, 25)
+                      .reverse()
+                      .map((op) => (
+                        <div key={op.id} className="space-y-1.5 border-b border-slate-900 pb-2.5 last:border-0">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="text-teal-400 font-semibold font-mono">
+                              aura@display:~$ {op.command || op.diagnosticAction || op.type}
+                            </span>
+                            <span className="text-slate-500 text-[10px]">
+                              {new Date(op.requestedAt).toLocaleTimeString()}
+                            </span>
                           </div>
-                        );
-                      }
-                      if (line.type === 'progress') {
-                        return (
-                          <div key={line.id} className="text-amber-400 flex items-center gap-1.5 animate-pulse py-0.5">
-                            <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                            <span>{line.text}</span>
-                          </div>
-                        );
-                      }
-                      if (line.type === 'system') {
-                        return (
-                          <div key={line.id} className="text-slate-500 text-[11px] italic">
-                            {line.text}
-                          </div>
-                        );
-                      }
-                      if (line.type === 'error') {
-                        return (
-                          <div key={line.id} className="text-red-400 font-mono bg-red-950/30 p-1.5 rounded border border-red-900/40">
-                            {line.text}
-                          </div>
-                        );
-                      }
-                      return (
-                        <pre key={line.id} className="text-slate-300 whitespace-pre-wrap break-all leading-relaxed font-mono">
-                          {line.text}
-                        </pre>
-                      );
-                    })
+
+                          {/* State rendering */}
+                          {op.state === 'queued' && (
+                            <div className="text-amber-400 flex items-center gap-1.5 text-xs py-0.5">
+                              <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                              <span>... (sent to digital display)</span>
+                            </div>
+                          )}
+
+                          {(op.state === 'claimed' || op.state === 'in_progress' || op.state === 'awaiting_reconnect') && (
+                            <div className="text-amber-300 flex items-center gap-1.5 text-xs py-0.5 animate-pulse">
+                              <span className="inline-block w-2 h-2 rounded-full bg-teal-400 animate-ping" />
+                              <span>... (executing on Linux)</span>
+                            </div>
+                          )}
+
+                          {op.output && (
+                            <pre className="text-slate-300 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80 whitespace-pre-wrap break-all leading-relaxed font-mono text-[11px] max-h-60 overflow-y-auto">
+                              {op.output}
+                            </pre>
+                          )}
+
+                          {op.state === 'succeeded' && (
+                            <div className="text-emerald-400 text-[11px] font-mono flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>[Finished: exit code {op.exitCode ?? 0}]</span>
+                            </div>
+                          )}
+
+                          {(op.state === 'failed' || op.state === 'expired') && (
+                            <div className="text-red-400 font-mono bg-red-950/30 p-2 rounded-lg border border-red-900/40 text-[11px] flex items-start gap-1.5">
+                              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                              <div>
+                                <span className="font-semibold">[Failed: exit {op.exitCode ?? 1}]</span>{' '}
+                                <span>{op.errorMessage || op.resultSummary || 'Operation failed'}</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))
                   )}
                   <div ref={terminalBottomRef} />
                 </div>
@@ -935,28 +734,24 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    sendWsCommand();
+                    handleRunTerminalCommand();
                   }}
                   className="bg-slate-900/90 border-t border-slate-800 p-2.5 flex items-center gap-2"
                 >
                   <div className="flex items-center gap-1.5 text-xs text-teal-400 pl-2 font-mono select-none">
-                    <span>aura@pi:~$</span>
+                    <span>aura@display:~$</span>
                   </div>
                   <input
                     type="text"
                     value={terminalInput}
                     onChange={(e) => setTerminalInput(e.target.value)}
-                    placeholder={
-                      wsStatus === 'connected'
-                        ? 'Enter Linux command (e.g. ls, uptime, restart, df -h)...'
-                        : 'Connect WebSocket above to enter commands...'
-                    }
-                    disabled={wsStatus !== 'connected' || isExecuting}
+                    placeholder="Enter Linux command (e.g. uname -a, ip -br a, df -h, systemctl status aura-player)..."
+                    disabled={isExecuting}
                     className="flex-1 bg-transparent text-xs font-mono text-white placeholder-slate-500 outline-none px-2"
                   />
                   <button
                     type="submit"
-                    disabled={!terminalInput.trim() || isExecuting || wsStatus !== 'connected'}
+                    disabled={!terminalInput.trim() || isExecuting}
                     className="px-3.5 py-1.5 bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white font-semibold text-xs rounded-lg transition-all flex items-center gap-1.5 shadow-sm"
                   >
                     {isExecuting ? (
