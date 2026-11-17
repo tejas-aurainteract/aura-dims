@@ -96,7 +96,7 @@ export class Supervisor {
 
     // Fast-path operations checker (picks up queued operations in ~1.5s instead of 30s)
     this.operationsTimer = setInterval(() => {
-      this.operationsAgent.pollAndExecuteNext().catch(() => {});
+      this.operationsAgent.pollAndExecuteNext().catch(() => { });
     }, 1500);
 
     // Initial heartbeat & operation check after 2s

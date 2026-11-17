@@ -245,6 +245,9 @@ export class HardwareAdapter {
         canReboot = false;
         rebootReason = `Configured reboot helper (${this.config.rebootHelperPath}) is missing or not executable.`;
       }
+    } else if (fs.existsSync('/usr/bin/systemctl') || fs.existsSync('/sbin/reboot')) {
+      canReboot = true;
+      rebootReason = null;
     }
 
     const base: DeviceCapabilities = {
@@ -357,14 +360,20 @@ export class HardwareAdapter {
       return;
     }
 
-    if (!this.config.rebootHelperPath) {
-      throw new Error('Reboot helper path is not configured.');
+    if (this.config.rebootHelperPath) {
+      this.logger.warn(
+        `Executing controlled reboot helper (${this.config.rebootHelperPath}) for digital display...`
+      );
+      await execFileAsync(this.config.rebootHelperPath, [], { timeout: 5_000 });
+      return;
     }
 
-    this.logger.warn(
-      `Executing controlled reboot helper (${this.config.rebootHelperPath}) for digital display...`
-    );
-    await execFileAsync(this.config.rebootHelperPath, [], { timeout: 5_000 });
+    this.logger.warn('Executing controlled systemctl reboot for digital display...');
+    try {
+      await execFileAsync('/usr/bin/sudo', ['/usr/bin/systemctl', 'reboot'], { timeout: 5_000 });
+    } catch {
+      await execFileAsync('/usr/bin/systemctl', ['reboot'], { timeout: 5_000 });
+    }
   }
 }
 

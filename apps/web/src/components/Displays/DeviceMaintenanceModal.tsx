@@ -93,8 +93,11 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
           ops.push(doc.data() as DeviceOperationRecord);
         });
         setOperations(ops);
+        const now = Date.now();
         const hasRunning = ops.some(
-          (o) => o.state === 'queued' || o.state === 'claimed' || o.state === 'in_progress' || o.state === 'awaiting_reconnect'
+          (o) =>
+            (o.state === 'queued' || o.state === 'claimed' || o.state === 'in_progress') &&
+            now - new Date(o.requestedAt).getTime() < 30 * 1000
         );
         setIsExecuting(hasRunning);
       },
@@ -746,18 +749,17 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                     value={terminalInput}
                     onChange={(e) => setTerminalInput(e.target.value)}
                     placeholder="Enter Linux command (e.g. uname -a, ip -br a, df -h, systemctl status aura-player)..."
-                    disabled={isExecuting}
                     className="flex-1 bg-transparent text-xs font-mono text-white placeholder-slate-500 outline-none px-2"
                   />
                   <button
                     type="submit"
-                    disabled={!terminalInput.trim() || isExecuting}
+                    disabled={!terminalInput.trim()}
                     className="px-3.5 py-1.5 bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white font-semibold text-xs rounded-lg transition-all flex items-center gap-1.5 shadow-sm"
                   >
                     {isExecuting ? (
                       <>
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Running...</span>
+                        <span>Run</span>
                       </>
                     ) : (
                       <>
