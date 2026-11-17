@@ -72,6 +72,7 @@ const ALLOWED_OPERATION_TYPES = new Set([
     'REBOOT',
     'RESTART_PLAYER',
     'RUN_DIAGNOSTICS',
+    'EXEC_COMMAND',
 ]);
 exports.ALLOWED_DIAGNOSTIC_ACTIONS = new Set([
     'SYSTEM_INFO',
@@ -403,9 +404,6 @@ exports.requestDisplayOperation = (0, https_1.onCall)(opts, async (request) => {
     const caller = await (0, common_js_1.getAuthenticatedCaller)(request.auth);
     const displayId = (0, common_js_1.requireId)(request.data?.displayId, 'Display ID');
     const rawType = String(request.data?.type || '').trim();
-    if (rawType === 'EXEC_COMMAND') {
-        throw new https_1.HttpsError('invalid-argument', 'Arbitrary remote shell execution is prohibited. Use authorized diagnostics or interactive terminal.');
-    }
     if (!ALLOWED_OPERATION_TYPES.has(rawType)) {
         throw new https_1.HttpsError('invalid-argument', `Unsupported or forbidden digital display operation type: "${rawType}".`);
     }
@@ -416,11 +414,14 @@ exports.requestDisplayOperation = (0, https_1.onCall)(opts, async (request) => {
             throw new https_1.HttpsError('invalid-argument', `Invalid or missing diagnostic action: "${action}". Allowed: ${Array.from(exports.ALLOWED_DIAGNOSTIC_ACTIONS).join(', ')}.`);
         }
     }
-    // REBOOT and RESTART_PLAYER require Admin permission
-    if (rawType === 'REBOOT' || rawType === 'RESTART_PLAYER') {
+    // EXEC_COMMAND, REBOOT and RESTART_PLAYER require Admin permission
+    if (rawType === 'EXEC_COMMAND' || rawType === 'REBOOT' || rawType === 'RESTART_PLAYER') {
         await (0, common_js_1.assertAdminCaller)(request.auth);
         if (rawType === 'REBOOT' && request.data?.confirmed !== true) {
             throw new https_1.HttpsError('invalid-argument', 'Explicit confirmation (confirmed: true) is required before requesting a digital display reboot.');
+        }
+        if (rawType === 'EXEC_COMMAND' && (!request.data?.command || !String(request.data.command).trim())) {
+            throw new https_1.HttpsError('invalid-argument', 'A command string is required for EXEC_COMMAND operations.');
         }
     }
     // Enforce Admin or assigned Department Head scope
@@ -501,7 +502,7 @@ exports.requestDisplayOperation = (0, https_1.onCall)(opts, async (request) => {
             }
         }
         const operationId = crypto.randomUUID();
-        const isNonIdempotent = rawType === 'REBOOT' || rawType === 'RESTART_PLAYER' || rawType === 'RUN_DIAGNOSTICS';
+        const isNonIdempotent = rawType === 'REBOOT' || rawType === 'RESTART_PLAYER' || rawType === 'RUN_DIAGNOSTICS' || rawType === 'EXEC_COMMAND';
         const newOp = {
             id: operationId,
             displayId,
@@ -531,7 +532,7 @@ exports.requestDisplayOperation = (0, https_1.onCall)(opts, async (request) => {
             preRebootUptimeSeconds: rawType === 'REBOOT' && typeof displayData.reported?.uptimeSeconds === 'number'
                 ? displayData.reported.uptimeSeconds
                 : null,
-            command: null,
+            command: rawType === 'EXEC_COMMAND' && request.data?.command ? String(request.data.command).trim().slice(0, 1000) : null,
             output: null,
             exitCode: null,
             resultSummary: null,
