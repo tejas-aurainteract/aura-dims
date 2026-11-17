@@ -15,6 +15,7 @@ import { DeviceIdentity } from './identity.js';
 import { HardwareAdapter } from './hardwareAdapter.js';
 import { SyncEngine } from './syncEngine.js';
 import { LocalServer } from './localServer.js';
+import { TerminalServer } from './terminalServer.js';
 import { OperationsAgent } from './operationsAgent.js';
 import { Supervisor } from './supervision.js';
 
@@ -101,6 +102,13 @@ async function main() {
   // Start loopback server
   await server.start();
 
+  // Start direct WebSocket terminal server (port 8091)
+  const terminalServer = new TerminalServer({
+    port: 8091,
+    logger,
+  });
+  await terminalServer.start();
+
   // Start supervision and heartbeat timers
   supervisor.start();
 
@@ -138,6 +146,7 @@ async function main() {
     }
     supervisor.stop();
     await server.stop();
+    await terminalServer.stop();
     logger.info('Player agent stopped.');
     process.exit(0);
   };
