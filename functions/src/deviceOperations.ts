@@ -1068,6 +1068,8 @@ export const reportDeviceOperation = onCall<
       completedAt: updated.completedAt,
       claimExpiresAt: updated.claimExpiresAt,
       resultSummary: updated.resultSummary,
+      output: updated.output,
+      exitCode: updated.exitCode,
       errorCode: updated.errorCode,
       errorMessage: updated.errorMessage,
       preRebootBootId: updated.preRebootBootId,
