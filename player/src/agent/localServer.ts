@@ -40,6 +40,19 @@ export class LocalServer {
   private rendererHealth: 'healthy' | 'stalled' | 'error' = 'healthy';
   private lastRendererPing = Date.now();
   private reloadGeneration = 1;
+  private apModeState = {
+    active: false,
+    ssid: 'Aura',
+    password: '12345678',
+  };
+
+  public setApModeState(active: boolean, ssid = 'Aura', password = '12345678'): void {
+    this.apModeState = { active, ssid, password };
+  }
+
+  public getApModeState() {
+    return this.apModeState;
+  }
 
   constructor(
     config: PlayerConfig,
@@ -189,6 +202,7 @@ export class LocalServer {
           playback: this.playbackState,
           rendererHealth: this.getRendererHealth(),
           reloadGeneration: this.reloadGeneration,
+          apMode: this.apModeState,
         })
       );
       return;
@@ -201,6 +215,7 @@ export class LocalServer {
           JSON.stringify({
             state: 'unprovisioned',
             reloadGeneration: this.reloadGeneration,
+            apMode: this.apModeState,
           })
         );
         return;
@@ -217,6 +232,7 @@ export class LocalServer {
             displayId: this.identity.getDisplayId(),
             stage: this.syncEngine.getCurrentStage(),
             reloadGeneration: this.reloadGeneration,
+            apMode: this.apModeState,
           })
         );
         return;
@@ -237,6 +253,7 @@ export class LocalServer {
           manifest,
           assetUrls,
           reloadGeneration: this.reloadGeneration,
+          apMode: this.apModeState,
         })
       );
       return;

@@ -164,6 +164,8 @@ export const DisplayDetailsDrawer: React.FC<DisplayDetailsDrawerProps> = ({
         RESTART_PLAYER: 'Player Daemon Restart',
         RUN_DIAGNOSTICS: 'Run Diagnostics',
         EXEC_COMMAND: 'Command Execution',
+        SCAN_WIFI: 'Wi-Fi Network Scan',
+        CONNECT_WIFI: 'Connect to Wi-Fi',
       };
 
       setBannerSuccess(

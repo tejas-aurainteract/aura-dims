@@ -144,6 +144,8 @@ export interface DeviceCapabilities {
   restartPlayerReason?: string | null;
   runDiagnostics?: boolean;
   runDiagnosticsReason?: string | null;
+  manageWifi?: boolean;
+  manageWifiReason?: string | null;
   supportedOperationTypes?: DeviceOperationType[];
 }
 
@@ -2753,7 +2755,28 @@ export type DeviceOperationType =
   | 'REBOOT'
   | 'RESTART_PLAYER'
   | 'RUN_DIAGNOSTICS'
-  | 'EXEC_COMMAND';
+  | 'EXEC_COMMAND'
+  | 'SCAN_WIFI'
+  | 'CONNECT_WIFI';
+
+export interface WifiScannedNetwork {
+  ssid: string;
+  bssid?: string;
+  signal: number; // 0 - 100 percentage
+  security: 'open' | 'wpa' | 'wpa2' | 'wpa3' | 'wep' | 'unknown';
+  channel?: number;
+  inUse?: boolean;
+}
+
+export interface WifiStatus {
+  connected: boolean;
+  ssid: string | null;
+  ipAddress: string | null;
+  signal: number | null;
+  macAddress: string | null;
+  apModeActive: boolean;
+  apSsid: string | null;
+}
 
 export type DeviceOperationState =
   | 'queued'
@@ -2796,6 +2819,11 @@ export interface DeviceOperationRecord {
   errorCode?: string | null;
   errorMessage?: string | null;
   previewMetadata?: DisplayPreviewMetadata | null;
+  wifiSsid?: string | null;
+  wifiPassword?: string | null;
+  wifiPriority?: number | null;
+  wifiNetworks?: WifiScannedNetwork[] | null;
+  wifiConnectedSsid?: string | null;
   cleanupSummary?: {
     removedPublications: number;
     removedAssets: number;
@@ -2814,6 +2842,9 @@ export interface RequestDisplayOperationRequest {
   reason?: string;
   command?: string;
   confirmed?: boolean;
+  wifiSsid?: string;
+  wifiPassword?: string;
+  wifiPriority?: number;
 }
 
 export interface RequestDisplayOperationResponse {
@@ -2882,6 +2913,8 @@ export interface ReportDeviceOperationRequest {
   errorMessage?: string;
   preRebootBootId?: string | null;
   preRebootUptimeSeconds?: number | null;
+  wifiNetworks?: WifiScannedNetwork[] | null;
+  wifiConnectedSsid?: string | null;
   cleanupSummary?: {
     removedPublications: number;
     removedAssets: number;

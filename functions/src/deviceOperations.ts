@@ -77,6 +77,8 @@ const ALLOWED_OPERATION_TYPES = new Set<DeviceOperationType>([
   'RESTART_PLAYER',
   'RUN_DIAGNOSTICS',
   'EXEC_COMMAND',
+  'SCAN_WIFI',
+  'CONNECT_WIFI',
 ]);
 
 export const ALLOWED_DIAGNOSTIC_ACTIONS = new Set<DiagnosticActionType>([
@@ -99,6 +101,8 @@ export const OPERATION_MAX_RUNTIME_SECONDS: Record<DeviceOperationType, number> 
   RESTART_PLAYER: 60,
   RUN_DIAGNOSTICS: 30,
   EXEC_COMMAND: 30,
+  SCAN_WIFI: 30,
+  CONNECT_WIFI: 60,
 };
 
 const ACTIVE_OPERATION_STATES = new Set<DeviceOperationRecord['state']>([
@@ -520,6 +524,17 @@ export const requestDisplayOperation = onCall<
     }
   }
 
+  // CONNECT_WIFI requires valid SSID
+  if (rawType === 'CONNECT_WIFI') {
+    const ssid = String(request.data?.wifiSsid || '').trim();
+    if (!ssid) {
+      throw new HttpsError(
+        'invalid-argument',
+        'A Wi-Fi network SSID (wifiSsid) is required for CONNECT_WIFI operations.'
+      );
+    }
+  }
+
   // Enforce Admin or assigned Department Head scope
   const displaySnap = await loadAuthorizedDisplay(caller, displayId);
   const displayData = displaySnap.data()!;
@@ -673,6 +688,11 @@ export const requestDisplayOperation = onCall<
       errorMessage: null,
       previewMetadata: null,
       cleanupSummary: null,
+      wifiSsid: rawType === 'CONNECT_WIFI' && request.data?.wifiSsid ? String(request.data.wifiSsid).trim() : null,
+      wifiPassword: rawType === 'CONNECT_WIFI' && request.data?.wifiPassword ? String(request.data.wifiPassword) : null,
+      wifiPriority: rawType === 'CONNECT_WIFI' && typeof request.data?.wifiPriority === 'number' ? request.data.wifiPriority : null,
+      wifiNetworks: null,
+      wifiConnectedSsid: null,
       updatedAt: nowIso,
     };
 
@@ -1074,6 +1094,14 @@ export const reportDeviceOperation = onCall<
         request.data?.cleanupSummary !== undefined
           ? request.data.cleanupSummary
           : op.cleanupSummary ?? null,
+      wifiNetworks:
+        request.data?.wifiNetworks !== undefined
+          ? request.data.wifiNetworks
+          : (op.wifiNetworks ?? null),
+      wifiConnectedSsid:
+        request.data?.wifiConnectedSsid !== undefined
+          ? request.data.wifiConnectedSsid
+          : (op.wifiConnectedSsid ?? null),
       updatedAt: nowIso,
     };
 
@@ -1090,6 +1118,9 @@ export const reportDeviceOperation = onCall<
       preRebootBootId: updated.preRebootBootId,
       preRebootUptimeSeconds: updated.preRebootUptimeSeconds,
       cleanupSummary: updated.cleanupSummary,
+      wifiNetworks: updated.wifiNetworks,
+      wifiConnectedSsid: updated.wifiConnectedSsid,
+      ...(isTerminal && op.wifiPassword ? { wifiPassword: FieldValue.delete() } : {}),
       updatedAt: nowIso,
     });
 

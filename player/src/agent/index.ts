@@ -17,6 +17,7 @@ import { SyncEngine } from './syncEngine.js';
 import { LocalServer } from './localServer.js';
 import { OperationsAgent } from './operationsAgent.js';
 import { Supervisor } from './supervision.js';
+import { WifiManager } from './wifiManager.js';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -62,6 +63,7 @@ async function main() {
   const transport = new PlayerTransport(config);
   const identity = new DeviceIdentity(config, logger, transport);
   const hardwareAdapter = new HardwareAdapter(config, logger);
+  const wifiManager = new WifiManager(logger);
   const syncEngine = new SyncEngine(config, logger, identity, hardwareAdapter);
   const server = new LocalServer(config, logger, identity, syncEngine);
   const operationsAgent = new OperationsAgent({
@@ -70,6 +72,7 @@ async function main() {
     identity,
     syncEngine,
     hardwareAdapter,
+    wifiManager,
     onRefreshRenderer: () => server.triggerRendererRefresh(),
   });
   const supervisor = new Supervisor(
@@ -79,7 +82,8 @@ async function main() {
     syncEngine,
     server,
     hardwareAdapter,
-    operationsAgent
+    operationsAgent,
+    wifiManager
   );
 
   // If pairing code provided via CLI, pair immediately

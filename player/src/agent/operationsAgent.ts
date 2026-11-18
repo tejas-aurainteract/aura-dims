@@ -28,6 +28,7 @@ import type { Logger } from './logger.js';
 import type { DeviceIdentity } from './identity.js';
 import type { SyncEngine } from './syncEngine.js';
 import type { HardwareAdapter } from './hardwareAdapter.js';
+import { WifiManager } from './wifiManager.js';
 import type {
   ClaimDeviceOperationRequest,
   ClaimDeviceOperationResponse,
@@ -77,6 +78,7 @@ export class OperationsAgent {
   private readonly identity: DeviceIdentity;
   private readonly syncEngine: SyncEngine;
   private readonly hardwareAdapter: HardwareAdapter;
+  private readonly wifiManager: WifiManager;
   private readonly onRefreshRenderer: () => number;
   private readonly ledgerPath: string;
   private inFlight = false;
@@ -140,6 +142,7 @@ export class OperationsAgent {
     identity: DeviceIdentity;
     syncEngine: SyncEngine;
     hardwareAdapter: HardwareAdapter;
+    wifiManager?: WifiManager;
     onRefreshRenderer: () => number;
   }) {
     this.config = params.config;
@@ -147,6 +150,7 @@ export class OperationsAgent {
     this.identity = params.identity;
     this.syncEngine = params.syncEngine;
     this.hardwareAdapter = params.hardwareAdapter;
+    this.wifiManager = params.wifiManager || new WifiManager(this.logger);
     this.onRefreshRenderer = params.onRefreshRenderer;
     this.ledgerPath = path.join(this.config.dataDir, 'operations-ledger.json');
   }
@@ -315,11 +319,15 @@ export class OperationsAgent {
 
     this.inFlight = true;
     let lastExecuted: DeviceOperationRecord | null = null;
+    const processedIds = new Set<string>();
 
     try {
       while (true) {
-        const op = await this.pollAndExecuteOne();
+        const op = await this.pollAndExecuteOne(processedIds);
         if (!op) break;
+        if (lastExecuted && lastExecuted.id === op.id) {
+          break;
+        }
         lastExecuted = op;
         // Terminate queue draining loop if operation was a reboot or service restart
         if (op.type === 'REBOOT' || op.type === 'RESTART_PLAYER') {
@@ -332,7 +340,7 @@ export class OperationsAgent {
     }
   }
 
-  private async pollAndExecuteOne(): Promise<DeviceOperationRecord | null> {
+  private async pollAndExecuteOne(processedIds?: Set<string>): Promise<DeviceOperationRecord | null> {
     const displayId = this.identity.getDisplayId();
     if (!displayId) return null;
 
@@ -364,6 +372,10 @@ export class OperationsAgent {
       }
 
       const op = claimRes.operation;
+      if (processedIds && processedIds.has(op.id)) {
+        return null;
+      }
+      processedIds?.add(op.id);
       const claimLeaseId = op.claimLeaseId!;
       this.logger.info(
         `Claimed durable operation ${op.id} (${op.type}) for digital display "${displayId}".`
@@ -890,6 +902,66 @@ export class OperationsAgent {
           return;
         }
 
+        case 'SCAN_WIFI': {
+          try {
+            this.logger.info(`[OperationsAgent] Scanning Wi-Fi networks for digital display "${displayId}"...`);
+            const networks = await this.wifiManager.scanNetworks();
+            if (isTerminated) return;
+
+            const summary = `Found ${networks.length} Wi-Fi networks in range of digital display.`;
+            await this.reportAndRecord(displayId, op, claimLeaseId, {
+              state: 'succeeded',
+              resultSummary: summary,
+              wifiNetworks: networks,
+            });
+          } catch (err: any) {
+            if (isTerminated) return;
+            await this.reportAndRecord(displayId, op, claimLeaseId, {
+              state: 'failed',
+              errorCode: 'WIFI_SCAN_FAILED',
+              errorMessage: err?.message || 'Failed to scan Wi-Fi networks on digital display.',
+            });
+          }
+          return;
+        }
+
+        case 'CONNECT_WIFI': {
+          const ssid = (op.wifiSsid || '').trim();
+          const password = op.wifiPassword || undefined;
+          const priority = typeof op.wifiPriority === 'number' ? op.wifiPriority : undefined;
+
+          if (!ssid) {
+            await this.reportAndRecord(displayId, op, claimLeaseId, {
+              state: 'failed',
+              errorCode: 'MISSING_SSID',
+              errorMessage: 'Operation CONNECT_WIFI was submitted without an SSID.',
+            });
+            return;
+          }
+
+          try {
+            this.logger.info(
+              `[OperationsAgent] Connecting digital display "${displayId}" to Wi-Fi: "${ssid}"...`
+            );
+            const res = await this.wifiManager.connectNetwork(ssid, password, priority);
+            if (isTerminated) return;
+
+            await this.reportAndRecord(displayId, op, claimLeaseId, {
+              state: 'succeeded',
+              resultSummary: res.resultSummary,
+              wifiConnectedSsid: ssid,
+            });
+          } catch (err: any) {
+            if (isTerminated) return;
+            await this.reportAndRecord(displayId, op, claimLeaseId, {
+              state: 'failed',
+              errorCode: 'WIFI_CONNECT_FAILED',
+              errorMessage: err?.message || `Failed to connect digital display to Wi-Fi "${ssid}".`,
+            });
+          }
+          return;
+        }
+
         default: {
           // Explicit default case: unknown/unsupported op types report failed immediately. No silent returns.
           const unhandledType = (op as any).type;
@@ -922,6 +994,8 @@ export class OperationsAgent {
       errorCode?: string;
       errorMessage?: string;
       cleanupSummary?: ReportDeviceOperationRequest['cleanupSummary'];
+      wifiNetworks?: ReportDeviceOperationRequest['wifiNetworks'];
+      wifiConnectedSsid?: ReportDeviceOperationRequest['wifiConnectedSsid'];
     }
   ): Promise<void> {
     const transport = this.identity.getTransport();
@@ -952,6 +1026,8 @@ export class OperationsAgent {
         errorCode: params.errorCode,
         errorMessage: params.errorMessage,
         cleanupSummary: params.cleanupSummary,
+        wifiNetworks: params.wifiNetworks,
+        wifiConnectedSsid: params.wifiConnectedSsid,
       },
       this.identity
     );

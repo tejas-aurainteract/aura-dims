@@ -73,6 +73,8 @@ const ALLOWED_OPERATION_TYPES = new Set([
     'RESTART_PLAYER',
     'RUN_DIAGNOSTICS',
     'EXEC_COMMAND',
+    'SCAN_WIFI',
+    'CONNECT_WIFI',
 ]);
 exports.ALLOWED_DIAGNOSTIC_ACTIONS = new Set([
     'SYSTEM_INFO',
@@ -93,6 +95,8 @@ exports.OPERATION_MAX_RUNTIME_SECONDS = {
     RESTART_PLAYER: 60,
     RUN_DIAGNOSTICS: 30,
     EXEC_COMMAND: 30,
+    SCAN_WIFI: 30,
+    CONNECT_WIFI: 60,
 };
 const ACTIVE_OPERATION_STATES = new Set([
     'queued',
@@ -424,6 +428,13 @@ exports.requestDisplayOperation = (0, https_1.onCall)(opts, async (request) => {
             throw new https_1.HttpsError('invalid-argument', 'A command string is required for EXEC_COMMAND operations.');
         }
     }
+    // CONNECT_WIFI requires valid SSID
+    if (rawType === 'CONNECT_WIFI') {
+        const ssid = String(request.data?.wifiSsid || '').trim();
+        if (!ssid) {
+            throw new https_1.HttpsError('invalid-argument', 'A Wi-Fi network SSID (wifiSsid) is required for CONNECT_WIFI operations.');
+        }
+    }
     // Enforce Admin or assigned Department Head scope
     const displaySnap = await (0, displayModel_js_1.loadAuthorizedDisplay)(caller, displayId);
     const displayData = displaySnap.data();
@@ -541,6 +552,11 @@ exports.requestDisplayOperation = (0, https_1.onCall)(opts, async (request) => {
             errorMessage: null,
             previewMetadata: null,
             cleanupSummary: null,
+            wifiSsid: rawType === 'CONNECT_WIFI' && request.data?.wifiSsid ? String(request.data.wifiSsid).trim() : null,
+            wifiPassword: rawType === 'CONNECT_WIFI' && request.data?.wifiPassword ? String(request.data.wifiPassword) : null,
+            wifiPriority: rawType === 'CONNECT_WIFI' && typeof request.data?.wifiPriority === 'number' ? request.data.wifiPriority : null,
+            wifiNetworks: null,
+            wifiConnectedSsid: null,
             updatedAt: nowIso,
         };
         tx.create(col.doc(operationId), newOp);
@@ -870,6 +886,12 @@ exports.reportDeviceOperation = (0, https_1.onCall)(opts, async (request) => {
             cleanupSummary: request.data?.cleanupSummary !== undefined
                 ? request.data.cleanupSummary
                 : op.cleanupSummary ?? null,
+            wifiNetworks: request.data?.wifiNetworks !== undefined
+                ? request.data.wifiNetworks
+                : (op.wifiNetworks ?? null),
+            wifiConnectedSsid: request.data?.wifiConnectedSsid !== undefined
+                ? request.data.wifiConnectedSsid
+                : (op.wifiConnectedSsid ?? null),
             updatedAt: nowIso,
         };
         tx.update(opRef, {
@@ -885,6 +907,9 @@ exports.reportDeviceOperation = (0, https_1.onCall)(opts, async (request) => {
             preRebootBootId: updated.preRebootBootId,
             preRebootUptimeSeconds: updated.preRebootUptimeSeconds,
             cleanupSummary: updated.cleanupSummary,
+            wifiNetworks: updated.wifiNetworks,
+            wifiConnectedSsid: updated.wifiConnectedSsid,
+            ...(isTerminal && op.wifiPassword ? { wifiPassword: firestore_1.FieldValue.delete() } : {}),
             updatedAt: nowIso,
         });
         if (isTerminal) {

@@ -35,6 +35,7 @@ import {
   Square,
   AlertCircle,
   Wrench,
+  Wifi,
 } from 'lucide-react';
 import { collection, onSnapshot, getDocs, query, where, type Query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -54,6 +55,7 @@ import { RolloutInventoryView } from '@/components/Rollout/RolloutInventoryView'
 import { downloadDisplaysCsv } from '@/components/Rollout/displayExport';
 import { DisplayDetailsDrawer, type DrawerTab } from '@/components/Displays/DisplayDetailsDrawer';
 import { DeviceMaintenanceModal } from '@/components/Displays/DeviceMaintenanceModal';
+import { DeviceWifiModal } from '@/components/Displays/DeviceWifiModal';
 import { deriveConnectivity, useNowTick } from '@/lib/connectivity';
 
 
@@ -109,6 +111,7 @@ export const DisplaysPage: React.FC = () => {
 
   const [rawDisplays, setDisplays] = useState<DisplayView[]>([]);
   const [maintenanceModalDisplay, setMaintenanceModalDisplay] = useState<DisplayView | null>(null);
+  const [wifiModalDisplay, setWifiModalDisplay] = useState<DisplayView | null>(null);
 
   // Re-derive connectivity on a ticking clock so a powered-off digital display
   // flips to offline even though it no longer produces Firestore updates.
@@ -1096,6 +1099,16 @@ export const DisplaysPage: React.FC = () => {
                         </button>
 
                         <button
+                          onClick={() => setWifiModalDisplay(display)}
+                          className="text-xs text-cyan-400 hover:text-cyan-300 inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/30 hover:bg-cyan-500/20 transition-all shadow-sm"
+                          title="Scan and configure Wi-Fi network for this digital display"
+                          data-testid={`wifi-btn-${display.id}`}
+                        >
+                          <Wifi className="w-3.5 h-3.5" />
+                          Wi-Fi
+                        </button>
+
+                        <button
                           onClick={() => setCommissioningDisplay(display)}
                           className="text-xs text-slate-400 hover:text-teal-300 inline-flex items-center gap-1 font-medium"
                         >
@@ -1416,6 +1429,15 @@ export const DisplaysPage: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Modal: Digital Display Remote Wi-Fi Network Setup */}
+      {wifiModalDisplay && (
+        <DeviceWifiModal
+          display={wifiModalDisplay}
+          onClose={() => setWifiModalDisplay(null)}
+          onDisplayUpdated={() => { }}
+        />
       )}
 
       {/* Modal: Digital Display Maintenance, Remote Diagnostics & Service Controls */}

@@ -326,3 +326,54 @@ html, body {
 .dot.offline {
   background-color: #eab308;
 }
+
+/* Wi-Fi AP Mode Floating Overlay Banner */
+.ap-mode-banner {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 1.5rem;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(20, 184, 166, 0.5);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  border-radius: 0.75rem;
+  padding: 0.85rem 1.25rem;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  animation: pulse-ap-border 2.5s infinite;
+}
+
+@keyframes pulse-ap-border {
+  0%, 100% { border-color: rgba(20, 184, 166, 0.4); }
+  50% { border-color: rgba(56, 189, 248, 0.9); }
+}
+
+.ap-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #14b8a6;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.ap-text {
+  font-size: 0.85rem;
+  color: #e2e8f0;
+}
+
+.ap-text strong {
+  color: #38bdf8;
+}
+
+.ap-text code {
+  background: #020617;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-family: monospace;
+  color: #facc15;
+}

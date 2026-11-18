@@ -52,6 +52,8 @@
         currentReloadGeneration = data.reloadGeneration;
       }
 
+      updateApModeBanner(data.apMode);
+
       if (data.state === 'unprovisioned') {
         renderSetupScreen();
       } else if (data.state === 'provisioned_no_package') {
@@ -693,6 +695,8 @@
         if (!res.ok) return;
         const status = await res.json();
 
+        updateApModeBanner(status.apMode);
+
         if (
           typeof status.reloadGeneration === 'number' &&
           status.reloadGeneration > currentReloadGeneration
@@ -715,6 +719,24 @@
         }
       } catch {}
     }, 5000);
+  }
+
+  function updateApModeBanner(apMode) {
+    let banner = document.getElementById('ap-mode-banner');
+    if (apMode && apMode.active) {
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'ap-mode-banner';
+        banner.className = 'ap-mode-banner';
+        document.body.appendChild(banner);
+      }
+      banner.innerHTML = `
+        <div class="ap-badge">⚡ Wi-Fi Setup Mode Active</div>
+        <div class="ap-text">Connect to: <strong>${escapeHtml(apMode.ssid)}</strong> (Pass: <code>${escapeHtml(apMode.password)}</code>)</div>
+      `;
+    } else if (banner) {
+      banner.remove();
+    }
   }
 
   function escapeHtml(str) {

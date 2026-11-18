@@ -19,6 +19,8 @@ import type { SyncEngine } from './syncEngine.js';
 import type { LocalServer } from './localServer.js';
 import { HardwareAdapter } from './hardwareAdapter.js';
 import { OperationsAgent } from './operationsAgent.js';
+import { WifiManager } from './wifiManager.js';
+import { CaptivePortalServer } from './captivePortal.js';
 import type {
   DeviceHeartbeatRequest,
   DeviceHeartbeatResponse,
@@ -33,9 +35,13 @@ export class Supervisor {
   private server: LocalServer;
   private hardwareAdapter: HardwareAdapter;
   private operationsAgent: OperationsAgent;
+  private wifiManager: WifiManager;
+  private captivePortal: CaptivePortalServer;
   private syncTimer: NodeJS.Timeout | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private operationsTimer: NodeJS.Timeout | null = null;
+  private wifiTimer: NodeJS.Timeout | null = null;
+  private consecutiveOfflineChecks = 0;
   private isRunning = false;
 
   constructor(
@@ -45,7 +51,8 @@ export class Supervisor {
     syncEngine: SyncEngine,
     server: LocalServer,
     hardwareAdapter?: HardwareAdapter,
-    operationsAgent?: OperationsAgent
+    operationsAgent?: OperationsAgent,
+    wifiManager?: WifiManager
   ) {
     this.config = config;
     this.logger = logger;
@@ -53,6 +60,8 @@ export class Supervisor {
     this.syncEngine = syncEngine;
     this.server = server;
     this.hardwareAdapter = hardwareAdapter || new HardwareAdapter(config, logger);
+    this.wifiManager = wifiManager || new WifiManager(logger);
+    this.captivePortal = new CaptivePortalServer(logger, this.wifiManager);
     this.operationsAgent =
       operationsAgent ||
       new OperationsAgent({
@@ -61,8 +70,13 @@ export class Supervisor {
         identity,
         syncEngine,
         hardwareAdapter: this.hardwareAdapter,
+        wifiManager: this.wifiManager,
         onRefreshRenderer: () => this.server.triggerRendererRefresh(),
       });
+  }
+
+  public getWifiManager(): WifiManager {
+    return this.wifiManager;
   }
 
   public getHardwareAdapter(): HardwareAdapter {
@@ -105,6 +119,18 @@ export class Supervisor {
         this.triggerHeartbeat();
       }
     }, 2000);
+
+    // Initial network connectivity evaluation after 15s boot grace period
+    setTimeout(() => {
+      if (this.isRunning) {
+        this.checkNetworkAndManageApMode();
+      }
+    }, 15_000);
+
+    // Periodic network reachability & AP fallback evaluation (every 30 seconds)
+    this.wifiTimer = setInterval(() => {
+      this.checkNetworkAndManageApMode();
+    }, 30_000);
   }
 
   public stop(): void {
@@ -121,8 +147,52 @@ export class Supervisor {
       clearInterval(this.operationsTimer);
       this.operationsTimer = null;
     }
+    if (this.wifiTimer) {
+      clearInterval(this.wifiTimer);
+      this.wifiTimer = null;
+    }
     this.operationsAgent.stopRealtimeListener();
+    this.captivePortal.stop().catch(() => {});
     this.logger.info('Digital display supervision timers stopped.');
+  }
+
+  private async checkNetworkAndManageApMode(): Promise<void> {
+    try {
+      const isOnline = await this.wifiManager.checkInternetAccess();
+
+      if (isOnline) {
+        this.consecutiveOfflineChecks = 0;
+        if (this.wifiManager.isApModeActive()) {
+          this.logger.info('[Supervisor] Internet access confirmed. Deactivating AP Mode...');
+          await this.captivePortal.stop();
+          await this.wifiManager.stopApMode();
+          this.server.setApModeState(false);
+          this.server.triggerRendererRefresh();
+        }
+      } else {
+        this.consecutiveOfflineChecks += 1;
+        this.logger.info(
+          `[Supervisor] Internet unreachable (consecutive check #${this.consecutiveOfflineChecks}).`
+        );
+
+        // After 2 consecutive failed checks (~60s total grace period), activate AP Mode
+        if (this.consecutiveOfflineChecks >= 2 && !this.wifiManager.isApModeActive()) {
+          this.logger.warn(
+            `[Supervisor] Digital display offline. Activating AP Mode (SSID: "${this.wifiManager.getApSsid()}", Pass: "${this.wifiManager.getApPassword()}")...`
+          );
+          await this.wifiManager.startApMode();
+          await this.captivePortal.start(80);
+          this.server.setApModeState(
+            true,
+            this.wifiManager.getApSsid(),
+            this.wifiManager.getApPassword()
+          );
+          this.server.triggerRendererRefresh();
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn('[Supervisor] Error checking network status:', err?.message || err);
+    }
   }
 
   private triggerSync(): void {

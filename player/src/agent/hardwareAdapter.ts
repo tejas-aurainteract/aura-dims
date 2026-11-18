@@ -270,6 +270,8 @@ export class HardwareAdapter {
       restartPlayerReason: null,
       runDiagnostics: true,
       runDiagnosticsReason: null,
+      manageWifi: true,
+      manageWifiReason: null,
       supportedOperationTypes: [
         'SYNC_NOW',
         'REFRESH_RENDERER',
@@ -279,6 +281,8 @@ export class HardwareAdapter {
         'RESTART_PLAYER',
         'RUN_DIAGNOSTICS',
         'EXEC_COMMAND',
+        'SCAN_WIFI',
+        'CONNECT_WIFI',
       ],
     };
 

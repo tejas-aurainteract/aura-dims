@@ -46,6 +46,8 @@ interface DeviceMaintenanceModalProps {
 const QUICK_COMMANDS = [
   { label: 'System Info', cmd: 'uname -a && uptime' },
   { label: 'Network IPs', cmd: 'ip -br address' },
+  { label: 'Wi-Fi Status', cmd: 'nmcli -t -f active,ssid,signal dev wifi && ip -br addr' },
+  { label: 'Scan Wi-Fi', cmd: 'nmcli dev wifi list' },
   { label: 'Disk Space', cmd: 'df -h /' },
   { label: 'Memory (RAM)', cmd: 'free -h' },
   { label: 'Player Status', cmd: 'systemctl status aura-player --no-pager -n 15' },
@@ -306,6 +308,8 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
         RESTART_PLAYER: 'Player Daemon Restart',
         RUN_DIAGNOSTICS: options?.diagnosticAction ? `Diagnostic (${options.diagnosticAction})` : 'Run Diagnostics',
         EXEC_COMMAND: 'Command Execution',
+        SCAN_WIFI: 'Wi-Fi Network Scan',
+        CONNECT_WIFI: 'Connect to Wi-Fi',
       };
 
       setBannerSuccess(
