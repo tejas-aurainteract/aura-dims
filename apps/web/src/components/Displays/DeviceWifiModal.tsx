@@ -94,9 +94,9 @@ export const DeviceWifiModal: React.FC<DeviceWifiModalProps> = ({
     setIsScanning(true);
     setConnectBanner(null);
 
-    // Uses the background terminal execution (EXEC_COMMAND) which works on every player version
+    // Uses the background terminal execution with sudo (EXEC_COMMAND) which works on every player version
     const scanCommand =
-      'nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY dev wifi list --rescan yes 2>/dev/null || nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY dev wifi list';
+      'sudo nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY dev wifi list --rescan yes 2>/dev/null || sudo nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY dev wifi list';
 
     try {
       const res = await api.requestDisplayOperation({
@@ -165,15 +165,15 @@ export const DeviceWifiModal: React.FC<DeviceWifiModalProps> = ({
       const escapedSsid = targetSsid.replace(/"/g, '\\"');
       let connectCmd = '';
       if (isManualMode && manualSecurity === 'open') {
-        connectCmd = `nmcli dev wifi connect "${escapedSsid}" hidden yes && nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100`;
+        connectCmd = `sudo nmcli dev wifi connect "${escapedSsid}" hidden yes && sudo nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100`;
       } else if (isManualMode) {
         const escapedPassword = password.replace(/"/g, '\\"');
-        connectCmd = `nmcli dev wifi connect "${escapedSsid}" hidden yes password "${escapedPassword}" && nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100`;
+        connectCmd = `sudo nmcli dev wifi connect "${escapedSsid}" hidden yes password "${escapedPassword}" && sudo nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100`;
       } else if (selectedSecurity === 'open' || !password) {
-        connectCmd = `nmcli dev wifi connect "${escapedSsid}" && nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100`;
+        connectCmd = `sudo nmcli dev wifi connect "${escapedSsid}" && sudo nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100`;
       } else {
         const escapedPassword = password.replace(/"/g, '\\"');
-        connectCmd = `nmcli dev wifi connect "${escapedSsid}" password "${escapedPassword}" && nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100`;
+        connectCmd = `sudo nmcli dev wifi connect "${escapedSsid}" password "${escapedPassword}" && sudo nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100`;
       }
 
       const res = await api.requestDisplayOperation({

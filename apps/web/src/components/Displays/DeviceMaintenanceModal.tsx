@@ -44,16 +44,16 @@ interface DeviceMaintenanceModalProps {
 }
 
 const QUICK_COMMANDS = [
-  { label: 'System Info', cmd: 'uname -a && uptime' },
-  { label: 'Network IPs', cmd: 'ip -br address' },
-  { label: 'Wi-Fi Status', cmd: 'nmcli -t -f active,ssid,signal dev wifi && ip -br addr' },
-  { label: 'Scan Wi-Fi', cmd: 'nmcli dev wifi list' },
-  { label: 'Disk Space', cmd: 'df -h /' },
-  { label: 'Memory (RAM)', cmd: 'free -h' },
-  { label: 'Player Status', cmd: 'systemctl status aura-player --no-pager -n 15' },
-  { label: 'Player Logs', cmd: 'journalctl -u aura-player -n 50 --no-pager' },
-  { label: 'Restart Player', cmd: 'systemctl restart aura-player' },
-  { label: 'Reboot Pi', cmd: 'systemctl reboot' },
+  { label: 'System Info', cmd: 'sudo uname -a && sudo uptime' },
+  { label: 'Network IPs', cmd: 'sudo ip -br address' },
+  { label: 'Wi-Fi Status', cmd: 'sudo nmcli -t -f active,ssid,signal dev wifi && sudo ip -br addr' },
+  { label: 'Scan Wi-Fi', cmd: 'sudo nmcli dev wifi list' },
+  { label: 'Disk Space', cmd: 'sudo df -h /' },
+  { label: 'Memory (RAM)', cmd: 'sudo free -h' },
+  { label: 'Player Status', cmd: 'sudo systemctl status aura-player --no-pager -n 15' },
+  { label: 'Player Logs', cmd: 'sudo journalctl -u aura-player -n 50 --no-pager' },
+  { label: 'Restart Player', cmd: 'sudo systemctl restart aura-player' },
+  { label: 'Reboot Pi', cmd: 'sudo systemctl reboot' },
 ];
 
 export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
@@ -248,10 +248,11 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
       } else if (cmd === 'reboot' || cmd === 'systemctl reboot') {
         await handleRequestOperation('REBOOT', { confirmed: true, reason: 'Manual remote terminal reboot' });
       } else {
+        const finalCmd = cmd.startsWith('sudo ') ? cmd : `sudo ${cmd}`;
         await api.requestDisplayOperation({
           displayId: display.id,
           type: 'EXEC_COMMAND',
-          command: cmd,
+          command: finalCmd,
         });
       }
     } catch (err: any) {
