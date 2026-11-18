@@ -53,7 +53,7 @@ const QUICK_COMMANDS = [
   { label: 'Scan Wi-Fi', cmd: 'sudo nmcli dev wifi list' },
   {
     label: 'Clear Wi-Fi Profiles',
-    cmd: `sudo nmcli -t -f UUID,TYPE con show | grep -E ':(802-11-wireless|wifi)$' | cut -d: -f1 | xargs -r sudo nmcli con delete && sudo nmcli con reload && echo "All saved Wi-Fi profiles successfully deleted on digital display."`,
+    cmd: `sudo nmcli -t -f UUID,TYPE con show | grep -E 'wireless|wifi' | cut -d: -f1 | xargs -r sudo nmcli con delete && sudo nmcli con reload && echo "All Wi-Fi profiles cleared. Remaining: $(sudo nmcli -t -f TYPE con show | grep -c -E 'wireless|wifi')"`,
   },
   {
     label: 'Switch to AP Mode',
@@ -280,7 +280,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
     setShowClearWifiModal(false);
     setActiveTab('terminal');
     await handleRunTerminalCommand(
-      `sudo nmcli -t -f UUID,TYPE con show | grep -E ':(802-11-wireless|wifi)$' | cut -d: -f1 | xargs -r sudo nmcli con delete && sudo nmcli con reload && echo "All saved Wi-Fi profiles successfully deleted on digital display."`
+      `sudo nmcli -t -f UUID,TYPE con show | grep -E 'wireless|wifi' | cut -d: -f1 | xargs -r sudo nmcli con delete && sudo nmcli con reload && echo "All Wi-Fi profiles cleared. Remaining: $(sudo nmcli -t -f TYPE con show | grep -c -E 'wireless|wifi')"`
     );
   };
 
