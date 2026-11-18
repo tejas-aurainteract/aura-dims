@@ -74,12 +74,16 @@ export const DeviceWifiModal: React.FC<DeviceWifiModalProps> = ({
   } | null>(null);
 
   const activeOpUnsubRef = useRef<(() => void) | null>(null);
+  const verifyTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Clean up snapshot listeners on unmount
+  // Clean up snapshot listeners and timers on unmount
   useEffect(() => {
     return () => {
       if (activeOpUnsubRef.current) {
         activeOpUnsubRef.current();
+      }
+      if (verifyTimerRef.current) {
+        clearTimeout(verifyTimerRef.current);
       }
     };
   }, []);
@@ -158,22 +162,27 @@ export const DeviceWifiModal: React.FC<DeviceWifiModalProps> = ({
     setIsConnecting(true);
     setConnectBanner({
       type: 'loading',
-      message: `Connecting digital display to "${targetSsid}" in background...`,
+      message: `Switching digital display to "${targetSsid}"... (Device will briefly switch Wi-Fi networks)`,
     });
+
+    if (verifyTimerRef.current) {
+      clearTimeout(verifyTimerRef.current);
+      verifyTimerRef.current = null;
+    }
 
     try {
       const escapedSsid = targetSsid.replace(/"/g, '\\"');
       let connectCmd = '';
       if (isManualMode && manualSecurity === 'open') {
-        connectCmd = `sudo nmcli dev wifi connect "${escapedSsid}" hidden yes && sudo nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100`;
+        connectCmd = `sudo nmcli dev wifi connect "${escapedSsid}" hidden yes && sudo nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100 && sleep 4`;
       } else if (isManualMode) {
         const escapedPassword = password.replace(/"/g, '\\"');
-        connectCmd = `sudo nmcli dev wifi connect "${escapedSsid}" hidden yes password "${escapedPassword}" && sudo nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100`;
+        connectCmd = `sudo nmcli dev wifi connect "${escapedSsid}" hidden yes password "${escapedPassword}" && sudo nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100 && sleep 4`;
       } else if (selectedSecurity === 'open' || !password) {
-        connectCmd = `sudo nmcli dev wifi connect "${escapedSsid}" && sudo nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100`;
+        connectCmd = `sudo nmcli dev wifi connect "${escapedSsid}" && sudo nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100 && sleep 4`;
       } else {
         const escapedPassword = password.replace(/"/g, '\\"');
-        connectCmd = `sudo nmcli dev wifi connect "${escapedSsid}" password "${escapedPassword}" && sudo nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100`;
+        connectCmd = `sudo nmcli dev wifi connect "${escapedSsid}" password "${escapedPassword}" && sudo nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100 && sleep 4`;
       }
 
       const res = await api.requestDisplayOperation({
@@ -194,6 +203,10 @@ export const DeviceWifiModal: React.FC<DeviceWifiModalProps> = ({
         const op = snap.data() as DeviceOperationRecord;
 
         if (op.state === 'succeeded') {
+          if (verifyTimerRef.current) {
+            clearTimeout(verifyTimerRef.current);
+            verifyTimerRef.current = null;
+          }
           setIsConnecting(false);
           setConnectBanner({
             type: 'success',
@@ -214,6 +227,10 @@ export const DeviceWifiModal: React.FC<DeviceWifiModalProps> = ({
             activeOpUnsubRef.current = null;
           }
         } else if (op.state === 'failed' || op.state === 'expired' || op.state === 'cancelled') {
+          if (verifyTimerRef.current) {
+            clearTimeout(verifyTimerRef.current);
+            verifyTimerRef.current = null;
+          }
           setIsConnecting(false);
           const rawErr = op.errorMessage || op.output || 'Connection failed on digital display.';
           const friendlyErr =
@@ -230,6 +247,47 @@ export const DeviceWifiModal: React.FC<DeviceWifiModalProps> = ({
           }
         }
       });
+
+      // Handover fallback verification:
+      // If the operation doc hasn't reported within 15 seconds due to network transition,
+      // dispatch a status check to verify if the digital display has activated the new Wi-Fi.
+      verifyTimerRef.current = setTimeout(async () => {
+        try {
+          const verifyRes = await api.requestDisplayOperation({
+            displayId: display.id,
+            type: 'EXEC_COMMAND',
+            command: 'sudo nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY dev wifi list',
+            reason: 'Verify active Wi-Fi connection after handover.',
+          });
+
+          const vOpId = verifyRes.operation.id;
+          const vDocRef = doc(db, 'displays', display.id, 'operations', vOpId);
+          const unsubV = onSnapshot(vDocRef, (vSnap) => {
+            if (!vSnap.exists()) return;
+            const vOp = vSnap.data() as DeviceOperationRecord;
+            if (vOp.state === 'succeeded' && vOp.output) {
+              const parsed = parseNmcliWifiList(vOp.output);
+              setNetworks(parsed);
+              const activeNet = parsed.find((n) => n.inUse);
+              if (activeNet && activeNet.ssid.toLowerCase() === targetSsid.toLowerCase()) {
+                setIsConnecting(false);
+                setConnectBanner({
+                  type: 'success',
+                  message: `Digital display successfully connected to "${targetSsid}"!`,
+                });
+                setPassword('');
+                setSelectedSsid(null);
+                onDisplayUpdated?.();
+                unsubV();
+              }
+            } else if (vOp.state === 'failed') {
+              unsubV();
+            }
+          });
+        } catch {
+          // Verification query error ignored; operation listener remains active
+        }
+      }, 15000);
     } catch (err) {
       setIsConnecting(false);
       setConnectBanner({

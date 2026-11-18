@@ -1010,26 +1010,48 @@ export class OperationsAgent {
       recordedAt: new Date().toISOString(),
     });
 
-    await transport.callAuthenticatedFunction<
-      ReportDeviceOperationRequest,
-      ReportDeviceOperationResponse
-    >(
-      'reportDeviceOperation',
-      {
-        displayId,
-        operationId: op.id,
-        claimLeaseId,
-        state: params.state,
-        resultSummary: params.resultSummary,
-        output: params.output,
-        exitCode: params.exitCode,
-        errorCode: params.errorCode,
-        errorMessage: params.errorMessage,
-        cleanupSummary: params.cleanupSummary,
-        wifiNetworks: params.wifiNetworks,
-        wifiConnectedSsid: params.wifiConnectedSsid,
-      },
-      this.identity
-    );
+    // Retry reporting with backoff in case network is transitioning (e.g. Wi-Fi switch)
+    let reportSuccess = false;
+    let lastErr: any = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        await transport.callAuthenticatedFunction<
+          ReportDeviceOperationRequest,
+          ReportDeviceOperationResponse
+        >(
+          'reportDeviceOperation',
+          {
+            displayId,
+            operationId: op.id,
+            claimLeaseId,
+            state: params.state,
+            resultSummary: params.resultSummary,
+            output: params.output,
+            exitCode: params.exitCode,
+            errorCode: params.errorCode,
+            errorMessage: params.errorMessage,
+            cleanupSummary: params.cleanupSummary,
+            wifiNetworks: params.wifiNetworks,
+            wifiConnectedSsid: params.wifiConnectedSsid,
+          },
+          this.identity
+        );
+        reportSuccess = true;
+        break;
+      } catch (err: any) {
+        lastErr = err;
+        this.logger.warn(
+          `[OperationsAgent] Report operation attempt ${attempt + 1}/5 failed (network transitioning?):`,
+          err?.message || err
+        );
+        if (attempt < 4) {
+          await new Promise((resolve) => setTimeout(resolve, 2000 * (attempt + 1)));
+        }
+      }
+    }
+
+    if (!reportSuccess && lastErr) {
+      this.logger.error(`[OperationsAgent] Exhausted all 5 report attempts for op ${op.id}:`, lastErr?.message || lastErr);
+    }
   }
 }
