@@ -2766,6 +2766,7 @@ export interface WifiScannedNetwork {
   security: 'open' | 'wpa' | 'wpa2' | 'wpa3' | 'wep' | 'unknown';
   channel?: number;
   inUse?: boolean;
+  isSaved?: boolean;
 }
 
 export interface WifiStatus {

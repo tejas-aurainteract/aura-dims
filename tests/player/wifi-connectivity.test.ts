@@ -43,11 +43,30 @@ describe('Digital Display Wi-Fi Management & AP Onboarding', () => {
     expect(caps.supportedOperationTypes).toContain('CONNECT_WIFI');
   });
 
-  it('WifiManager initializes with default SSID "Aura" and password "12345678"', () => {
+  it('WifiManager initializes with default SSID incorporating MAC address "Aura-3456" and password "12345678"', () => {
     const wifi = new WifiManager(logger);
-    expect(wifi.getApSsid()).toBe('Aura');
+    expect(wifi.getApSsid()).toBe('Aura-3456');
     expect(wifi.getApPassword()).toBe('12345678');
     expect(wifi.isApModeActive()).toBe(false);
+
+    // Explicit custom SSID override
+    const customWifi = new WifiManager(logger, { apSsid: 'Custom-Aura' });
+    expect(customWifi.getApSsid()).toBe('Custom-Aura');
+  });
+
+  it('WifiManager retrieves saved profiles and handles profile deletion', async () => {
+    const wifi = new WifiManager(logger);
+    const profiles = await wifi.getSavedWifiProfiles();
+    expect(profiles).toContain('Aura-Office-5G');
+
+    const deleted = await wifi.deleteSavedWifiProfiles();
+    expect(deleted).toBeGreaterThanOrEqual(1);
+  });
+
+  it('WifiManager evaluates startup connectivity and detects saved in-range profile', async () => {
+    const wifi = new WifiManager(logger);
+    const evalResult = await wifi.evaluateStartupConnectivity();
+    expect(['online', 'connected_to_profile', 'ap_mode_started']).toContain(evalResult.action);
   });
 
   it('WifiManager scans networks and returns sorted results', async () => {

@@ -120,12 +120,12 @@ export class Supervisor {
       }
     }, 2000);
 
-    // Initial network connectivity evaluation after 15s boot grace period
+    // Fast boot-time network connectivity & AP mode evaluation (after brief 5s hardware stabilization)
     setTimeout(() => {
       if (this.isRunning) {
-        this.checkNetworkAndManageApMode();
+        this.performInitialNetworkEvaluation();
       }
-    }, 15_000);
+    }, 5000);
 
     // Periodic network reachability & AP fallback evaluation (every 30 seconds)
     this.wifiTimer = setInterval(() => {
@@ -156,19 +156,43 @@ export class Supervisor {
     this.logger.info('Digital display supervision timers stopped.');
   }
 
+  /**
+   * Fast boot-time evaluation:
+   * - If Ethernet online: suppress AP mode.
+   * - If 0 saved profiles: immediately starts AP mode.
+   * - If saved profiles exist: scans airwaves. If none in range: immediately starts AP mode.
+   * - If in range: attempts connection in order. If all fail: starts AP mode.
+   */
+  private async performInitialNetworkEvaluation(): Promise<void> {
+    try {
+      const result = await this.wifiManager.evaluateStartupConnectivity();
+      if (result.action === 'ap_mode_started') {
+        this.logger.info(`[Supervisor] AP Mode activated on startup: ${result.reason}`);
+        await this.captivePortal.start(80);
+        this.server.setApModeState(
+          true,
+          this.wifiManager.getApSsid(),
+          this.wifiManager.getApPassword()
+        );
+        this.server.triggerRendererRefresh();
+      }
+    } catch (err: any) {
+      this.logger.warn('[Supervisor] Error during startup network evaluation:', err?.message || err);
+    }
+  }
+
   private async checkNetworkAndManageApMode(): Promise<void> {
+    // User requirement: Once the digital display enters AP mode, do NOT auto-exit or auto-reconnect
+    // in the background. The digital display stays in AP mode until the user explicitly selects a network.
+    if (this.wifiManager.isApModeActive()) {
+      return;
+    }
+
     try {
       const isOnline = await this.wifiManager.checkInternetAccess();
 
       if (isOnline) {
         this.consecutiveOfflineChecks = 0;
-        if (this.wifiManager.isApModeActive()) {
-          this.logger.info('[Supervisor] Internet access confirmed. Deactivating AP Mode...');
-          await this.captivePortal.stop();
-          await this.wifiManager.stopApMode();
-          this.server.setApModeState(false);
-          this.server.triggerRendererRefresh();
-        }
       } else {
         this.consecutiveOfflineChecks += 1;
         this.logger.info(
@@ -176,7 +200,7 @@ export class Supervisor {
         );
 
         // After 2 consecutive failed checks (~60s total grace period), activate AP Mode
-        if (this.consecutiveOfflineChecks >= 2 && !this.wifiManager.isApModeActive()) {
+        if (this.consecutiveOfflineChecks >= 2) {
           this.logger.warn(
             `[Supervisor] Digital display offline. Activating AP Mode (SSID: "${this.wifiManager.getApSsid()}", Pass: "${this.wifiManager.getApPassword()}")...`
           );

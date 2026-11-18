@@ -16,6 +16,7 @@
 import * as child_process from 'node:child_process';
 import * as os from 'node:os';
 import * as http from 'node:http';
+import * as fs from 'node:fs';
 import type { Logger } from './logger.js';
 import type { WifiScannedNetwork, WifiStatus } from '@aura-dims/display-schema';
 
@@ -37,7 +38,7 @@ export class WifiManager {
   private isLinux: boolean;
   private currentConnectedSsid: string | null = null;
   private mockNetworks: WifiScannedNetwork[] = [
-    { ssid: 'Aura-Office-5G', signal: 95, security: 'wpa2', channel: 36 },
+    { ssid: 'Aura-Office-5G', signal: 95, security: 'wpa2', channel: 36, isSaved: true },
     { ssid: 'Aura-Guest-WiFi', signal: 82, security: 'open', channel: 6 },
     { ssid: 'Tech-Hub-Corporate', signal: 74, security: 'wpa3', channel: 1 },
     { ssid: 'Surat-Complex-Fast', signal: 65, security: 'wpa2', channel: 11 },
@@ -46,11 +47,37 @@ export class WifiManager {
 
   constructor(logger: Logger, config?: WifiManagerConfig) {
     this.logger = logger;
+    this.isLinux = os.platform() === 'linux';
     this.wifiInterface = config?.wifiInterface || 'wlan0';
-    this.apSsid = config?.apSsid || 'Aura';
+    this.apSsid = this.computeApSsid(config?.apSsid);
     this.apPassword = config?.apPassword || '12345678';
     this.internetCheckTimeoutMs = config?.internetCheckTimeoutMs || 30_000;
-    this.isLinux = os.platform() === 'linux';
+  }
+
+  /**
+   * Computes dynamic AP SSID incorporating the last 4 characters of the digital display's MAC address.
+   * Format: Aura-<Last4MAC> (e.g. Aura-3456 or Aura-6EF2)
+   */
+  private computeApSsid(customSsid?: string): string {
+    if (customSsid) return customSsid;
+    try {
+      let mac = '';
+      if (this.isLinux) {
+        const sysPath = `/sys/class/net/${this.wifiInterface}/address`;
+        if (fs.existsSync(sysPath)) {
+          mac = fs.readFileSync(sysPath, 'utf8').trim();
+        }
+      } else {
+        mac = 'B8:27:EB:12:34:56';
+      }
+      const cleanMac = mac.replace(/[:-]/g, '').toUpperCase();
+      if (cleanMac.length >= 4) {
+        return `Aura-${cleanMac.slice(-4)}`;
+      }
+    } catch {
+      // Fallback
+    }
+    return 'Aura-WIFI';
   }
 
   public getApSsid(): string {
@@ -66,16 +93,85 @@ export class WifiManager {
   }
 
   /**
+   * Returns a list of all saved Wi-Fi connection profile SSIDs stored in NetworkManager.
+   */
+  public async getSavedWifiProfiles(): Promise<string[]> {
+    if (!this.isLinux) {
+      return ['Aura-Office-5G'];
+    }
+    try {
+      const stdout = await this.execCommand(`sudo nmcli -t -f NAME,TYPE connection show`);
+      const lines = stdout.split('\n');
+      const profiles: string[] = [];
+      for (const line of lines) {
+        const parts = this.parseNmcliLine(line);
+        const name = parts[0]?.trim();
+        const type = parts[1]?.trim();
+        if (type?.includes('wireless') && name && name !== 'Aura-AP' && name !== this.apSsid) {
+          profiles.push(name);
+        }
+      }
+      return Array.from(new Set(profiles));
+    } catch (err: any) {
+      this.logger.warn('[WifiManager] Could not query saved connection profiles:', err?.message || err);
+      return [];
+    }
+  }
+
+  /**
+   * Deletes all saved Wi-Fi profiles from NetworkManager.
+   */
+  public async deleteSavedWifiProfiles(): Promise<number> {
+    this.logger.info('[WifiManager] Deleting all saved Wi-Fi connection profiles...');
+    if (!this.isLinux) {
+      this.logger.info('[WifiManager] Dev/Mock: Simulated deletion of saved profiles.');
+      return 1;
+    }
+    try {
+      const profiles = await this.getSavedWifiProfiles();
+      let deleted = 0;
+      for (const prof of profiles) {
+        await this.execCommand(`sudo nmcli connection delete "${prof}"`).catch(() => {});
+        deleted++;
+      }
+      this.logger.info(`[WifiManager] Successfully deleted ${deleted} saved Wi-Fi profiles.`);
+      return deleted;
+    } catch (err: any) {
+      this.logger.error('[WifiManager] Failed to clear Wi-Fi profiles:', err?.message || err);
+      throw err;
+    }
+  }
+
+  /**
+   * Checks whether wired Ethernet is plugged in and has active internet access.
+   */
+  public async isEthernetOnline(): Promise<boolean> {
+    if (!this.isLinux) return false;
+    try {
+      const stdout = await this.execCommand(`ip -br addr show | grep -E '^(eth|en)'`);
+      if (stdout.includes('UP')) {
+        return await this.checkInternetAccess();
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Scans for nearby Wi-Fi networks.
    * On Linux: uses nmcli dev wifi list --rescan yes.
-   * On other platforms: returns mock networks for testing.
+   * Annotates networks with isSaved: true if a profile already exists on this digital display.
    */
   public async scanNetworks(): Promise<WifiScannedNetwork[]> {
+    const savedProfiles = new Set(await this.getSavedWifiProfiles());
+
     if (!this.isLinux) {
       this.logger.info('[WifiManager] Non-Linux platform detected; returning mock Wi-Fi networks.');
       return this.mockNetworks.map((net) => ({
         ...net,
         inUse: net.ssid === this.currentConnectedSsid,
+        isSaved: savedProfiles.has(net.ssid) || !!net.isSaved,
       }));
     }
 
@@ -83,7 +179,7 @@ export class WifiManager {
       this.logger.info('[WifiManager] Initiating nmcli Wi-Fi scan on digital display...');
       // Execute rescan and output fields: IN-USE,SSID,BSSID,SIGNAL,SECURITY,CHAN
       const stdout = await this.execCommand(
-        `nmcli -t -f IN-USE,SSID,BSSID,SIGNAL,SECURITY,CHAN dev wifi list --rescan yes`
+        `sudo nmcli -t -f IN-USE,SSID,BSSID,SIGNAL,SECURITY,CHAN dev wifi list --rescan yes`
       );
 
       const lines = stdout.split('\n');
@@ -104,10 +200,11 @@ export class WifiManager {
         const chanRaw = parseInt(parts[5] || '0', 10);
 
         // Filter out hidden/empty SSIDs and our own AP SSID
-        if (!ssid || ssid === '--' || ssid === this.apSsid) continue;
+        if (!ssid || ssid === '--' || ssid === this.apSsid || ssid === 'Aura-AP') continue;
 
         const signal = Number.isFinite(signalRaw) ? Math.min(100, Math.max(0, signalRaw)) : 0;
         const inUse = inUseRaw.includes('*');
+        const isSaved = savedProfiles.has(ssid);
 
         let security: WifiScannedNetwork['security'] = 'open';
         const secUpper = securityRaw.toUpperCase();
@@ -125,28 +222,36 @@ export class WifiManager {
             security,
             channel: Number.isFinite(chanRaw) && chanRaw > 0 ? chanRaw : undefined,
             inUse,
+            isSaved,
           });
         }
       }
 
-      const results = Array.from(networkMap.values()).sort((a, b) => b.signal - a.signal);
+      const results = Array.from(networkMap.values()).sort((a, b) => {
+        if (a.inUse && !b.inUse) return -1;
+        if (!a.inUse && b.inUse) return 1;
+        if (a.isSaved && !b.isSaved) return -1;
+        if (!a.isSaved && b.isSaved) return 1;
+        return b.signal - a.signal;
+      });
       this.logger.info(`[WifiManager] Discovered ${results.length} Wi-Fi networks in range.`);
       return results;
     } catch (err: any) {
       this.logger.warn('[WifiManager] nmcli scan failed:', err?.message || err);
-      // Fallback to simulated scan if nmcli is missing or fails
       return this.mockNetworks;
     }
   }
 
   /**
    * Connects to a Wi-Fi network with priority and 30-second verification rollback.
-   * If priority is omitted, automatically assigns highest priority so the newest network takes precedence.
+   * If priority is omitted, automatically assigns highest priority (100) so the newest network takes precedence.
+   * If overridePassword is false and a stored profile exists, connects using stored credentials.
    */
   public async connectNetwork(
     ssid: string,
     password?: string,
-    priority?: number
+    priority = 100,
+    overridePassword = false
   ): Promise<{ success: boolean; ssid: string; resultSummary: string }> {
     const targetSsid = ssid.trim();
     if (!targetSsid) {
@@ -172,43 +277,49 @@ export class WifiManager {
     }
 
     try {
-      // 1. Calculate highest autoconnect priority
-      const targetPriority =
-        typeof priority === 'number'
-          ? priority
-          : (await this.getHighestAutoconnectPriority()) + 10;
+      const targetPriority = Math.max(priority, 100);
 
-      // 2. Check if a profile for targetSsid already exists
+      // 1. Check if a profile for targetSsid already exists
       const existingConnName = await this.findConnectionProfile(targetSsid);
 
       if (existingConnName) {
         this.logger.info(
-          `[WifiManager] Profile exists for "${targetSsid}". Updating credentials and priority to ${targetPriority}...`
+          `[WifiManager] Stored profile exists for "${targetSsid}". Configuring priority ${targetPriority}...`
         );
-        if (password) {
+        if (overridePassword && password) {
+          this.logger.info(`[WifiManager] Overriding stored password for "${targetSsid}"...`);
           await this.execCommand(
-            `nmcli connection modify "${existingConnName}" 802-11-wireless-security.psk "${password}"`
+            `sudo nmcli connection modify "${existingConnName}" 802-11-wireless-security.psk "${password}"`
           );
+        } else if (!overridePassword && password) {
+          // If password was provided without explicit override flag, update non-empty password
+          await this.execCommand(
+            `sudo nmcli connection modify "${existingConnName}" 802-11-wireless-security.psk "${password}"`
+          ).catch(() => {});
         }
+
+        // Set highest autoconnect priority
         await this.execCommand(
-          `nmcli connection modify "${existingConnName}" connection.autoconnect yes connection.autoconnect-priority ${targetPriority}`
+          `sudo nmcli connection modify "${existingConnName}" connection.autoconnect yes connection.autoconnect-priority ${targetPriority}`
         );
-        await this.execCommand(`nmcli connection up "${existingConnName}"`);
+
+        // Bring connection up
+        await this.execCommand(`sudo nmcli connection up "${existingConnName}"`);
       } else {
         this.logger.info(
           `[WifiManager] Creating new connection profile for "${targetSsid}" with priority ${targetPriority}...`
         );
         const passArg = password ? `password "${password}"` : '';
         await this.execCommand(
-          `nmcli dev wifi connect "${targetSsid}" ${passArg} ifname "${this.wifiInterface}"`
+          `sudo nmcli dev wifi connect "${targetSsid}" ${passArg} ifname "${this.wifiInterface}"`
         );
         // Set autoconnect priority to highest
         await this.execCommand(
-          `nmcli connection modify "${targetSsid}" connection.autoconnect-priority ${targetPriority}`
+          `sudo nmcli connection modify "${targetSsid}" connection.autoconnect yes connection.autoconnect-priority ${targetPriority}`
         );
       }
 
-      // 3. 30-Second Connectivity Verification
+      // 2. 30-Second Connectivity Verification
       this.logger.info(
         `[WifiManager] Verifying internet access on "${targetSsid}" (up to ${this.internetCheckTimeoutMs / 1000}s)...`
       );
@@ -250,6 +361,88 @@ export class WifiManager {
   }
 
   /**
+   * Fast boot-time evaluation of digital display connectivity.
+   * Logic:
+   * 1. If wired Ethernet is active and online -> keep client mode, suppress AP.
+   * 2. If already online via Wi-Fi -> keep client mode.
+   * 3. If zero saved Wi-Fi profiles exist -> immediately activate AP mode.
+   * 4. If saved profiles exist:
+   *    - Perform fast scan of airwaves.
+   *    - If NONE of the saved profiles exist in the airwaves -> instantly activate AP mode.
+   *    - If saved profiles ARE found in the airwaves -> try connecting in order of priority.
+   *      If all fail -> activate AP mode.
+   */
+  public async evaluateStartupConnectivity(): Promise<{
+    action: 'online' | 'ap_mode_started' | 'connected_to_profile';
+    ssid?: string;
+    reason: string;
+  }> {
+    this.logger.info('[WifiManager] Evaluating boot-time network connectivity...');
+
+    // 1. Check Ethernet
+    const ethOnline = await this.isEthernetOnline();
+    if (ethOnline) {
+      this.logger.info('[WifiManager] Wired Ethernet is connected with active internet. Suppressing AP mode.');
+      return { action: 'online', reason: 'Wired Ethernet online' };
+    }
+
+    // 2. Check if already online via Wi-Fi
+    const wifiOnline = await this.checkInternetAccess();
+    if (wifiOnline) {
+      const activeSsid = await this.getActiveSsid();
+      this.logger.info(`[WifiManager] Digital display already online via Wi-Fi (SSID: "${activeSsid || 'connected'}").`);
+      return { action: 'online', ssid: activeSsid || undefined, reason: 'Already online' };
+    }
+
+    // 3. Check saved Wi-Fi profiles
+    const savedProfiles = await this.getSavedWifiProfiles();
+    if (savedProfiles.length === 0) {
+      this.logger.warn('[WifiManager] No saved Wi-Fi profiles found. Instantly activating AP mode...');
+      await this.startApMode();
+      return { action: 'ap_mode_started', reason: 'No saved Wi-Fi profiles' };
+    }
+
+    // 4. Stored profiles exist; scan airwaves to see if any are present
+    this.logger.info(
+      `[WifiManager] Found ${savedProfiles.length} saved Wi-Fi profile(s) (${savedProfiles.join(', ')}). Scanning airwaves...`
+    );
+    const scanned = await this.scanNetworks();
+    const scannedSsids = new Set(scanned.map((s) => s.ssid));
+    const matchingProfiles = savedProfiles.filter((p) => scannedSsids.has(p));
+
+    if (matchingProfiles.length === 0) {
+      this.logger.warn(
+        '[WifiManager] None of the saved Wi-Fi profiles were detected in the airwaves. Instantly activating AP mode...'
+      );
+      await this.startApMode();
+      return { action: 'ap_mode_started', reason: 'No saved profiles in range' };
+    }
+
+    // 5. Attempt connecting to matching profiles
+    this.logger.info(
+      `[WifiManager] Detected ${matchingProfiles.length} in-range saved profile(s): ${matchingProfiles.join(', ')}. Attempting connection...`
+    );
+    for (const targetSsid of matchingProfiles) {
+      try {
+        this.logger.info(`[WifiManager] Attempting connection to saved profile "${targetSsid}"...`);
+        const res = await this.connectNetwork(targetSsid);
+        if (res.success) {
+          return { action: 'connected_to_profile', ssid: targetSsid, reason: res.resultSummary };
+        }
+      } catch (err: any) {
+        this.logger.warn(`[WifiManager] Connection to saved profile "${targetSsid}" failed:`, err?.message || err);
+      }
+    }
+
+    // 6. All in-range saved profiles failed
+    this.logger.warn(
+      '[WifiManager] All in-range saved profiles failed to connect. Activating AP mode...'
+    );
+    await this.startApMode();
+    return { action: 'ap_mode_started', reason: 'All in-range saved profiles failed to connect' };
+  }
+
+  /**
    * Checks whether the digital display has active internet connectivity.
    */
   public async checkInternetAccess(): Promise<boolean> {
@@ -271,7 +464,7 @@ export class WifiManager {
 
   /**
    * Starts Access Point (AP) mode on the digital display.
-   * SSID: "Aura", Password: "12345678"
+   * SSID: "Aura-<Last4MAC>", Password: "12345678"
    */
   public async startApMode(): Promise<void> {
     if (this.apActive) {
@@ -291,11 +484,11 @@ export class WifiManager {
 
     try {
       // Delete old AP profile if it exists
-      await this.execCommand(`nmcli connection delete "Aura-AP"`).catch(() => {});
+      await this.execCommand(`sudo nmcli connection delete "Aura-AP"`).catch(() => {});
 
       // Create and start AP hotspot connection
       await this.execCommand(
-        `nmcli dev wifi hotspot ifname "${this.wifiInterface}" ssid "${this.apSsid}" password "${this.apPassword}" con-name "Aura-AP"`
+        `sudo nmcli dev wifi hotspot ifname "${this.wifiInterface}" ssid "${this.apSsid}" password "${this.apPassword}" con-name "Aura-AP"`
       );
 
       this.apActive = true;
@@ -319,10 +512,10 @@ export class WifiManager {
 
     if (this.isLinux) {
       try {
-        await this.execCommand(`nmcli connection down "Aura-AP"`).catch(() => {});
-        await this.execCommand(`nmcli connection delete "Aura-AP"`).catch(() => {});
+        await this.execCommand(`sudo nmcli connection down "Aura-AP"`).catch(() => {});
+        await this.execCommand(`sudo nmcli connection delete "Aura-AP"`).catch(() => {});
         await this.execCommand(
-          `nmcli device set "${this.wifiInterface}" autoconnect yes`
+          `sudo nmcli device set "${this.wifiInterface}" autoconnect yes`
         ).catch(() => {});
       } catch (err: any) {
         this.logger.warn('[WifiManager] Notice while stopping AP connection:', err?.message || err);
@@ -355,7 +548,7 @@ export class WifiManager {
 
         if (ssid) {
           const sigOut = await this.execCommand(
-            `nmcli -t -f IN-USE,SIGNAL dev wifi list | grep '^\\*'`
+            `sudo nmcli -t -f IN-USE,SIGNAL dev wifi list | grep '^\\*'`
           );
           const sigParts = sigOut.split(':');
           if (sigParts[1]) {
@@ -396,7 +589,7 @@ export class WifiManager {
     if (!this.isLinux) return this.currentConnectedSsid;
     try {
       const stdout = await this.execCommand(
-        `nmcli -t -f active,ssid dev wifi | grep '^yes'`
+        `sudo nmcli -t -f active,ssid dev wifi | grep '^yes'`
       );
       const match = stdout.split(':');
       return match[1]?.trim() || null;
@@ -409,7 +602,7 @@ export class WifiManager {
     if (!this.isLinux) return 100;
     try {
       const stdout = await this.execCommand(
-        `nmcli -t -f AUTOCONNECT-PRIORITY connection show`
+        `sudo nmcli -t -f AUTOCONNECT-PRIORITY connection show`
       );
       const priorities = stdout
         .split('\n')
@@ -424,7 +617,7 @@ export class WifiManager {
   private async findConnectionProfile(ssid: string): Promise<string | null> {
     if (!this.isLinux) return null;
     try {
-      const stdout = await this.execCommand(`nmcli -t -f NAME,TYPE connection show`);
+      const stdout = await this.execCommand(`sudo nmcli -t -f NAME,TYPE connection show`);
       const lines = stdout.split('\n');
       for (const line of lines) {
         const [name, type] = line.split(':');
@@ -442,7 +635,7 @@ export class WifiManager {
     if (!previousSsid || !this.isLinux) return;
     this.logger.info(`[WifiManager] Re-activating previous connection profile "${previousSsid}"...`);
     try {
-      await this.execCommand(`nmcli connection up "${previousSsid}"`);
+      await this.execCommand(`sudo nmcli connection up "${previousSsid}"`);
       this.logger.info(`[WifiManager] Successfully rolled back to "${previousSsid}".`);
     } catch (err: any) {
       this.logger.warn(`[WifiManager] Rollback to "${previousSsid}" failed:`, err?.message || err);

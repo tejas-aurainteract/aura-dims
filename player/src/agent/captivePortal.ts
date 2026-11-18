@@ -16,6 +16,19 @@ import * as http from 'node:http';
 import type { Logger } from './logger.js';
 import type { WifiManager } from './wifiManager.js';
 
+function escapeHtml(str: string): string {
+  return String(str || '').replace(/[&<>"']/g, (m) => {
+    const map: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    };
+    return map[m] ?? m;
+  });
+}
+
 export class CaptivePortalServer {
   private readonly logger: Logger;
   private readonly wifiManager: WifiManager;
@@ -153,6 +166,7 @@ export class CaptivePortalServer {
           const parsed = JSON.parse(body);
           const ssid = (parsed.ssid || '').trim();
           const password = parsed.password || '';
+          const overridePassword = Boolean(parsed.overridePassword);
 
           if (!ssid) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -160,8 +174,10 @@ export class CaptivePortalServer {
             return;
           }
 
-          this.logger.info(`[CaptivePortal] Received user connect request for SSID: "${ssid}"`);
-          const result = await this.wifiManager.connectNetwork(ssid, password);
+          this.logger.info(
+            `[CaptivePortal] Received user connect request for SSID: "${ssid}" (overridePassword: ${overridePassword})`
+          );
+          const result = await this.wifiManager.connectNetwork(ssid, password, 100, overridePassword);
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(result));
@@ -179,6 +195,8 @@ export class CaptivePortalServer {
   }
 
   private getSetupHtml(): string {
+    const apSsid = this.wifiManager.getApSsid();
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -188,23 +206,29 @@ export class CaptivePortalServer {
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     body { background-color: #090d16; color: #f1f5f9; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1.25rem; }
-    .card { background: #0f172a; border: 1px solid #1e293b; border-radius: 1rem; width: 100%; max-width: 440px; padding: 1.5rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
-    .header { text-align: center; margin-bottom: 1.5rem; }
-    .badge { display: inline-block; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #14b8a6; background: rgba(20,184,166,0.1); border: 1px solid rgba(20,184,166,0.3); padding: 0.25rem 0.75rem; border-radius: 9999px; margin-bottom: 0.75rem; }
+    .card { background: #0f172a; border: 1px solid #1e293b; border-radius: 1rem; width: 100%; max-width: 460px; padding: 1.5rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+    .header { text-align: center; margin-bottom: 1.25rem; }
+    .badge { display: inline-block; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #14b8a6; background: rgba(20,184,166,0.1); border: 1px solid rgba(20,184,166,0.3); padding: 0.25rem 0.75rem; border-radius: 9999px; margin-bottom: 0.5rem; }
     h1 { font-size: 1.35rem; font-weight: 700; color: #ffffff; margin-bottom: 0.35rem; }
     p.sub { font-size: 0.85rem; color: #94a3b8; line-height: 1.4; }
+    .hotspot-pill { display: inline-flex; align-items: center; gap: 0.35rem; margin-top: 0.5rem; font-size: 0.75rem; color: #38bdf8; background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.25); padding: 0.2rem 0.6rem; border-radius: 0.5rem; }
     .btn-scan { width: 100%; padding: 0.65rem 1rem; background: #1e293b; color: #38bdf8; border: 1px solid #334155; border-radius: 0.5rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 1rem; transition: background 0.2s; }
     .btn-scan:hover { background: #334155; }
     .network-list { display: flex; flex-direction: column; gap: 0.5rem; max-height: 240px; overflow-y: auto; margin-bottom: 1.25rem; padding-right: 0.25rem; }
     .network-item { background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem; padding: 0.75rem 1rem; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: all 0.15s; }
     .network-item:hover, .network-item.selected { border-color: #14b8a6; background: rgba(20,184,166,0.08); }
     .network-info { display: flex; align-items: center; gap: 0.75rem; }
-    .ssid { font-size: 0.9rem; font-weight: 600; color: #f8fafc; }
+    .ssid { font-size: 0.9rem; font-weight: 600; color: #f8fafc; display: flex; align-items: center; gap: 0.4rem; }
     .meta { font-size: 0.75rem; color: #64748b; }
     .signal-pill { font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 0.25rem; }
     .sig-strong { background: rgba(34,197,94,0.15); color: #4ade80; }
     .sig-med { background: rgba(234,179,8,0.15); color: #facc15; }
     .sig-weak { background: rgba(239,68,68,0.15); color: #f87171; }
+    .badge-saved { font-size: 0.65rem; font-weight: 700; background: rgba(34,197,94,0.15); color: #4ade80; border: 1px solid rgba(34,197,94,0.3); padding: 0.1rem 0.35rem; border-radius: 0.25rem; text-transform: uppercase; letter-spacing: 0.03em; }
+    .saved-box { background: rgba(34,197,94,0.06); border: 1px solid rgba(34,197,94,0.25); border-radius: 0.5rem; padding: 0.65rem 0.85rem; margin-bottom: 1rem; font-size: 0.8rem; }
+    .saved-header { color: #86efac; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.4rem; }
+    .override-label { display: flex; align-items: center; gap: 0.5rem; color: #cbd5e1; font-size: 0.8rem; cursor: pointer; user-select: none; }
+    .override-label input[type="checkbox"] { width: 16px; height: 16px; accent-color: #14b8a6; cursor: pointer; }
     .form-group { margin-bottom: 1rem; }
     label { display: block; font-size: 0.8rem; font-weight: 500; color: #cbd5e1; margin-bottom: 0.35rem; }
     input[type="text"], input[type="password"] { width: 100%; background: #020617; border: 1px solid #334155; border-radius: 0.5rem; padding: 0.65rem 0.85rem; color: #f8fafc; font-size: 0.9rem; outline: none; }
@@ -227,6 +251,9 @@ export class CaptivePortalServer {
       <div class="badge">Aura DIMS • Signage Setup</div>
       <h1>Digital Display Wi-Fi Setup</h1>
       <p class="sub">Select a local Wi-Fi network to connect this digital display to the Aura DIMS Cloud.</p>
+      <div class="hotspot-pill">
+        <span>Broadcasting: <strong>${escapeHtml(apSsid)}</strong></span>
+      </div>
     </div>
 
     <button id="scan-btn" class="btn-scan" onclick="scanWifi()">
@@ -242,11 +269,24 @@ export class CaptivePortalServer {
     <form id="connect-form" onsubmit="connectWifi(event)">
       <div class="form-group">
         <label for="ssid-input">Wi-Fi Network (SSID)</label>
-        <input type="text" id="ssid-input" placeholder="Select above or type SSID..." required autocomplete="off">
+        <input type="text" id="ssid-input" placeholder="Select above or type SSID..." required autocomplete="off" oninput="handleSsidInput()">
+      </div>
+
+      <div id="saved-box" class="saved-box hidden">
+        <div class="saved-header">
+          <span>✓ Stored Credentials Available</span>
+        </div>
+        <p style="color: #94a3b8; font-size: 0.75rem; margin-bottom: 0.4rem;">
+          This digital display already has saved credentials for this network. You do not need to re-enter the password.
+        </p>
+        <label class="override-label">
+          <input type="checkbox" id="override-check" onchange="toggleOverride()">
+          <span>Override / Update password</span>
+        </label>
       </div>
 
       <div class="form-group" id="pass-group">
-        <label for="pass-input">Password</label>
+        <label for="pass-input" id="pass-label">Password</label>
         <input type="password" id="pass-input" placeholder="Enter Wi-Fi password..." autocomplete="off">
       </div>
 
@@ -298,7 +338,10 @@ export class CaptivePortalServer {
           <div class="network-item \${isSelected ? 'selected' : ''}" onclick="selectNetwork(\${idx})">
             <div class="network-info">
               <div>
-                <div class="ssid">\${escapeHtml(net.ssid)}</div>
+                <div class="ssid">
+                  \${escapeHtml(net.ssid)}
+                  \${net.isSaved ? '<span class="badge-saved">✓ Saved</span>' : ''}
+                </div>
                 <div class="meta">\${net.security === 'open' ? 'Open Network' : net.security.toUpperCase()} \${net.channel ? '• Ch ' + net.channel : ''}</div>
               </div>
             </div>
@@ -313,27 +356,74 @@ export class CaptivePortalServer {
       if (!net) return;
       selectedNetwork = net;
       document.getElementById('ssid-input').value = net.ssid;
+      updateFormState(net);
+      renderNetworks(scannedList);
+    }
+
+    function handleSsidInput() {
+      const typed = document.getElementById('ssid-input').value.trim();
+      const match = scannedList.find(n => n.ssid === typed);
+      selectedNetwork = match || { ssid: typed, security: 'wpa2', isSaved: false };
+      updateFormState(selectedNetwork);
+    }
+
+    function updateFormState(net) {
+      const savedBox = document.getElementById('saved-box');
+      const overrideCheck = document.getElementById('override-check');
       const passGroup = document.getElementById('pass-group');
       const passInput = document.getElementById('pass-input');
+      const passLabel = document.getElementById('pass-label');
+      const connectBtn = document.getElementById('connect-btn');
 
-      if (net.security === 'open') {
-        passGroup.classList.add('hidden');
-        passInput.value = '';
+      if (net.isSaved) {
+        savedBox.classList.remove('hidden');
+        if (overrideCheck.checked) {
+          passGroup.classList.remove('hidden');
+          passLabel.textContent = 'New Wi-Fi Password';
+          passInput.placeholder = 'Enter new password to override stored one...';
+          passInput.focus();
+          connectBtn.textContent = 'Update Password & Connect';
+        } else {
+          passGroup.classList.add('hidden');
+          passInput.value = '';
+          connectBtn.textContent = 'Connect Using Saved Credentials';
+        }
       } else {
-        passGroup.classList.remove('hidden');
-        passInput.focus();
+        savedBox.classList.add('hidden');
+        overrideCheck.checked = false;
+        passLabel.textContent = 'Password';
+        passInput.placeholder = 'Enter Wi-Fi password...';
+
+        if (net.security === 'open') {
+          passGroup.classList.add('hidden');
+          passInput.value = '';
+          connectBtn.textContent = 'Connect Digital Display';
+        } else {
+          passGroup.classList.remove('hidden');
+          connectBtn.textContent = 'Connect Digital Display';
+        }
       }
-      renderNetworks(scannedList);
+    }
+
+    function toggleOverride() {
+      if (selectedNetwork) {
+        updateFormState(selectedNetwork);
+      }
     }
 
     async function connectWifi(e) {
       e.preventDefault();
       const ssid = document.getElementById('ssid-input').value.trim();
-      const password = document.getElementById('pass-input').value;
+      const passInput = document.getElementById('pass-input');
+      const overrideCheck = document.getElementById('override-check');
       const statusBox = document.getElementById('status-box');
       const connectBtn = document.getElementById('connect-btn');
 
       if (!ssid) return;
+
+      const isSaved = selectedNetwork && selectedNetwork.isSaved;
+      const overridePassword = isSaved && overrideCheck && overrideCheck.checked;
+      const password = passInput.value;
 
       connectBtn.disabled = true;
       statusBox.className = 'status-box status-loading';
@@ -343,13 +433,13 @@ export class CaptivePortalServer {
         const res = await fetch('/api/wifi/connect', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ssid, password })
+          body: JSON.stringify({ ssid, password, overridePassword })
         });
         const data = await res.json();
 
         if (res.ok && data.success) {
           statusBox.className = 'status-box status-success';
-          statusBox.innerHTML = '✓ ' + escapeHtml(data.resultSummary || 'Successfully connected to Wi-Fi!') + '<br><small>This digital display is now online. AP mode will close automatically.</small>';
+          statusBox.innerHTML = '✓ ' + escapeHtml(data.resultSummary || 'Successfully connected to Wi-Fi!') + '<br><small>This digital display is now online. Hotspot mode will close automatically.</small>';
         } else {
           statusBox.className = 'status-box status-error';
           statusBox.innerHTML = '⚠ ' + escapeHtml(data.error || 'Connection failed.');

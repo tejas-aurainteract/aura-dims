@@ -10,6 +10,8 @@ import {
   HardDrive,
   Cpu,
   Wifi,
+  WifiOff,
+  Radio,
   X,
   AlertTriangle,
   AlertCircle,
@@ -48,6 +50,14 @@ const QUICK_COMMANDS = [
   { label: 'Network IPs', cmd: 'sudo ip -br address' },
   { label: 'Wi-Fi Status', cmd: 'sudo nmcli -t -f active,ssid,signal dev wifi && sudo ip -br addr' },
   { label: 'Scan Wi-Fi', cmd: 'sudo nmcli dev wifi list' },
+  {
+    label: 'Clear Wi-Fi Profiles',
+    cmd: `sudo nmcli --fields UUID,TYPE con show | awk '$2=="802-11-wireless" {print $1}' | xargs -r sudo nmcli con delete && echo "All saved Wi-Fi connection profiles cleared on digital display."`,
+  },
+  {
+    label: 'Switch to AP Mode',
+    cmd: `sudo nmcli connection delete "Aura-AP" 2>/dev/null; MAC_TAIL=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d ':' | tail -c 5 | tr '[:lower:]' '[:upper:]'); SSID="Aura-\${MAC_TAIL:-WIFI}"; sudo nmcli dev wifi hotspot ifname wlan0 ssid "$SSID" password "12345678" con-name "Aura-AP" && echo "Digital display switched to AP Mode ($SSID)"`,
+  },
   { label: 'Disk Space', cmd: 'sudo df -h /' },
   { label: 'Memory (RAM)', cmd: 'sudo free -h' },
   { label: 'Player Status', cmd: 'sudo systemctl status aura-player --no-pager -n 15' },
@@ -72,6 +82,10 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
   const [showRebootModal, setShowRebootModal] = useState<boolean>(false);
   const [rebootReason, setRebootReason] = useState<string>('');
   const [expandedOpId, setExpandedOpId] = useState<string | null>(null);
+
+  // Wi-Fi Onboarding & AP Confirmation Modals
+  const [showClearWifiModal, setShowClearWifiModal] = useState<boolean>(false);
+  const [showSwitchApModal, setShowSwitchApModal] = useState<boolean>(false);
 
   // Real-Time Cloud Terminal State (Cleared timestamp persisted per display)
   const [terminalInput, setTerminalInput] = useState<string>('');
@@ -259,6 +273,22 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
       setBannerError(err?.message || 'Failed to dispatch command to digital display.');
       setIsExecuting(false);
     }
+  };
+
+  const handleConfirmClearWifi = async () => {
+    setShowClearWifiModal(false);
+    setActiveTab('terminal');
+    await handleRunTerminalCommand(
+      `sudo nmcli --fields UUID,TYPE con show | awk '$2=="802-11-wireless" {print $1}' | xargs -r sudo nmcli con delete && echo "All saved Wi-Fi connection profiles cleared on digital display."`
+    );
+  };
+
+  const handleConfirmSwitchAp = async () => {
+    setShowSwitchApModal(false);
+    setActiveTab('terminal');
+    await handleRunTerminalCommand(
+      `sudo nmcli connection delete "Aura-AP" 2>/dev/null; MAC_TAIL=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d ':' | tail -c 5 | tr '[:lower:]' '[:upper:]'); SSID="Aura-\${MAC_TAIL:-WIFI}"; sudo nmcli dev wifi hotspot ifname wlan0 ssid "$SSID" password "12345678" con-name "Aura-AP" && echo "Digital display switched to AP Mode ($SSID)"`
+    );
   };
 
   const handleClearTerminal = () => {
@@ -632,6 +662,61 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                     >
                       <Power className="w-3.5 h-3.5" />
                       <span>Reboot Device</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Wi-Fi Onboarding & Local AP Mode Controls */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 1. Clear All Wi-Fi Profiles */}
+                <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 flex flex-col justify-between hover:border-slate-700/80 transition-all">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2.5 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                      <WifiOff className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-semibold text-white">Clear All Wi-Fi Profiles</h4>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Removes all saved wireless network credentials from the digital display. Once disconnected, the device will instantly trigger local AP fallback mode.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
+                    <span className="text-[11px] text-rose-400/80">Requires confirmation</span>
+                    <button
+                      onClick={() => setShowClearWifiModal(true)}
+                      disabled={!isAdmin || isExecuting}
+                      className="px-3.5 py-1.5 bg-rose-950/80 hover:bg-rose-900 border border-rose-800/70 disabled:opacity-40 text-rose-200 font-medium text-xs rounded-lg transition-colors flex items-center gap-1.5"
+                    >
+                      <WifiOff className="w-3.5 h-3.5" />
+                      <span>Clear All Profiles</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Switch to AP Mode */}
+                <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 flex flex-col justify-between hover:border-slate-700/80 transition-all">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2.5 rounded-lg bg-teal-500/10 text-teal-400 border border-teal-500/20">
+                      <Radio className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-semibold text-white">Switch to AP Mode</h4>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Forces digital display into Access Point mode broadcasting <code className="text-teal-300">Aura-&lt;Last4MAC&gt;</code> (pass: <code className="text-teal-300">12345678</code>) with captive portal.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
+                    <span className="text-[11px] text-teal-400/80">Local onboarding hotspot</span>
+                    <button
+                      onClick={() => setShowSwitchApModal(true)}
+                      disabled={!isAdmin || isExecuting}
+                      className="px-3.5 py-1.5 bg-teal-950/80 hover:bg-teal-900 border border-teal-800/70 disabled:opacity-40 text-teal-200 font-medium text-xs rounded-lg transition-colors flex items-center gap-1.5"
+                    >
+                      <Radio className="w-3.5 h-3.5" />
+                      <span>Switch to AP Mode</span>
                     </button>
                   </div>
                 </div>
@@ -1225,6 +1310,86 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                     <span>Confirm Reboot</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear All Wi-Fi Profiles Confirmation Modal */}
+      {showClearWifiModal && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+          <div className="bg-slate-900 border border-rose-900/60 rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20">
+                <WifiOff className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-white">Clear All Wi-Fi Profiles</h3>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Are you sure you want to delete all saved wireless network credentials from digital display{' '}
+              <strong className="text-white font-semibold">{display.name}</strong>?
+            </p>
+            <div className="bg-rose-950/30 border border-rose-900/40 rounded-lg p-3 text-[11px] text-rose-300/90 leading-relaxed">
+              <strong>Notice:</strong> If the digital display is connected over Wi-Fi, it will disconnect and immediately transition into Access Point (hotspot) mode with captive portal for new onboarding.
+            </div>
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowClearWifiModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isExecuting}
+                onClick={handleConfirmClearWifi}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
+              >
+                <WifiOff className="w-3.5 h-3.5" />
+                <span>Confirm Clear All Profiles</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Switch to AP Mode Confirmation Modal */}
+      {showSwitchApModal && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+          <div className="bg-slate-900 border border-teal-900/60 rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-teal-400">
+              <div className="p-2.5 rounded-lg bg-teal-500/10 border border-teal-500/20">
+                <Radio className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-white">Switch to AP Mode</h3>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Activate local onboarding Access Point mode on digital display{' '}
+              <strong className="text-white font-semibold">{display.name}</strong>?
+            </p>
+            <div className="bg-teal-950/30 border border-teal-900/40 rounded-lg p-3 text-[11px] text-teal-300/90 leading-relaxed space-y-1">
+              <div>• <strong>Hotspot SSID:</strong> <code className="text-teal-200">Aura-&lt;Last4MAC&gt;</code></div>
+              <div>• <strong>Hotspot Password:</strong> <code className="text-teal-200">12345678</code></div>
+              <div>• <strong>Captive Portal:</strong> Automatically directs connected phones/laptops to local setup page.</div>
+            </div>
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowSwitchApModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isExecuting}
+                onClick={handleConfirmSwitchAp}
+                className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
+              >
+                <Radio className="w-3.5 h-3.5" />
+                <span>Confirm Switch to AP Mode</span>
               </button>
             </div>
           </div>
