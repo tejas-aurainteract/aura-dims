@@ -107,7 +107,12 @@ export class WifiManager {
         const parts = this.parseNmcliLine(line);
         const name = parts[0]?.trim();
         const type = parts[1]?.trim();
-        if (type?.includes('wireless') && name && name !== 'Aura-AP' && name !== this.apSsid) {
+        if (
+          (type?.includes('wireless') || type?.includes('wifi')) &&
+          name &&
+          name !== 'Aura-AP' &&
+          name !== this.apSsid
+        ) {
           profiles.push(name);
         }
       }
@@ -621,7 +626,7 @@ export class WifiManager {
       const lines = stdout.split('\n');
       for (const line of lines) {
         const [name, type] = line.split(':');
-        if (type?.includes('wireless') && name?.trim() === ssid) {
+        if ((type?.includes('wireless') || type?.includes('wifi')) && name?.trim() === ssid) {
           return name.trim();
         }
       }

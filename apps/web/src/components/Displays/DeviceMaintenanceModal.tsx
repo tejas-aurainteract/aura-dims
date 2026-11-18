@@ -49,14 +49,15 @@ const QUICK_COMMANDS = [
   { label: 'System Info', cmd: 'sudo uname -a && sudo uptime' },
   { label: 'Network IPs', cmd: 'sudo ip -br address' },
   { label: 'Wi-Fi Status', cmd: 'sudo nmcli -t -f active,ssid,signal dev wifi && sudo ip -br addr' },
+  { label: 'Saved Wi-Fi Profiles', cmd: 'sudo nmcli -t -f NAME,TYPE,UUID connection show | grep -E "wireless|wifi"' },
   { label: 'Scan Wi-Fi', cmd: 'sudo nmcli dev wifi list' },
   {
     label: 'Clear Wi-Fi Profiles',
-    cmd: `sudo nmcli --fields UUID,TYPE con show | awk '$2=="802-11-wireless" {print $1}' | xargs -r sudo nmcli con delete && echo "All saved Wi-Fi connection profiles cleared on digital display."`,
+    cmd: `for id in $(sudo nmcli -t -f UUID,TYPE con show | awk -F: '$2 ~ /wireless|wifi/ {print $1}'); do sudo nmcli con delete "$id"; done; sudo nmcli con reload; REMAINING=$(sudo nmcli -t -f TYPE con show | grep -c -E 'wireless|wifi'); echo "Wi-Fi profiles cleared. Remaining wireless profiles: $REMAINING"`,
   },
   {
     label: 'Switch to AP Mode',
-    cmd: `sudo nmcli connection delete "Aura-AP" 2>/dev/null; MAC_TAIL=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d ':' | tail -c 5 | tr '[:lower:]' '[:upper:]'); SSID="Aura-\${MAC_TAIL:-WIFI}"; sudo nmcli dev wifi hotspot ifname wlan0 ssid "$SSID" password "12345678" con-name "Aura-AP" && echo "Digital display switched to AP Mode ($SSID)"`,
+    cmd: `sudo nmcli connection delete "Aura-AP" 2>/dev/null; MAC_TAIL=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d ':\\n\\r ' | tail -c 4 | tr '[:lower:]' '[:upper:]'); SSID="Aura-\${MAC_TAIL:-WIFI}"; sudo nmcli dev wifi hotspot ifname wlan0 ssid "$SSID" password "12345678" con-name "Aura-AP" && echo "Digital display switched to AP Mode ($SSID)"`,
   },
   { label: 'Disk Space', cmd: 'sudo df -h /' },
   { label: 'Memory (RAM)', cmd: 'sudo free -h' },
@@ -279,7 +280,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
     setShowClearWifiModal(false);
     setActiveTab('terminal');
     await handleRunTerminalCommand(
-      `sudo nmcli --fields UUID,TYPE con show | awk '$2=="802-11-wireless" {print $1}' | xargs -r sudo nmcli con delete && echo "All saved Wi-Fi connection profiles cleared on digital display."`
+      `for id in $(sudo nmcli -t -f UUID,TYPE con show | awk -F: '$2 ~ /wireless|wifi/ {print $1}'); do sudo nmcli con delete "$id"; done; sudo nmcli con reload; REMAINING=$(sudo nmcli -t -f TYPE con show | grep -c -E 'wireless|wifi'); echo "Wi-Fi profiles cleared. Remaining wireless profiles: $REMAINING"`
     );
   };
 
@@ -287,7 +288,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
     setShowSwitchApModal(false);
     setActiveTab('terminal');
     await handleRunTerminalCommand(
-      `sudo nmcli connection delete "Aura-AP" 2>/dev/null; MAC_TAIL=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d ':' | tail -c 5 | tr '[:lower:]' '[:upper:]'); SSID="Aura-\${MAC_TAIL:-WIFI}"; sudo nmcli dev wifi hotspot ifname wlan0 ssid "$SSID" password "12345678" con-name "Aura-AP" && echo "Digital display switched to AP Mode ($SSID)"`
+      `sudo nmcli connection delete "Aura-AP" 2>/dev/null; MAC_TAIL=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d ':\\n\\r ' | tail -c 4 | tr '[:lower:]' '[:upper:]'); SSID="Aura-\${MAC_TAIL:-WIFI}"; sudo nmcli dev wifi hotspot ifname wlan0 ssid "$SSID" password "12345678" con-name "Aura-AP" && echo "Digital display switched to AP Mode ($SSID)"`
     );
   };
 

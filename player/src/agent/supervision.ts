@@ -193,26 +193,73 @@ export class Supervisor {
 
       if (isOnline) {
         this.consecutiveOfflineChecks = 0;
-      } else {
-        this.consecutiveOfflineChecks += 1;
-        this.logger.info(
-          `[Supervisor] Internet unreachable (consecutive check #${this.consecutiveOfflineChecks}).`
-        );
+        return;
+      }
 
-        // After 2 consecutive failed checks (~60s total grace period), activate AP Mode
-        if (this.consecutiveOfflineChecks >= 2) {
-          this.logger.warn(
-            `[Supervisor] Digital display offline. Activating AP Mode (SSID: "${this.wifiManager.getApSsid()}", Pass: "${this.wifiManager.getApPassword()}")...`
-          );
-          await this.wifiManager.startApMode();
-          await this.captivePortal.start(80);
-          this.server.setApModeState(
-            true,
-            this.wifiManager.getApSsid(),
-            this.wifiManager.getApPassword()
-          );
-          this.server.triggerRendererRefresh();
-        }
+      this.consecutiveOfflineChecks += 1;
+      this.logger.info(
+        `[Supervisor] Internet unreachable (consecutive check #${this.consecutiveOfflineChecks}).`
+      );
+
+      // Check if wired Ethernet is online (suppresses AP mode if wired connection works)
+      const ethOnline = await this.wifiManager.isEthernetOnline();
+      if (ethOnline) {
+        this.logger.info('[Supervisor] Wired Ethernet is online. Suppressing AP mode.');
+        return;
+      }
+
+      // Check saved Wi-Fi profiles
+      const savedProfiles = await this.wifiManager.getSavedWifiProfiles();
+
+      // RULE 1: If 0 saved profiles exist (unboxed or cleared) -> INSTANT AP MODE!
+      if (savedProfiles.length === 0) {
+        this.logger.warn(
+          `[Supervisor] Zero saved Wi-Fi profiles found. Instantly activating AP Mode (SSID: "${this.wifiManager.getApSsid()}")...`
+        );
+        await this.wifiManager.startApMode();
+        await this.captivePortal.start(80);
+        this.server.setApModeState(
+          true,
+          this.wifiManager.getApSsid(),
+          this.wifiManager.getApPassword()
+        );
+        this.server.triggerRendererRefresh();
+        return;
+      }
+
+      // RULE 2: If saved profiles exist, check if ANY are detected in the airwaves
+      const scanned = await this.wifiManager.scanNetworks();
+      const scannedSsids = new Set(scanned.map((s) => s.ssid));
+      const anySavedInRange = savedProfiles.some((p) => scannedSsids.has(p));
+
+      if (!anySavedInRange) {
+        this.logger.warn(
+          `[Supervisor] None of the ${savedProfiles.length} saved Wi-Fi profile(s) detected in airwaves. Instantly activating AP Mode...`
+        );
+        await this.wifiManager.startApMode();
+        await this.captivePortal.start(80);
+        this.server.setApModeState(
+          true,
+          this.wifiManager.getApSsid(),
+          this.wifiManager.getApPassword()
+        );
+        this.server.triggerRendererRefresh();
+        return;
+      }
+
+      // RULE 3: Saved profiles ARE in the airwaves -> allow up to 2 failed checks for NetworkManager reconnect
+      if (this.consecutiveOfflineChecks >= 2) {
+        this.logger.warn(
+          `[Supervisor] Reconnection to in-range profiles failed after grace period. Activating AP Mode...`
+        );
+        await this.wifiManager.startApMode();
+        await this.captivePortal.start(80);
+        this.server.setApModeState(
+          true,
+          this.wifiManager.getApSsid(),
+          this.wifiManager.getApPassword()
+        );
+        this.server.triggerRendererRefresh();
       }
     } catch (err: any) {
       this.logger.warn('[Supervisor] Error checking network status:', err?.message || err);
