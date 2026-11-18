@@ -15,6 +15,7 @@ import { WifiManager } from '../../player/src/agent/wifiManager.js';
 import { CaptivePortalServer } from '../../player/src/agent/captivePortal.js';
 import { HardwareAdapter } from '../../player/src/agent/hardwareAdapter.js';
 import { loadConfig } from '../../player/src/agent/config.js';
+import { parseNmcliWifiList } from '@aura-dims/display-schema';
 
 const TMP_LOGS = path.resolve(__dirname, '../../test-tmp/wifi-tests');
 
@@ -127,6 +128,40 @@ describe('Digital Display Wi-Fi Management & AP Onboarding', () => {
     } finally {
       await portal.stop();
     }
+  });
+
+  it('parseNmcliWifiList parses terse nmcli stdout correctly into WifiScannedNetwork items', () => {
+    const mockOutput = [
+      '*:Office-Primary:85:WPA2',
+      ' :Guest-Open:45:',
+      ' :Warehouse\\:Meeting:60:WPA2 WPA3',
+      ' :Office-Primary:70:WPA2', // duplicate SSID with lower signal
+      ' :--:30:WPA2', // hidden network (should be ignored)
+      ' ::20:WPA2', // empty SSID
+      '',
+    ].join('\n');
+
+    const result = parseNmcliWifiList(mockOutput);
+
+    expect(result).toHaveLength(3);
+
+    // 1. In-use network should be sorted first
+    expect(result[0]!.ssid).toBe('Office-Primary');
+    expect(result[0]!.inUse).toBe(true);
+    expect(result[0]!.signal).toBe(85);
+    expect(result[0]!.security).toBe('wpa2');
+
+    // 2. Warehouse:Meeting with escaped colon
+    expect(result[1]!.ssid).toBe('Warehouse:Meeting');
+    expect(result[1]!.signal).toBe(60);
+    expect(result[1]!.security).toBe('wpa3');
+    expect(result[1]!.inUse).toBe(false);
+
+    // 3. Guest-Open
+    expect(result[2]!.ssid).toBe('Guest-Open');
+    expect(result[2]!.signal).toBe(45);
+    expect(result[2]!.security).toBe('open');
+    expect(result[2]!.inUse).toBe(false);
   });
 });
 

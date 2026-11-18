@@ -2778,6 +2778,71 @@ export interface WifiStatus {
   apSsid: string | null;
 }
 
+/**
+ * Parses terse nmcli output:
+ * format: IN-USE:SSID:SIGNAL:SECURITY
+ * Example:
+ *   *:Home-5G:85:WPA2
+ *    :Office-Guest:60:
+ */
+export function parseNmcliWifiList(output: string): WifiScannedNetwork[] {
+  if (!output) return [];
+  const lines = output.split('\n');
+  const networksBySsid = new Map<string, WifiScannedNetwork>();
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    // Handle escaped colons (\:) in nmcli -t output
+    const parts = line
+      .replace(/\\:/g, '__ESCAPED_COLON__')
+      .split(':')
+      .map((p) => p.replace(/__ESCAPED_COLON__/g, ':'));
+
+    if (parts.length < 4) continue;
+
+    const rawInUse = parts[0] ?? '';
+    const rawSsid = parts[1] ?? '';
+    const rawSignal = parts[2] ?? '';
+    const rawSecurity = parts[3] ?? '';
+
+    const inUse = rawInUse.trim() === '*';
+    const ssid = rawSsid.trim();
+    const signal = parseInt(rawSignal.trim(), 10) || 0;
+
+    let security: WifiScannedNetwork['security'] = 'open';
+    const lowerSec = rawSecurity.toLowerCase();
+    if (lowerSec.includes('wpa3')) security = 'wpa3';
+    else if (lowerSec.includes('wpa2')) security = 'wpa2';
+    else if (lowerSec.includes('wpa')) security = 'wpa';
+    else if (lowerSec.includes('wep')) security = 'wep';
+    else if (!lowerSec || lowerSec === '--' || lowerSec === 'none') security = 'open';
+    else security = 'unknown';
+
+    // Ignore empty/hidden or header lines
+    if (!ssid || ssid === '--' || ssid.toLowerCase() === 'ssid') continue;
+
+    const existing = networksBySsid.get(ssid);
+    if (!existing || signal > existing.signal) {
+      networksBySsid.set(ssid, {
+        ssid,
+        signal,
+        security,
+        inUse: inUse || (existing?.inUse ?? false),
+      });
+    } else if (inUse) {
+      existing.inUse = true;
+    }
+  }
+
+  return Array.from(networksBySsid.values()).sort((a, b) => {
+    if (a.inUse && !b.inUse) return -1;
+    if (!a.inUse && b.inUse) return 1;
+    return b.signal - a.signal;
+  });
+}
+
 export type DeviceOperationState =
   | 'queued'
   | 'claimed'

@@ -4,9 +4,9 @@
  * Product: Aura Digital Information Management System (Aura DIMS)
  *
  * Implements:
- * - On-demand remote Wi-Fi scanning on the digital display
+ * - Remote Wi-Fi scanning on the digital display using background terminal execution (EXEC_COMMAND)
  * - Interactive list of in-range Wi-Fi networks with signal strength & security status
- * - Priority-based remote connection with automatic 30s rollback safety
+ * - Priority-based remote connection (autoconnect-priority 100) via nmcli
  * - Manual SSID connection for hidden networks
  * - Real-time progress observation via Firestore operations collection
  *
@@ -40,6 +40,7 @@ import type {
   DeviceOperationRecord,
   WifiScannedNetwork,
 } from '@aura-dims/display-schema';
+import { parseNmcliWifiList } from '@aura-dims/display-schema';
 
 interface DeviceWifiModalProps {
   display: DisplayView;
@@ -93,10 +94,15 @@ export const DeviceWifiModal: React.FC<DeviceWifiModalProps> = ({
     setIsScanning(true);
     setConnectBanner(null);
 
+    // Uses the background terminal execution (EXEC_COMMAND) which works on every player version
+    const scanCommand =
+      'nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY dev wifi list --rescan yes 2>/dev/null || nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY dev wifi list';
+
     try {
       const res = await api.requestDisplayOperation({
         displayId: display.id,
-        type: 'SCAN_WIFI',
+        type: 'EXEC_COMMAND',
+        command: scanCommand,
         reason: 'Operator requested remote Wi-Fi network scan from web dashboard.',
       });
 
@@ -112,8 +118,18 @@ export const DeviceWifiModal: React.FC<DeviceWifiModalProps> = ({
 
         if (op.state === 'succeeded') {
           setIsScanning(false);
-          if (op.wifiNetworks && Array.isArray(op.wifiNetworks)) {
+          if (op.wifiNetworks && Array.isArray(op.wifiNetworks) && op.wifiNetworks.length > 0) {
             setNetworks(op.wifiNetworks);
+          } else if (op.output) {
+            const parsed = parseNmcliWifiList(op.output);
+            setNetworks(parsed);
+            if (parsed.length === 0) {
+              setScanError(
+                op.output.includes('Error')
+                  ? op.output
+                  : 'No Wi-Fi networks discovered in range.'
+              );
+            }
           }
           if (activeOpUnsubRef.current) {
             activeOpUnsubRef.current();
@@ -121,7 +137,7 @@ export const DeviceWifiModal: React.FC<DeviceWifiModalProps> = ({
           }
         } else if (op.state === 'failed' || op.state === 'expired' || op.state === 'cancelled') {
           setIsScanning(false);
-          setScanError(op.errorMessage || 'Wi-Fi scan failed on digital display.');
+          setScanError(op.errorMessage || op.output || 'Wi-Fi scan failed on digital display.');
           if (activeOpUnsubRef.current) {
             activeOpUnsubRef.current();
             activeOpUnsubRef.current = null;
@@ -142,15 +158,28 @@ export const DeviceWifiModal: React.FC<DeviceWifiModalProps> = ({
     setIsConnecting(true);
     setConnectBanner({
       type: 'loading',
-      message: `Applying Wi-Fi profile "${targetSsid}" to digital display and verifying internet reachability (30s test & rollback)...`,
+      message: `Connecting digital display to "${targetSsid}" in background...`,
     });
 
     try {
+      const escapedSsid = targetSsid.replace(/"/g, '\\"');
+      let connectCmd = '';
+      if (isManualMode && manualSecurity === 'open') {
+        connectCmd = `nmcli dev wifi connect "${escapedSsid}" hidden yes && nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100`;
+      } else if (isManualMode) {
+        const escapedPassword = password.replace(/"/g, '\\"');
+        connectCmd = `nmcli dev wifi connect "${escapedSsid}" hidden yes password "${escapedPassword}" && nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100`;
+      } else if (selectedSecurity === 'open' || !password) {
+        connectCmd = `nmcli dev wifi connect "${escapedSsid}" && nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100`;
+      } else {
+        const escapedPassword = password.replace(/"/g, '\\"');
+        connectCmd = `nmcli dev wifi connect "${escapedSsid}" password "${escapedPassword}" && nmcli connection modify "${escapedSsid}" connection.autoconnect-priority 100`;
+      }
+
       const res = await api.requestDisplayOperation({
         displayId: display.id,
-        type: 'CONNECT_WIFI',
-        wifiSsid: targetSsid,
-        wifiPassword: password || undefined,
+        type: 'EXEC_COMMAND',
+        command: connectCmd,
         reason: `Remote Wi-Fi connection to "${targetSsid}" requested from web dashboard.`,
       });
 
@@ -170,22 +199,30 @@ export const DeviceWifiModal: React.FC<DeviceWifiModalProps> = ({
             type: 'success',
             message:
               op.resultSummary ||
-              `Digital display successfully connected to "${targetSsid}". Internet is verified!`,
+              op.output ||
+              `Digital display successfully connected to "${targetSsid}".`,
           });
           setPassword('');
           setSelectedSsid(null);
           onDisplayUpdated?.();
+          // Trigger a re-scan after successful connect to update the 'inUse' current badge!
+          setTimeout(() => {
+            handleScanWifi();
+          }, 2000);
           if (activeOpUnsubRef.current) {
             activeOpUnsubRef.current();
             activeOpUnsubRef.current = null;
           }
         } else if (op.state === 'failed' || op.state === 'expired' || op.state === 'cancelled') {
           setIsConnecting(false);
+          const rawErr = op.errorMessage || op.output || 'Connection failed on digital display.';
+          const friendlyErr =
+            rawErr.includes('Secrets were required') || rawErr.includes('property is invalid')
+              ? `Connection to "${targetSsid}" failed: Incorrect password or authorization failure.`
+              : `Connection to "${targetSsid}" failed: ${rawErr}`;
           setConnectBanner({
             type: 'error',
-            message:
-              op.errorMessage ||
-              `Connection to "${targetSsid}" failed. The digital display has safely reverted to its previous profile.`,
+            message: friendlyErr,
           });
           if (activeOpUnsubRef.current) {
             activeOpUnsubRef.current();
@@ -356,7 +393,7 @@ export const DeviceWifiModal: React.FC<DeviceWifiModalProps> = ({
                             <div className="text-sm font-semibold flex items-center gap-2">
                               <span>{net.ssid}</span>
                               {net.inUse && (
-                                <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                                   Current
                                 </span>
                               )}
@@ -464,10 +501,10 @@ export const DeviceWifiModal: React.FC<DeviceWifiModalProps> = ({
               <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800 text-[11px] text-slate-400 flex items-start gap-2">
                 <ShieldCheck className="w-4 h-4 text-cyan-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <strong className="text-slate-200">Failsafe 30-Second Rollback:</strong> When
-                  connecting, the digital display assigns this profile the highest priority and tests
-                  internet reachability. If connectivity fails, it automatically rolls back to the
-                  previous profile.
+                  <strong className="text-slate-200">Network Priority:</strong> When
+                  connecting, the digital display assigns this profile highest priority (
+                  <code className="text-cyan-300">autoconnect-priority 100</code>) so it
+                  automatically reconnects on subsequent reboots.
                 </div>
               </div>
 
@@ -492,7 +529,7 @@ export const DeviceWifiModal: React.FC<DeviceWifiModalProps> = ({
                   {isConnecting ? (
                     <>
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      Connecting &amp; Verifying...
+                      Connecting...
                     </>
                   ) : (
                     <>
