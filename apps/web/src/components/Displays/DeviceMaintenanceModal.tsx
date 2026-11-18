@@ -71,10 +71,17 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
   const [rebootReason, setRebootReason] = useState<string>('');
   const [expandedOpId, setExpandedOpId] = useState<string | null>(null);
 
-  // Real-Time Cloud Terminal State
+  // Real-Time Cloud Terminal State (Cleared timestamp persisted per display)
   const [terminalInput, setTerminalInput] = useState<string>('');
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
-  const [terminalClearedAt, setTerminalClearedAt] = useState<number>(0);
+  const [terminalClearedAt, setTerminalClearedAt] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(`aura_dims_terminal_cleared_${display.id}`);
+      return saved ? parseInt(saved, 10) : 0;
+    } catch {
+      return 0;
+    }
+  });
   const terminalBottomRef = useRef<HTMLDivElement | null>(null);
 
   // Live Digital Display Preview State (Ephemeral In-Memory - Never permanently stored)
@@ -252,7 +259,23 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
   };
 
   const handleClearTerminal = () => {
-    setTerminalClearedAt(Date.now());
+    const now = Date.now();
+    try {
+      localStorage.setItem(`aura_dims_terminal_cleared_${display.id}`, String(now));
+    } catch (err) {
+      console.warn('[DeviceMaintenanceModal] Failed to persist terminal clear timestamp:', err);
+    }
+    setTerminalClearedAt(now);
+    setTerminalInput('');
+  };
+
+  const handleRestoreTerminalHistory = () => {
+    try {
+      localStorage.removeItem(`aura_dims_terminal_cleared_${display.id}`);
+    } catch (err) {
+      console.warn('[DeviceMaintenanceModal] Failed to remove terminal clear timestamp:', err);
+    }
+    setTerminalClearedAt(0);
   };
 
   // Device Controls operations
@@ -817,10 +840,22 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                   {operations.filter((op) => !terminalClearedAt || new Date(op.requestedAt).getTime() > terminalClearedAt).length === 0 ? (
                     <div className="text-slate-500 py-12 text-center font-sans">
                       <Terminal className="w-8 h-8 mx-auto text-slate-600 mb-2" />
-                      <p>Remote Terminal is ready.</p>
-                      <p className="text-[11px] text-slate-600 mt-1">
-                        Type any Linux command below or click a quick action above to execute on the digital display.
+                      <p className="text-xs font-medium text-slate-300">Remote Terminal is ready.</p>
+                      <p className="text-[11px] text-slate-500 mt-1 max-w-sm mx-auto">
+                        {terminalClearedAt > 0
+                          ? 'Terminal output cleared. Old command executions remain recorded in the Operations Audit Log tab.'
+                          : 'Type any Linux command below or click a quick action above to execute on the digital display.'}
                       </p>
+                      {terminalClearedAt > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleRestoreTerminalHistory}
+                          className="mt-3.5 inline-flex items-center gap-1.5 text-xs text-teal-400 hover:text-teal-300 font-mono transition-colors border border-teal-500/20 px-3 py-1 rounded-md bg-teal-500/5 hover:bg-teal-500/10"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>Restore Prior Execution History</span>
+                        </button>
+                      )}
                     </div>
                   ) : (
                     operations
@@ -899,23 +934,34 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                     placeholder="Enter Linux command (e.g. uname -a, ip -br a, df -h, systemctl status aura-player)..."
                     className="flex-1 bg-transparent text-xs font-mono text-white placeholder-slate-500 outline-none px-2"
                   />
-                  <button
-                    type="submit"
-                    disabled={!terminalInput.trim()}
-                    className="px-3.5 py-1.5 bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white font-semibold text-xs rounded-lg transition-all flex items-center gap-1.5 shadow-sm"
-                  >
-                    {isExecuting ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Run</span>
-                      </>
-                    ) : (
-                      <>
-                        <Send className="w-3.5 h-3.5" />
-                        <span>Run</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleClearTerminal}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium text-xs rounded-lg transition-all flex items-center gap-1.5 border border-slate-700 shadow-sm"
+                      title="Clear Terminal Output (persists across visits)"
+                    >
+                      <Eraser className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Clear Terminal</span>
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!terminalInput.trim()}
+                      className="px-3.5 py-1.5 bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white font-semibold text-xs rounded-lg transition-all flex items-center gap-1.5 shadow-sm"
+                    >
+                      {isExecuting ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Run</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Run</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </form>
               </div>
             </div>
