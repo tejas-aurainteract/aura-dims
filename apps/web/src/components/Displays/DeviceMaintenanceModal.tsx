@@ -53,7 +53,7 @@ const QUICK_COMMANDS = [
   { label: 'Scan Wi-Fi', cmd: 'sudo nmcli dev wifi list' },
   {
     label: 'Clear Wi-Fi Profiles',
-    cmd: `for id in $(sudo nmcli -t -f UUID,TYPE con show | awk -F: '$2 ~ /wireless|wifi/ {print $1}'); do sudo nmcli con delete "$id"; done; sudo nmcli con reload; REMAINING=$(sudo nmcli -t -f TYPE con show | grep -c -E 'wireless|wifi'); echo "Wi-Fi profiles cleared. Remaining wireless profiles: $REMAINING"`,
+    cmd: `sudo nmcli -t -f UUID,TYPE con show | grep -E ':(802-11-wireless|wifi)$' | cut -d: -f1 | xargs -r sudo nmcli con delete && sudo nmcli con reload && echo "All saved Wi-Fi profiles successfully deleted on digital display."`,
   },
   {
     label: 'Switch to AP Mode',
@@ -263,7 +263,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
       } else if (cmd === 'reboot' || cmd === 'systemctl reboot') {
         await handleRequestOperation('REBOOT', { confirmed: true, reason: 'Manual remote terminal reboot' });
       } else {
-        const finalCmd = cmd.startsWith('sudo ') ? cmd : `sudo ${cmd}`;
+        const finalCmd = (cmd.startsWith('sudo ') || /^(for|while|if)\b/.test(cmd)) ? cmd : `sudo ${cmd}`;
         await api.requestDisplayOperation({
           displayId: display.id,
           type: 'EXEC_COMMAND',
@@ -280,7 +280,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
     setShowClearWifiModal(false);
     setActiveTab('terminal');
     await handleRunTerminalCommand(
-      `for id in $(sudo nmcli -t -f UUID,TYPE con show | awk -F: '$2 ~ /wireless|wifi/ {print $1}'); do sudo nmcli con delete "$id"; done; sudo nmcli con reload; REMAINING=$(sudo nmcli -t -f TYPE con show | grep -c -E 'wireless|wifi'); echo "Wi-Fi profiles cleared. Remaining wireless profiles: $REMAINING"`
+      `sudo nmcli -t -f UUID,TYPE con show | grep -E ':(802-11-wireless|wifi)$' | cut -d: -f1 | xargs -r sudo nmcli con delete && sudo nmcli con reload && echo "All saved Wi-Fi profiles successfully deleted on digital display."`
     );
   };
 
