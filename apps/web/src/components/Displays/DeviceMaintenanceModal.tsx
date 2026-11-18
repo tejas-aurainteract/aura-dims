@@ -57,7 +57,7 @@ const QUICK_COMMANDS = [
   },
   {
     label: 'Switch to AP Mode',
-    cmd: `sudo nmcli connection delete "Aura-AP" 2>/dev/null; MAC_TAIL=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d ':\\n\\r ' | tail -c 4 | tr '[:lower:]' '[:upper:]'); SSID="Aura-\${MAC_TAIL:-WIFI}"; sudo nmcli dev wifi hotspot ifname wlan0 ssid "$SSID" password "12345678" con-name "Aura-AP" && echo "Digital display switched to AP Mode ($SSID)"`,
+    cmd: `sudo nmcli connection delete "Aura-AP" "Aura-Setup-AP" 2>/dev/null; MAC_TAIL=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d ':\\n\\r ' | tail -c 4 | tr '[:lower:]' '[:upper:]'); SSID="Aura-\${MAC_TAIL:-WIFI}"; sudo nmcli dev wifi hotspot ifname wlan0 ssid "$SSID" password "12345678" con-name "Aura-AP" && echo "Digital display switched to AP Mode ($SSID)"`,
   },
   { label: 'Disk Space', cmd: 'sudo df -h /' },
   { label: 'Memory (RAM)', cmd: 'sudo free -h' },
@@ -288,7 +288,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
     setShowSwitchApModal(false);
     setActiveTab('terminal');
     await handleRunTerminalCommand(
-      `sudo nmcli connection delete "Aura-AP" 2>/dev/null; MAC_TAIL=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d ':\\n\\r ' | tail -c 4 | tr '[:lower:]' '[:upper:]'); SSID="Aura-\${MAC_TAIL:-WIFI}"; sudo nmcli dev wifi hotspot ifname wlan0 ssid "$SSID" password "12345678" con-name "Aura-AP" && echo "Digital display switched to AP Mode ($SSID)"`
+      `sudo nmcli connection delete "Aura-AP" "Aura-Setup-AP" 2>/dev/null; MAC_TAIL=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d ':\\n\\r ' | tail -c 4 | tr '[:lower:]' '[:upper:]'); SSID="Aura-\${MAC_TAIL:-WIFI}"; sudo nmcli dev wifi hotspot ifname wlan0 ssid "$SSID" password "12345678" con-name "Aura-AP" && echo "Digital display switched to AP Mode ($SSID)"`
     );
   };
 
