@@ -488,22 +488,48 @@ export class WifiManager {
     }
 
     try {
-      // Delete old AP profile if it exists
-      await this.execCommand(`sudo nmcli connection delete "Aura-AP"`).catch(() => {});
+      // 1. Unblock Wi-Fi if soft-blocked
+      await this.execCommand(`sudo rfkill unblock wifi 2>/dev/null`).catch(() => {});
 
-      // Create and start AP hotspot connection
+      // 2. Redirect port 80 to 8080 so captive portal probes work seamlessly even without root port binding
       await this.execCommand(
-        `sudo nmcli dev wifi hotspot ifname "${this.wifiInterface}" ssid "${this.apSsid}" password "${this.apPassword}" con-name "Aura-AP"`
+        `sudo iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || true`
+      ).catch(() => {});
+
+      // 3. Delete old AP profiles if they exist
+      await this.execCommand(
+        `sudo nmcli connection delete "Aura-AP" "Aura-Setup-AP" "Hotspot" 2>/dev/null`
+      ).catch(() => {});
+
+      // 4. Create explicit 2.4 GHz WPA2 AP connection profile with PMF disabled (maximum smartphone compatibility)
+      await this.execCommand(
+        `sudo nmcli connection add type wifi ifname "${this.wifiInterface}" con-name "Aura-AP" autoconnect no ssid "${this.apSsid}" 802-11-wireless.mode ap 802-11-wireless.band bg 802-11-wireless.channel 6 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.psk "${this.apPassword}" 802-11-wireless-security.pmf 1 ipv4.method shared ipv6.method disabled`
       );
+
+      // 5. Activate the AP connection
+      await this.execCommand(`sudo nmcli connection up "Aura-AP"`);
 
       this.apActive = true;
       this.logger.info(
-        `[WifiManager] AP Mode active on interface "${this.wifiInterface}". Digital display is broadcasting SSID "${this.apSsid}".`
+        `[WifiManager] AP Mode active on interface "${this.wifiInterface}". Digital display is broadcasting SSID "${this.apSsid}" (2.4 GHz, Pass: "${this.apPassword}").`
       );
     } catch (err: any) {
-      this.logger.error('[WifiManager] Failed to launch AP mode via nmcli:', err?.message || err);
-      this.apActive = false;
-      throw err;
+      this.logger.warn(
+        `[WifiManager] Primary AP creation encountered notice, attempting fallback: ${err?.message || err}`
+      );
+      try {
+        await this.execCommand(
+          `sudo nmcli dev wifi hotspot ifname "${this.wifiInterface}" ssid "${this.apSsid}" password "${this.apPassword}" con-name "Aura-AP"`
+        );
+        await this.execCommand(
+          `sudo nmcli connection modify "Aura-AP" 802-11-wireless.band bg 802-11-wireless.channel 6 802-11-wireless-security.pmf 1 2>/dev/null || true`
+        ).catch(() => {});
+        this.apActive = true;
+      } catch (fallbackErr: any) {
+        this.logger.error('[WifiManager] Failed to launch AP mode via nmcli:', fallbackErr?.message || fallbackErr);
+        this.apActive = false;
+        throw fallbackErr;
+      }
     }
   }
 
