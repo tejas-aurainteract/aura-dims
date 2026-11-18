@@ -160,6 +160,8 @@ import type {
   RenewOperationLeaseResponse,
   GetDisplayPreviewUrlRequest,
   GetDisplayPreviewUrlResponse,
+  DiscardDisplayPreviewRequest,
+  DiscardDisplayPreviewResponse,
 } from '@aura-dims/display-schema';
 
 export const api = {
@@ -635,6 +637,12 @@ export const api = {
 
   getDisplayPreviewUrl: async (req: GetDisplayPreviewUrlRequest): Promise<GetDisplayPreviewUrlResponse> => {
     const fn = httpsCallable<GetDisplayPreviewUrlRequest, GetDisplayPreviewUrlResponse>(functions, 'getDisplayPreviewUrl');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  discardDisplayPreview: async (req: DiscardDisplayPreviewRequest): Promise<DiscardDisplayPreviewResponse> => {
+    const fn = httpsCallable<DiscardDisplayPreviewRequest, DiscardDisplayPreviewResponse>(functions, 'discardDisplayPreview');
     const result = await fn(req);
     return result.data;
   },

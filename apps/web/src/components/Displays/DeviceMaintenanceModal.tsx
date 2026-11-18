@@ -4,7 +4,6 @@ import {
   RefreshCw,
   Power,
   RotateCcw,
-  Trash2,
   Camera,
   Activity,
   Clock,
@@ -25,6 +24,7 @@ import {
   RotateCw,
   Send,
   Eraser,
+  Eye,
 } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -77,6 +77,28 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
   const [terminalClearedAt, setTerminalClearedAt] = useState<number>(0);
   const terminalBottomRef = useRef<HTMLDivElement | null>(null);
 
+  // Live Digital Display Preview State (Ephemeral In-Memory - Never permanently stored)
+  const [livePreviewUrl, setLivePreviewUrl] = useState<string | null>(null);
+  const [isCapturingPreview, setIsCapturingPreview] = useState<boolean>(false);
+  const [previewCapturedAt, setPreviewCapturedAt] = useState<string | null>(null);
+  const [previewDimensions, setPreviewDimensions] = useState<{ width: number | null; height: number | null } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [isEnlarged, setIsEnlarged] = useState<boolean>(false);
+  const operationsRef = useRef<DeviceOperationRecord[]>([]);
+
+  useEffect(() => {
+    operationsRef.current = operations;
+  }, [operations]);
+
+  // Clean up in-memory blob URL on unmount or URL change
+  useEffect(() => {
+    return () => {
+      if (livePreviewUrl && livePreviewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(livePreviewUrl);
+      }
+    };
+  }, [livePreviewUrl]);
+
   // Real-time operations subscription (Audit & Terminal tabs)
   useEffect(() => {
     const opsQuery = query(
@@ -115,6 +137,93 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
       terminalBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [operations, activeTab]);
+
+  const handleCaptureLivePreview = async () => {
+    setPreviewError(null);
+    setIsCapturingPreview(true);
+    setBannerError(null);
+
+    // Clean up previous blob URL if exists
+    if (livePreviewUrl && livePreviewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(livePreviewUrl);
+      setLivePreviewUrl(null);
+    }
+
+    try {
+      const res = await api.requestDisplayOperation({
+        displayId: display.id,
+        type: 'CAPTURE_PREVIEW',
+      });
+
+      const targetOpId = res.operation.id;
+      const startTime = Date.now();
+      const timeoutMs = 30000;
+
+      const pollForCompletion = async (): Promise<void> => {
+        if (Date.now() - startTime > timeoutMs) {
+          throw new Error('Timed out waiting for digital display preview capture response.');
+        }
+
+        const currentOps = operationsRef.current;
+        const matchingOp = currentOps.find((o) => o.id === targetOpId);
+
+        if (matchingOp?.state === 'failed') {
+          throw new Error(matchingOp.errorMessage || 'Digital display failed to capture preview.');
+        }
+
+        if (matchingOp?.state === 'succeeded') {
+          // Fetch preview URL from backend
+          const urlRes = await api.getDisplayPreviewUrl({ displayId: display.id });
+
+          try {
+            // Fetch bytes into client memory blob so the image is held only in browser RAM
+            const imgRes = await fetch(urlRes.url);
+            const blob = await imgRes.blob();
+            const memoryUrl = URL.createObjectURL(blob);
+            setLivePreviewUrl(memoryUrl);
+          } catch {
+            // Fallback directly to URL if fetch has any local network issue
+            setLivePreviewUrl(urlRes.url);
+          }
+
+          setPreviewCapturedAt(urlRes.preview?.capturedAt || new Date().toISOString());
+          setPreviewDimensions({
+            width: urlRes.preview?.width || null,
+            height: urlRes.preview?.height || null,
+          });
+
+          // Discard image from Cloud Storage and clear lastPreview from database immediately
+          try {
+            await api.discardDisplayPreview({ displayId: display.id });
+          } catch (discardErr) {
+            console.warn('[DeviceMaintenanceModal] Failed to discard storage preview:', discardErr);
+          }
+
+          setIsCapturingPreview(false);
+          return;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        return pollForCompletion();
+      };
+
+      await pollForCompletion();
+    } catch (err: any) {
+      setPreviewError(err?.message || 'Failed to capture live preview from digital display.');
+      setIsCapturingPreview(false);
+    }
+  };
+
+  const handleClearLivePreview = () => {
+    if (livePreviewUrl && livePreviewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(livePreviewUrl);
+    }
+    setLivePreviewUrl(null);
+    setPreviewCapturedAt(null);
+    setPreviewDimensions(null);
+    setPreviewError(null);
+    setIsEnlarged(false);
+  };
 
   const handleRunTerminalCommand = async (cmdToRun?: string) => {
     const cmd = (cmdToRun ?? terminalInput).trim();
@@ -408,8 +517,8 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                 </div>
               </div>
 
-              {/* Action Cards Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Action Cards Grid - Core Controls */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* 1. Restart Player Service */}
                 <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 flex flex-col justify-between hover:border-slate-700/80 transition-all">
                   <div className="flex items-start gap-3">
@@ -446,71 +555,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                   </div>
                 </div>
 
-                {/* 2. Controlled Hardware Reboot */}
-                <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 flex flex-col justify-between hover:border-slate-700/80 transition-all">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20">
-                      <Power className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-semibold text-white">Controlled Hardware Reboot</h4>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Performs an authoritative, clean Linux operating system reboot on the
-                        digital display. Only available to System Administrators.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                    <span className="text-[11px] text-red-400/80">Requires confirmation (~45s)</span>
-                    <button
-                      onClick={() => setShowRebootModal(true)}
-                      disabled={!isAdmin || actionBusy !== null}
-                      className="px-3.5 py-1.5 bg-red-950/80 hover:bg-red-900 border border-red-800/70 disabled:opacity-40 text-red-200 font-medium text-xs rounded-lg transition-colors flex items-center gap-1.5"
-                    >
-                      <Power className="w-3.5 h-3.5" />
-                      <span>Reboot Device</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* 3. Sync Content Now */}
-                <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 flex flex-col justify-between hover:border-slate-700/80 transition-all">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2.5 rounded-lg bg-teal-500/10 text-teal-400 border border-teal-500/20">
-                      <RefreshCw className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-semibold text-white">Sync Content Now</h4>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Triggers the digital display sync agent to immediately check for new
-                        published presentations, download delta assets, and evaluate active
-                        schedules.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                    <span className="text-[11px] text-slate-500">Atomic sha256 verification</span>
-                    <button
-                      onClick={() => handleRequestOperation('SYNC_NOW')}
-                      disabled={actionBusy !== null}
-                      className="px-3.5 py-1.5 bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white font-semibold text-xs rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
-                    >
-                      {actionBusy === 'SYNC_NOW' ? (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Syncing...</span>
-                        </>
-                      ) : (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5" />
-                          <span>Sync Now</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* 4. Refresh Local Renderer */}
+                {/* 2. Refresh Local Renderer */}
                 <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 flex flex-col justify-between hover:border-slate-700/80 transition-all">
                   <div className="flex items-start gap-3">
                     <div className="p-2.5 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
@@ -536,57 +581,161 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                   </div>
                 </div>
 
-                {/* 5. Safe Cache Cleanup */}
+                {/* 3. Controlled Hardware Reboot */}
                 <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 flex flex-col justify-between hover:border-slate-700/80 transition-all">
                   <div className="flex items-start gap-3">
-                    <div className="p-2.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-700">
-                      <Trash2 className="w-5 h-5" />
+                    <div className="p-2.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20">
+                      <Power className="w-5 h-5" />
                     </div>
                     <div>
-                      <h4 className="text-sm font-semibold text-white">Safe Cache Cleanup</h4>
+                      <h4 className="text-sm font-semibold text-white">Controlled Hardware Reboot</h4>
                       <p className="text-xs text-slate-400 mt-1">
-                        Safely deletes unreferenced media blobs and old presentation packages while
-                        preserving currently active assets and configuration manifests.
+                        Performs an authoritative, clean Linux operating system reboot on the
+                        digital display. Only available to System Administrators.
                       </p>
                     </div>
                   </div>
                   <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                    <span className="text-[11px] text-slate-500">Reclaims disk storage</span>
+                    <span className="text-[11px] text-red-400/80">Requires confirmation (~45s)</span>
                     <button
-                      onClick={() => handleRequestOperation('SAFE_CLEANUP_CACHE')}
-                      disabled={actionBusy !== null}
-                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 disabled:opacity-40 text-slate-100 font-medium text-xs rounded-lg transition-colors flex items-center gap-1.5"
+                      onClick={() => setShowRebootModal(true)}
+                      disabled={!isAdmin || actionBusy !== null}
+                      className="px-3.5 py-1.5 bg-red-950/80 hover:bg-red-900 border border-red-800/70 disabled:opacity-40 text-red-200 font-medium text-xs rounded-lg transition-colors flex items-center gap-1.5"
                     >
-                      {actionBusy === 'SAFE_CLEANUP_CACHE' ? 'Cleaning...' : 'Clean Cache'}
+                      <Power className="w-3.5 h-3.5" />
+                      <span>Reboot Device</span>
                     </button>
                   </div>
                 </div>
+              </div>
 
-                {/* 6. Capture Live Preview */}
-                <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 flex flex-col justify-between hover:border-slate-700/80 transition-all">
-                  <div className="flex items-start gap-3">
+              {/* Live Digital Display Output Preview Section (Ephemeral In-Memory Only) */}
+              <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 sm:p-5 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                  <div className="flex items-center gap-3">
                     <div className="p-2.5 rounded-lg bg-teal-500/10 text-teal-400 border border-teal-500/20">
                       <Camera className="w-5 h-5" />
                     </div>
                     <div>
-                      <h4 className="text-sm font-semibold text-white">Capture Live Preview</h4>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Instructs the digital display agent to capture a screenshot of the
-                        current display output and securely upload it for remote operator inspection.
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-semibold text-white">Live Digital Display Preview</h4>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-teal-500/10 text-teal-300 border border-teal-500/20">
+                          In-Memory Only • Not Stored
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Live visual capture of currently rendering content. Discarded immediately after preview without consuming cloud storage.
                       </p>
                     </div>
                   </div>
-                  <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                    <span className="text-[11px] text-slate-500">Visual verification snapshot</span>
+
+                  <div className="flex items-center gap-2 self-end sm:self-center">
+                    {livePreviewUrl && (
+                      <button
+                        type="button"
+                        onClick={handleClearLivePreview}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg border border-slate-700 transition-colors"
+                      >
+                        Clear Preview
+                      </button>
+                    )}
                     <button
-                      onClick={() => handleRequestOperation('CAPTURE_PREVIEW')}
-                      disabled={actionBusy !== null}
-                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 disabled:opacity-40 text-slate-100 font-medium text-xs rounded-lg transition-colors flex items-center gap-1.5"
+                      type="button"
+                      onClick={handleCaptureLivePreview}
+                      disabled={isCapturingPreview || !isOnline}
+                      className="px-3.5 py-1.5 bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white font-semibold text-xs rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
                     >
-                      {actionBusy === 'CAPTURE_PREVIEW' ? 'Capturing...' : 'Capture Preview'}
+                      {isCapturingPreview ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Capturing Snapshot...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>{livePreviewUrl ? 'Refresh Preview' : 'Capture Live Preview'}</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>
+
+                {previewError && (
+                  <div className="p-3 rounded-lg bg-red-950/60 border border-red-800/60 text-red-300 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                    <span>{previewError}</span>
+                  </div>
+                )}
+
+                {/* Display Area */}
+                {isCapturingPreview ? (
+                  <div className="py-12 px-4 rounded-lg bg-slate-900/60 border border-slate-800/80 flex flex-col items-center justify-center text-center space-y-3">
+                    <div className="relative">
+                      <div className="w-12 h-12 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400">
+                        <Camera className="w-6 h-6 animate-pulse" />
+                      </div>
+                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-teal-400 rounded-full animate-ping" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-slate-200">Capturing live frame from digital display...</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Requesting hardware framebuffer snapshot via remote agent.
+                      </p>
+                    </div>
+                  </div>
+                ) : livePreviewUrl ? (
+                  <div className="space-y-3">
+                    <div
+                      className="relative rounded-lg overflow-hidden border border-slate-800 bg-black flex items-center justify-center max-h-[380px] group cursor-pointer"
+                      onClick={() => setIsEnlarged(!isEnlarged)}
+                      title="Click to enlarge"
+                    >
+                      <img
+                        src={livePreviewUrl}
+                        alt={`Live preview of digital display ${display.name}`}
+                        className="max-h-[380px] w-auto object-contain mx-auto transition-transform"
+                      />
+                      <div className="absolute bottom-2 right-2 px-2.5 py-1 bg-black/80 backdrop-blur-sm rounded text-[11px] text-slate-200 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity border border-slate-700/60">
+                        <Eye className="w-3.5 h-3.5 text-teal-400" />
+                        <span>Click to {isEnlarged ? 'shrink' : 'enlarge'}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-400 px-1">
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-3.5 h-3.5 text-teal-400" />
+                        <span>
+                          Captured at:{' '}
+                          {previewCapturedAt
+                            ? new Date(previewCapturedAt).toLocaleTimeString('en-IN', {
+                                timeZone: 'Asia/Kolkata',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit',
+                              }) + ' IST'
+                            : 'Just now'}
+                        </span>
+                        {previewDimensions?.width && (
+                          <span className="text-slate-500 font-mono">
+                            ({previewDimensions.width}×{previewDimensions.height})
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-emerald-400/90 flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Purged from Cloud Storage (In-memory ephemeral buffer)
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-10 px-4 rounded-lg bg-slate-900/40 border border-slate-800/80 flex flex-col items-center justify-center text-center space-y-2">
+                    <Camera className="w-8 h-8 text-slate-600 mb-1" />
+                    <p className="text-xs font-medium text-slate-300">No live preview captured yet</p>
+                    <p className="text-[11px] text-slate-500 max-w-md">
+                      Click "Capture Live Preview" above to inspect what this digital display is currently presenting.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -618,7 +767,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                   <button
                     onClick={handleClearTerminal}
                     className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
-                    title="Clear Terminal Screen"
+                    title="Clear Terminal Output"
                   >
                     <Eraser className="w-3.5 h-3.5" />
                   </button>
@@ -663,7 +812,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                   </span>
                 </div>
 
-                {/* Terminal Content Screen */}
+                {/* Terminal Content Stream */}
                 <div className="p-4 text-xs text-slate-200 min-h-[300px] max-h-[440px] overflow-y-auto space-y-3 select-text">
                   {operations.filter((op) => !terminalClearedAt || new Date(op.requestedAt).getTime() > terminalClearedAt).length === 0 ? (
                     <div className="text-slate-500 py-12 text-center font-sans">
@@ -1025,6 +1174,59 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                     <span>Confirm Reboot</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Enlarged Live Digital Display Preview Modal */}
+      {isEnlarged && livePreviewUrl && (
+        <div
+          className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-fade-in"
+          onClick={() => setIsEnlarged(false)}
+        >
+          <div
+            className="relative max-w-5xl w-full max-h-[90vh] bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-3 border-b border-slate-800 bg-slate-900/90 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Camera className="w-4 h-4 text-teal-400" />
+                <span className="text-sm font-semibold text-white">
+                  Live Digital Display Preview • {display.name}
+                </span>
+                <span className="text-[11px] text-slate-400 font-mono">
+                  {previewCapturedAt ? new Date(previewCapturedAt).toLocaleTimeString() : ''}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEnlarged(false)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+                title="Close Enlarged View"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 bg-black flex items-center justify-center overflow-auto max-h-[calc(90vh-100px)]">
+              <img
+                src={livePreviewUrl}
+                alt={`Full live preview of digital display ${display.name}`}
+                className="max-h-[calc(90vh-120px)] w-auto object-contain mx-auto"
+              />
+            </div>
+            <div className="px-5 py-2.5 border-t border-slate-800 bg-slate-900/90 flex items-center justify-between text-xs text-slate-400">
+              <span className="text-emerald-400/90 flex items-center gap-1.5 text-[11px]">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                In-memory visual buffer • Purged from cloud storage
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsEnlarged(false)}
+                className="px-3.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg transition-colors"
+              >
+                Close View
               </button>
             </div>
           </div>

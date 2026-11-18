@@ -47,7 +47,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.expireStaleOperationsScheduled = exports.retryDisplayOperation = exports.cancelDisplayOperation = exports.renewOperationLease = exports.reportDeviceShutdown = exports.getDisplayPreviewUrl = exports.uploadDevicePreview = exports.reportDeviceOperation = exports.claimDeviceOperation = exports.listDisplayOperations = exports.requestDisplayOperation = exports.OPERATION_MAX_RUNTIME_SECONDS = exports.ALLOWED_DIAGNOSTIC_ACTIONS = void 0;
+exports.expireStaleOperationsScheduled = exports.retryDisplayOperation = exports.cancelDisplayOperation = exports.renewOperationLease = exports.reportDeviceShutdown = exports.discardDisplayPreview = exports.getDisplayPreviewUrl = exports.uploadDevicePreview = exports.reportDeviceOperation = exports.claimDeviceOperation = exports.listDisplayOperations = exports.requestDisplayOperation = exports.OPERATION_MAX_RUNTIME_SECONDS = exports.ALLOWED_DIAGNOSTIC_ACTIONS = void 0;
 exports.assertActiveDeviceForDisplay = assertActiveDeviceForDisplay;
 exports.sanitizeHardwareMetrics = sanitizeHardwareMetrics;
 exports.sanitizeCapabilities = sanitizeCapabilities;
@@ -1084,6 +1084,35 @@ exports.getDisplayPreviewUrl = (0, https_1.onCall)(opts, async (request) => {
         url,
         expiresAt: urlExpiresAt,
         preview,
+    };
+});
+// ---------------------------------------------------------------------------
+// 6b. User Callable: discardDisplayPreview
+// ---------------------------------------------------------------------------
+exports.discardDisplayPreview = (0, https_1.onCall)(opts, async (request) => {
+    const caller = await (0, common_js_1.getAuthenticatedCaller)(request.auth);
+    const displayId = (0, common_js_1.requireId)(request.data?.displayId, 'Display ID');
+    const displaySnap = await (0, displayModel_js_1.loadAuthorizedDisplay)(caller, displayId);
+    const displayData = displaySnap.data();
+    const preview = displayData.lastPreview;
+    let deletedPath = null;
+    if (preview?.storagePath) {
+        try {
+            const bucket = admin.storage().bucket();
+            await bucket.file(preview.storagePath).delete({ ignoreNotFound: true });
+            deletedPath = preview.storagePath;
+        }
+        catch {
+            // Ignore not-found errors
+        }
+    }
+    await displaySnap.ref.update({
+        lastPreview: null,
+        updatedAt: firestore_1.FieldValue.serverTimestamp(),
+    });
+    return {
+        success: true,
+        deletedPath,
     };
 });
 // ---------------------------------------------------------------------------

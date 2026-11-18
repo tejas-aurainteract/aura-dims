@@ -2931,6 +2931,15 @@ export interface GetDisplayPreviewUrlResponse {
   preview: DisplayPreviewMetadata;
 }
 
+export interface DiscardDisplayPreviewRequest {
+  displayId: string;
+}
+
+export interface DiscardDisplayPreviewResponse {
+  success: boolean;
+  deletedPath?: string | null;
+}
+
 export interface PublicationCompatibilityResult {
   compatible: boolean;
   reasons: string[];

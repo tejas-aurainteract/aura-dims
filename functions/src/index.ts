@@ -835,6 +835,7 @@ export {
   expireStaleOperationsScheduled,
   uploadDevicePreview,
   getDisplayPreviewUrl,
+  discardDisplayPreview,
   reportDeviceShutdown,
 } from './deviceOperations';
 

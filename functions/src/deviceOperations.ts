@@ -30,6 +30,8 @@ import type {
   DeviceOperationRecord,
   DeviceOperationType,
   DiagnosticActionType,
+  DiscardDisplayPreviewRequest,
+  DiscardDisplayPreviewResponse,
   DisplayPreviewMetadata,
   GetDisplayPreviewUrlRequest,
   GetDisplayPreviewUrlResponse,
@@ -1357,6 +1359,42 @@ export const getDisplayPreviewUrl = onCall<
     url,
     expiresAt: urlExpiresAt,
     preview,
+  };
+});
+
+// ---------------------------------------------------------------------------
+// 6b. User Callable: discardDisplayPreview
+// ---------------------------------------------------------------------------
+
+export const discardDisplayPreview = onCall<
+  DiscardDisplayPreviewRequest,
+  Promise<DiscardDisplayPreviewResponse>
+>(opts, async (request) => {
+  const caller = await getAuthenticatedCaller(request.auth);
+  const displayId = requireId(request.data?.displayId, 'Display ID');
+  const displaySnap = await loadAuthorizedDisplay(caller, displayId);
+  const displayData = displaySnap.data()!;
+
+  const preview = displayData.lastPreview as DisplayPreviewMetadata | undefined | null;
+  let deletedPath: string | null = null;
+  if (preview?.storagePath) {
+    try {
+      const bucket = admin.storage().bucket();
+      await bucket.file(preview.storagePath).delete({ ignoreNotFound: true });
+      deletedPath = preview.storagePath;
+    } catch {
+      // Ignore not-found errors
+    }
+  }
+
+  await displaySnap.ref.update({
+    lastPreview: null,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  return {
+    success: true,
+    deletedPath,
   };
 });
 
