@@ -160,6 +160,7 @@ describe('Digital Display Wi-Fi Management & AP Onboarding', () => {
       // Maintenance section and registration button verification
       expect(setupRes.body).toContain('Digital Display Maintenance');
       expect(setupRes.body).toContain('Register Digital Display');
+      expect(setupRes.body).toContain('Unpair Display');
       expect(setupRes.body).toContain('Reboot Display');
       // Registration modal & pairing key code input verification
       expect(setupRes.body).toContain('id="pair-modal"');
@@ -172,9 +173,13 @@ describe('Digital Display Wi-Fi Management & AP Onboarding', () => {
 
   it('CaptivePortalServer handles /api/device/info, /api/pair validation, and /api/reboot', async () => {
     const wifi = new WifiManager(logger);
+    let credsCleared = false;
     const mockIdentity: any = {
       isEnrolled: () => false,
       getCredentials: () => null,
+      clearCredentials: () => {
+        credsCleared = true;
+      },
       pairWithCode: async (code: string) => {
         if (code === 'VALID99') {
           return { success: true, displayId: 'disp_test_12345' };
@@ -235,7 +240,16 @@ describe('Digital Display Wi-Fi Management & AP Onboarding', () => {
       expect(goodPairJson.displayId).toBe('disp_test_12345');
       expect(rendererRefreshed).toBe(true);
 
-      // 5. Reboot endpoint
+      // 5. Unpair endpoint
+      rendererRefreshed = false;
+      const unpairRes = await fetch(`http://127.0.0.1:${port}/api/unpair`, { method: 'POST' });
+      expect(unpairRes.status).toBe(200);
+      const unpairJson = await unpairRes.json();
+      expect(unpairJson.success).toBe(true);
+      expect(credsCleared).toBe(true);
+      expect(rendererRefreshed).toBe(true);
+
+      // 6. Reboot endpoint
       const rebootRes = await fetch(`http://127.0.0.1:${port}/api/reboot`, { method: 'POST' });
       expect(rebootRes.status).toBe(200);
       const rebootJson = await rebootRes.json();

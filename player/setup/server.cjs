@@ -233,6 +233,26 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Unpair Digital Display API (Wipe local credentials)
+  if (req.method === 'POST' && pathname === '/api/unpair') {
+    try {
+      const credsPath = path.join(CREDS_DIR, 'device-credentials.json');
+      if (fs.existsSync(credsPath)) {
+        fs.unlinkSync(credsPath);
+      }
+      console.log('[Aura Setup] Device credentials wiped locally via unpair API.');
+      // Restart player service so it resumes in un-enrolled state / fallback screen
+      exec('sudo systemctl restart aura-player.service', () => {});
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, message: 'Digital display unpaired successfully.' }));
+    } catch (err) {
+      console.error('[Aura Setup] Failed to unpair digital display:', err.message);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: err.message || 'Failed to unpair digital display' }));
+    }
+    return;
+  }
+
   // Graceful Reboot API
   if (req.method === 'POST' && pathname === '/api/reboot') {
     res.writeHead(200, { 'Content-Type': 'application/json' });

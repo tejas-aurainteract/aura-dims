@@ -27,6 +27,7 @@ import {
   Send,
   Eraser,
   Eye,
+  Unlink,
 } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -87,6 +88,8 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
   // Wi-Fi Onboarding & AP Confirmation Modals
   const [showClearWifiModal, setShowClearWifiModal] = useState<boolean>(false);
   const [showSwitchApModal, setShowSwitchApModal] = useState<boolean>(false);
+  const [showUnpairModal, setShowUnpairModal] = useState<boolean>(false);
+  const [isUnpairing, setIsUnpairing] = useState<boolean>(false);
 
   // Real-Time Cloud Terminal State (Cleared timestamp persisted per display)
   const [terminalInput, setTerminalInput] = useState<string>('');
@@ -290,6 +293,24 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
     await handleRunTerminalCommand(
       `sudo rfkill unblock wifi 2>/dev/null; sudo nmcli connection down "Aura-AP" 2>/dev/null; sudo nmcli connection down "Aura-Setup-AP" 2>/dev/null; sudo nmcli connection delete "Aura-AP" "Aura-Setup-AP" "Hotspot" 2>/dev/null; MAC_TAIL=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d ':\\n\\r ' | tail -c 4 | tr '[:lower:]' '[:upper:]'); SSID="Aura-\${MAC_TAIL:-WIFI}"; sudo iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || true; sudo nmcli connection add type wifi ifname wlan0 con-name "Aura-AP" autoconnect no ssid "$SSID" 802-11-wireless.mode ap 802-11-wireless.band bg 802-11-wireless.channel 6 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.psk "12345678" 802-11-wireless-security.pmf 1 ipv4.method shared ipv6.method disabled && sudo nmcli connection up "Aura-AP" && echo "SUCCESS: Digital display switched to AP Mode ($SSID, 2.4GHz, Pass: 12345678, IP: 10.42.0.1)"`
     );
+  };
+
+  const handleConfirmUnpair = async () => {
+    setIsUnpairing(true);
+    setBannerError(null);
+    setBannerSuccess(null);
+    try {
+      await api.resetEnrollment({ displayId: display.id });
+      setBannerSuccess(`Successfully unpaired digital display "${display.name}". Device credentials have been revoked and display lifecycle reset to pending enrollment.`);
+      setShowUnpairModal(false);
+      if (onDisplayUpdated) {
+        onDisplayUpdated();
+      }
+    } catch (err: any) {
+      setBannerError(getApiErrorMessage(err, `Failed to unpair digital display "${display.name}".`));
+    } finally {
+      setIsUnpairing(false);
+    }
   };
 
   const handleClearTerminal = () => {
@@ -668,8 +689,8 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                 </div>
               </div>
 
-              {/* Wi-Fi Onboarding & Local AP Mode Controls */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Wi-Fi Onboarding, Local AP Mode & Lifecycle Controls */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* 1. Clear All Wi-Fi Profiles */}
                 <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 flex flex-col justify-between hover:border-slate-700/80 transition-all">
                   <div className="flex items-start gap-3">
@@ -677,18 +698,18 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                       <WifiOff className="w-5 h-5" />
                     </div>
                     <div>
-                      <h4 className="text-sm font-semibold text-white">Clear Wi-Fi Profiles & Reboot</h4>
+                      <h4 className="text-sm font-semibold text-white">Clear Wi-Fi & Reboot</h4>
                       <p className="text-xs text-slate-400 mt-1">
-                        Removes all saved Wi-Fi credentials and automatically reboots the digital display into AP onboarding mode (~45s).
+                        Removes all saved Wi-Fi credentials and reboots into AP onboarding mode (~45s).
                       </p>
                     </div>
                   </div>
                   <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                    <span className="text-[11px] text-rose-400/80">Clears Wi-Fi & reboots device</span>
+                    <span className="text-[11px] text-rose-400/80">Clears Wi-Fi & reboots</span>
                     <button
                       onClick={() => setShowClearWifiModal(true)}
                       disabled={!isAdmin || isExecuting}
-                      className="px-3.5 py-1.5 bg-rose-950/80 hover:bg-rose-900 border border-rose-800/70 disabled:opacity-40 text-rose-200 font-medium text-xs rounded-lg transition-colors flex items-center gap-1.5"
+                      className="px-3 py-1.5 bg-rose-950/80 hover:bg-rose-900 border border-rose-800/70 disabled:opacity-40 text-rose-200 font-medium text-xs rounded-lg transition-colors flex items-center gap-1.5"
                     >
                       <WifiOff className="w-3.5 h-3.5" />
                       <span>Clear & Reboot</span>
@@ -705,19 +726,45 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                     <div>
                       <h4 className="text-sm font-semibold text-white">Switch to AP Mode</h4>
                       <p className="text-xs text-slate-400 mt-1">
-                        Forces digital display into Access Point mode broadcasting <code className="text-teal-300">Aura-&lt;Last4MAC&gt;</code> (pass: <code className="text-teal-300">12345678</code>) with captive portal.
+                        Forces digital display into Access Point mode broadcasting <code className="text-teal-300">Aura-&lt;Last4MAC&gt;</code> (pass: <code className="text-teal-300">12345678</code>).
                       </p>
                     </div>
                   </div>
                   <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                    <span className="text-[11px] text-teal-400/80">Local onboarding hotspot</span>
+                    <span className="text-[11px] text-teal-400/80">Local onboarding</span>
                     <button
                       onClick={() => setShowSwitchApModal(true)}
                       disabled={!isAdmin || isExecuting}
-                      className="px-3.5 py-1.5 bg-teal-950/80 hover:bg-teal-900 border border-teal-800/70 disabled:opacity-40 text-teal-200 font-medium text-xs rounded-lg transition-colors flex items-center gap-1.5"
+                      className="px-3 py-1.5 bg-teal-950/80 hover:bg-teal-900 border border-teal-800/70 disabled:opacity-40 text-teal-200 font-medium text-xs rounded-lg transition-colors flex items-center gap-1.5"
                     >
                       <Radio className="w-3.5 h-3.5" />
-                      <span>Switch to AP Mode</span>
+                      <span>Switch to AP</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. Unpair Digital Display */}
+                <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 flex flex-col justify-between hover:border-slate-700/80 transition-all">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20">
+                      <Unlink className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-semibold text-white">Unpair from Aura DIMS</h4>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Revokes device credentials and returns display to pending enrollment.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
+                    <span className="text-[11px] text-red-400/80">Revokes credentials</span>
+                    <button
+                      onClick={() => setShowUnpairModal(true)}
+                      disabled={!isAdmin || isUnpairing}
+                      className="px-3 py-1.5 bg-red-950/80 hover:bg-red-900 border border-red-800/70 disabled:opacity-40 text-red-200 font-medium text-xs rounded-lg transition-colors flex items-center gap-1.5"
+                    >
+                      <Unlink className="w-3.5 h-3.5" />
+                      <span>Unpair Display</span>
                     </button>
                   </div>
                 </div>
@@ -1394,6 +1441,56 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
               >
                 <Radio className="w-3.5 h-3.5" />
                 <span>Confirm Switch to AP Mode</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unpair Digital Display Confirmation Modal */}
+      {showUnpairModal && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+          <div className="bg-slate-900 border border-red-900/60 rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-red-400">
+              <div className="p-2.5 rounded-lg bg-red-500/10 border border-red-500/20">
+                <Unlink className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-white">Unpair Digital Display</h3>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Are you sure you want to unpair digital display{' '}
+              <strong className="text-white font-semibold">{display.name}</strong> from Aura DIMS?
+            </p>
+            <div className="bg-red-950/30 border border-red-900/40 rounded-lg p-3 text-[11px] text-red-300/90 leading-relaxed space-y-1">
+              <div>• <strong>Device Credentials:</strong> The active cryptographic tokens will be revoked immediately.</div>
+              <div>• <strong>Fleet Status:</strong> The digital display will return to <code>pending_enrollment</code>.</div>
+              <div>• <strong>Re-pairing:</strong> You can generate a fresh pairing key code from the Displays page at any time to re-pair it.</div>
+            </div>
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowUnpairModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isUnpairing}
+                onClick={handleConfirmUnpair}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
+              >
+                {isUnpairing ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Unpairing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Unlink className="w-3.5 h-3.5" />
+                    <span>Confirm Unpair</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

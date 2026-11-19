@@ -36,6 +36,7 @@ import {
   AlertCircle,
   Wrench,
   Wifi,
+  Unlink,
 } from 'lucide-react';
 import { collection, onSnapshot, getDocs, query, where, type Query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -530,6 +531,22 @@ export const DisplaysPage: React.FC = () => {
       setPairingModalDisplay(null);
     } finally {
       setPairingLoading(false);
+    }
+  };
+
+  // Unpair digital display handler
+  const handleUnpairDisplay = async (display: DigitalDisplay) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to unpair "${display.name}" from Aura DIMS?\n\n` +
+      `This will revoke the digital display credentials and return the device to pending enrollment. You can then generate a new pairing code to re-pair it at any time.\n\n` +
+      `Do you want to proceed?`
+    );
+    if (!confirmed) return;
+
+    try {
+      await api.resetEnrollment({ displayId: display.id });
+    } catch (err: any) {
+      alert(`Could not unpair digital display: ${err?.message || err}`);
     }
   };
 
@@ -1121,13 +1138,32 @@ export const DisplaysPage: React.FC = () => {
                         display.lifecycle === 'pending_enrollment' ? (
                           <button
                             onClick={() => handleGeneratePairingCode(display)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 text-xs font-medium border border-teal-500/30 transition-colors"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 text-xs font-medium border border-teal-500/30 transition-colors shadow-sm"
                             title="Generate one-time pairing code for initial device commissioning"
                           >
                             <Key className="w-3 h-3" />
                             Pairing Code
                           </button>
-                        ) : null
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleUnpairDisplay(display)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-medium border border-rose-500/30 transition-colors"
+                              title="Unpair and disconnect this digital display from Aura DIMS"
+                            >
+                              <Unlink className="w-3 h-3" />
+                              Unpair
+                            </button>
+                            <button
+                              onClick={() => handleGeneratePairingCode(display)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-xs font-medium border border-amber-500/30 transition-colors"
+                              title="Unpair and generate a fresh pairing code to re-pair this digital display"
+                            >
+                              <Key className="w-3 h-3" />
+                              New Code
+                            </button>
+                          </div>
+                        )
                       )}
                     </div>
                   </div>

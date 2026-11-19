@@ -327,7 +327,46 @@ export class CaptivePortalServer {
       return;
     }
 
-    // 8. API: Reboot Digital Display
+    // 8. API: Unpair Digital Display (Wipe local credentials)
+    if (req.method === 'POST' && pathname === '/api/unpair') {
+      try {
+        if (this.identity) {
+          this.identity.clearCredentials();
+        }
+        this.logger.info('[CaptivePortal] Digital display credentials cleared via unpair API.');
+
+        if (this.onRefreshRenderer) {
+          try {
+            this.onRefreshRenderer();
+          } catch (err: any) {
+            this.logger.warn(
+              '[CaptivePortal] Post-unpair renderer refresh warning:',
+              err?.message || err
+            );
+          }
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            success: true,
+            message: 'Digital display unpaired successfully.',
+          })
+        );
+      } catch (err: any) {
+        this.logger.error('[CaptivePortal] Unpair request error:', err?.message || err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            success: false,
+            error: err?.message || 'Failed to unpair digital display.',
+          })
+        );
+      }
+      return;
+    }
+
+    // 9. API: Reboot Digital Display
     if (req.method === 'POST' && pathname === '/api/reboot') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, message: 'Rebooting digital display...' }));
@@ -342,7 +381,7 @@ export class CaptivePortalServer {
       return;
     }
 
-    // 9. Catch-all redirect for captive portal detection on any other domain
+    // 10. Catch-all redirect for captive portal detection on any other domain
     res.writeHead(302, { Location: `http://${hostHeader}/setup` });
     res.end();
   }
@@ -409,10 +448,12 @@ export class CaptivePortalServer {
     .badge-status { font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.04em; }
     .badge-enrolled { background: rgba(34,197,94,0.15); color: #4ade80; border: 1px solid rgba(34,197,94,0.3); }
     .badge-unregistered { background: rgba(234,179,8,0.15); color: #facc15; border: 1px solid rgba(234,179,8,0.3); }
-    .m-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
-    .btn-m { padding: 0.7rem 0.85rem; border-radius: 0.5rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.45rem; transition: all 0.2s; border: none; }
+    .m-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+    .btn-m { flex: 1 1 calc(50% - 0.375rem); min-width: 120px; padding: 0.7rem 0.85rem; border-radius: 0.5rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.45rem; transition: all 0.2s; border: none; }
     .btn-register { background: #0284c7; color: #ffffff; }
     .btn-register:hover { background: #0369a1; }
+    .btn-unpair { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+    .btn-unpair:hover { background: rgba(239,68,68,0.25); border-color: #ef4444; }
     .btn-reboot { background: #1e293b; color: #f87171; border: 1px solid #334155; }
     .btn-reboot:hover { background: #334155; border-color: #ef4444; }
 
@@ -505,6 +546,9 @@ export class CaptivePortalServer {
       <div class="m-actions">
         <button type="button" class="btn-m btn-register" onclick="openPairModal()">
           <span id="register-btn-label">${isEnrolled ? 'Re-pair Display' : 'Register Digital Display'}</span>
+        </button>
+        <button type="button" class="btn-m btn-unpair ${isEnrolled ? '' : 'hidden'}" id="unpair-btn" onclick="unpairDevice()">
+          <span>Unpair Display</span>
         </button>
         <button type="button" class="btn-m btn-reboot" onclick="rebootDevice()">
           <span>Reboot Display</span>
@@ -769,6 +813,10 @@ export class CaptivePortalServer {
           if (regBtn) {
             regBtn.textContent = 'Re-pair Display';
           }
+          const unpairBtn = document.getElementById('unpair-btn');
+          if (unpairBtn) {
+            unpairBtn.classList.remove('hidden');
+          }
 
           setTimeout(function() {
             closePairModal();
@@ -782,6 +830,58 @@ export class CaptivePortalServer {
         statusBox.className = 'status-box status-error';
         statusBox.innerHTML = '⚠ Could not contact digital display service. Please try again.';
         submitBtn.disabled = false;
+      }
+    }
+
+    async function loadDeviceInfo() {
+      try {
+        const res = await fetch('/api/device/info');
+        const data = await res.json();
+        if (data.success) {
+          const badge = document.getElementById('enrollment-badge');
+          const sub = document.getElementById('enrollment-sub');
+          const regBtn = document.getElementById('register-btn-label');
+          const unpairBtn = document.getElementById('unpair-btn');
+          if (data.enrolled && data.displayId) {
+            if (badge) {
+              badge.className = 'badge-status badge-enrolled';
+              badge.textContent = '✓ Registered';
+            }
+            if (sub) {
+              sub.innerHTML = 'Enrolled with Display ID: <code>' + escapeHtml(data.displayId) + '</code>';
+            }
+            if (regBtn) regBtn.textContent = 'Re-pair Display';
+            if (unpairBtn) unpairBtn.classList.remove('hidden');
+          } else {
+            if (badge) {
+              badge.className = 'badge-status badge-unregistered';
+              badge.textContent = '• Unregistered';
+            }
+            if (sub) {
+              sub.textContent = 'This digital display is not yet registered in Aura DIMS.';
+            }
+            if (regBtn) regBtn.textContent = 'Register Digital Display';
+            if (unpairBtn) unpairBtn.classList.add('hidden');
+          }
+        }
+      } catch (e) {}
+    }
+
+    async function unpairDevice() {
+      if (!confirm('Are you sure you want to unpair this digital display from Aura DIMS?\\n\\nThis will wipe local device credentials and return the display to an unregistered state.')) {
+        return;
+      }
+      try {
+        const res = await fetch('/api/unpair', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          alert('Digital display successfully unpaired.');
+          loadDeviceInfo();
+        } else {
+          alert('Could not unpair digital display: ' + (data.error || 'Unknown error'));
+        }
+      } catch (err) {
+        alert('Could not contact digital display service to unpair.');
       }
     }
 
@@ -801,8 +901,11 @@ export class CaptivePortalServer {
       });
     }
 
-    // Auto-scan on load
-    window.addEventListener('DOMContentLoaded', scanWifi);
+    // Auto-scan and status refresh on load
+    window.addEventListener('DOMContentLoaded', function() {
+      loadDeviceInfo();
+      scanWifi();
+    });
   </script>
 </body>
 </html>`;
