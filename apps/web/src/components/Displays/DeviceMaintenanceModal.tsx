@@ -52,8 +52,8 @@ const QUICK_COMMANDS = [
   { label: 'Saved Wi-Fi Profiles', cmd: 'sudo nmcli -t -f NAME,TYPE,UUID connection show | grep -E "wireless|wifi"' },
   { label: 'Scan Wi-Fi', cmd: 'sudo nmcli dev wifi list' },
   {
-    label: 'Clear Wi-Fi Profiles',
-    cmd: `sudo nmcli -t -f UUID,TYPE con show | grep -E 'wireless|wifi' | cut -d: -f1 | xargs -r sudo nmcli con delete && sudo nmcli con reload && echo "All Wi-Fi profiles cleared. Remaining: $(sudo nmcli -t -f TYPE con show | grep -c -E 'wireless|wifi')"`,
+    label: 'Clear Wi-Fi & Reboot',
+    cmd: `sudo nmcli -t -f UUID,TYPE con show | grep -E 'wireless|wifi' | cut -d: -f1 | xargs -r sudo nmcli con delete; sudo nmcli connection delete "Aura-AP" "Aura-Setup-AP" "Hotspot" 2>/dev/null || true; sync; echo "All Wi-Fi profiles cleared. Digital display is rebooting into AP onboarding mode (~45s)..."; (sleep 1 && sudo systemctl reboot) &`,
   },
   {
     label: 'Switch to AP Mode',
@@ -280,7 +280,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
     setShowClearWifiModal(false);
     setActiveTab('terminal');
     await handleRunTerminalCommand(
-      `sudo nmcli -t -f UUID,TYPE con show | grep -E 'wireless|wifi' | cut -d: -f1 | xargs -r sudo nmcli con delete && sudo nmcli con reload && echo "All Wi-Fi profiles cleared. Remaining: $(sudo nmcli -t -f TYPE con show | grep -c -E 'wireless|wifi')"`
+      `sudo nmcli -t -f UUID,TYPE con show | grep -E 'wireless|wifi' | cut -d: -f1 | xargs -r sudo nmcli con delete; sudo nmcli connection delete "Aura-AP" "Aura-Setup-AP" "Hotspot" 2>/dev/null || true; sync; echo "All Wi-Fi profiles cleared. Digital display is rebooting into AP onboarding mode (~45s)..."; (sleep 1 && sudo systemctl reboot) &`
     );
   };
 
@@ -677,21 +677,21 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                       <WifiOff className="w-5 h-5" />
                     </div>
                     <div>
-                      <h4 className="text-sm font-semibold text-white">Clear All Wi-Fi Profiles</h4>
+                      <h4 className="text-sm font-semibold text-white">Clear Wi-Fi Profiles & Reboot</h4>
                       <p className="text-xs text-slate-400 mt-1">
-                        Removes all saved wireless network credentials from the digital display. Once disconnected, the device will instantly trigger local AP fallback mode.
+                        Removes all saved Wi-Fi credentials and automatically reboots the digital display into AP onboarding mode (~45s).
                       </p>
                     </div>
                   </div>
                   <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between">
-                    <span className="text-[11px] text-rose-400/80">Requires confirmation</span>
+                    <span className="text-[11px] text-rose-400/80">Clears Wi-Fi & reboots device</span>
                     <button
                       onClick={() => setShowClearWifiModal(true)}
                       disabled={!isAdmin || isExecuting}
                       className="px-3.5 py-1.5 bg-rose-950/80 hover:bg-rose-900 border border-rose-800/70 disabled:opacity-40 text-rose-200 font-medium text-xs rounded-lg transition-colors flex items-center gap-1.5"
                     >
                       <WifiOff className="w-3.5 h-3.5" />
-                      <span>Clear All Profiles</span>
+                      <span>Clear & Reboot</span>
                     </button>
                   </div>
                 </div>
@@ -1317,7 +1317,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
         </div>
       )}
 
-      {/* Clear All Wi-Fi Profiles Confirmation Modal */}
+      {/* Clear All Wi-Fi Profiles & Reboot Confirmation Modal */}
       {showClearWifiModal && (
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
           <div className="bg-slate-900 border border-rose-900/60 rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4">
@@ -1325,14 +1325,16 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
               <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20">
                 <WifiOff className="w-6 h-6" />
               </div>
-              <h3 className="text-base font-bold text-white">Clear All Wi-Fi Profiles</h3>
+              <h3 className="text-base font-bold text-white">Confirm Wi-Fi Reset & Reboot</h3>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
               Are you sure you want to delete all saved wireless network credentials from digital display{' '}
               <strong className="text-white font-semibold">{display.name}</strong>?
             </p>
-            <div className="bg-rose-950/30 border border-rose-900/40 rounded-lg p-3 text-[11px] text-rose-300/90 leading-relaxed">
-              <strong>Notice:</strong> If the digital display is connected over Wi-Fi, it will disconnect and immediately transition into Access Point (hotspot) mode with captive portal for new onboarding.
+            <div className="bg-rose-950/30 border border-rose-900/40 rounded-lg p-3 text-[11px] text-rose-300/90 leading-relaxed space-y-1">
+              <div>• <strong>Network Action:</strong> All saved Wi-Fi credentials will be permanently deleted.</div>
+              <div>• <strong>Automatic Reboot:</strong> The digital display will immediately reboot (~45s).</div>
+              <div>• <strong>Onboarding AP:</strong> Upon booting with 0 profiles, the device automatically activates <code className="text-rose-200">Aura-&lt;Last4MAC&gt;</code> with captive portal.</div>
             </div>
             <div className="flex justify-end gap-2.5 pt-2">
               <button
@@ -1349,7 +1351,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                 className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
               >
                 <WifiOff className="w-3.5 h-3.5" />
-                <span>Confirm Clear All Profiles</span>
+                <span>Confirm Reset & Reboot</span>
               </button>
             </div>
           </div>
