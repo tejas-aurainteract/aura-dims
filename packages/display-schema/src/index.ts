@@ -3159,6 +3159,46 @@ export function checkDevicePublicationCompatibility(
   };
 }
 
+/**
+ * Store-and-forward pairing intent persisted on a digital display
+ * so mobile-only onboarding can submit Wi-Fi credentials and pairing
+ * code in one step before the setup AP disconnects.
+ */
+export type PendingEnrollmentState = 'pending' | 'redeeming' | 'failed_terminal';
+
+export type PendingEnrollmentSource = 'captive_portal' | 'lan_portal' | 'cli';
+
+export interface PendingEnrollmentError {
+  code: string;
+  message: string;
+}
+
+export interface PendingEnrollment {
+  schemaVersion: 1;
+  pairingCode: string;
+  submittedAt: string;
+  source: PendingEnrollmentSource;
+  state: PendingEnrollmentState;
+  attempts: number;
+  lastAttemptAt: string | null;
+  nextAttemptAt: string | null;
+  lastError: PendingEnrollmentError | null;
+  wifiSsid?: string | null;
+}
+
+/** Safe, code-masked projection exposed over HTTP APIs to the portal and HDMI renderer. */
+export interface PendingEnrollmentView {
+  state: PendingEnrollmentState;
+  attempts: number;
+  submittedAt: string;
+  lastAttemptAt: string | null;
+  nextAttemptAt: string | null;
+  lastError: PendingEnrollmentError | null;
+  codeHint: string; // e.g. "••••9P"
+  wifiSsid?: string | null;
+}
+
+
 
 
 

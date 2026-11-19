@@ -7,7 +7,7 @@
  * - On-demand Wi-Fi scanning with deduplication and signal quality sorting
  * - Priority-ordered connection with NetworkManager (highest autoconnect-priority for newest network)
  * - 30-second internet verification with automatic rollback if new network fails
- * - Automatic Access Point (AP) mode fallback when disconnected (SSID: "Aura", Pass: "12345678")
+ * - Automatic Access Point (AP) mode fallback when disconnected (SSID: "Aura-<Last4MAC>", Pass: "aura12345678")
  * - Cross-platform adapter with simulated networks for local development and testing
  *
  * Terminology rule: Always use "digital display" in user-facing naming and logs.
@@ -50,7 +50,7 @@ export class WifiManager {
     this.isLinux = os.platform() === 'linux';
     this.wifiInterface = config?.wifiInterface || 'wlan0';
     this.apSsid = this.computeApSsid(config?.apSsid);
-    this.apPassword = config?.apPassword || '12345678';
+    this.apPassword = config?.apPassword || 'aura12345678';
     this.internetCheckTimeoutMs = config?.internetCheckTimeoutMs || 30_000;
   }
 
@@ -469,7 +469,7 @@ export class WifiManager {
 
   /**
    * Starts Access Point (AP) mode on the digital display.
-   * SSID: "Aura-<Last4MAC>", Password: "12345678"
+   * SSID: "Aura-<Last4MAC>", Password: "aura12345678"
    */
   public async startApMode(): Promise<void> {
     if (this.apActive) {

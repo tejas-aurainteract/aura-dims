@@ -18,6 +18,7 @@ import type { PlayerConfig } from './config.js';
 import type { Logger } from './logger.js';
 import type { DeviceIdentity } from './identity.js';
 import type { SyncEngine } from './syncEngine.js';
+import type { PendingEnrollmentStore } from './pendingEnrollment.js';
 import type { PlaybackPresentationState } from '@aura-dims/display-schema';
 
 export class LocalServer {
@@ -25,6 +26,7 @@ export class LocalServer {
   private logger: Logger;
   private identity: DeviceIdentity;
   private syncEngine: SyncEngine;
+  private pendingEnrollmentStore?: PendingEnrollmentStore;
   private server: http.Server | null = null;
   private rendererDir: string;
   private playbackState: PlaybackPresentationState = {
@@ -52,6 +54,10 @@ export class LocalServer {
 
   public getApModeState() {
     return this.apModeState;
+  }
+
+  public setPendingEnrollmentStore(store: PendingEnrollmentStore): void {
+    this.pendingEnrollmentStore = store;
   }
 
   constructor(
@@ -203,6 +209,7 @@ export class LocalServer {
           rendererHealth: this.getRendererHealth(),
           reloadGeneration: this.reloadGeneration,
           apMode: this.apModeState,
+          pendingEnrollment: this.pendingEnrollmentStore?.getView() ?? null,
         })
       );
       return;
@@ -216,6 +223,7 @@ export class LocalServer {
             state: 'unprovisioned',
             reloadGeneration: this.reloadGeneration,
             apMode: this.apModeState,
+            pendingEnrollment: this.pendingEnrollmentStore?.getView() ?? null,
           })
         );
         return;

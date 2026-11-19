@@ -18,6 +18,7 @@ import { LocalServer } from './localServer.js';
 import { OperationsAgent } from './operationsAgent.js';
 import { Supervisor } from './supervision.js';
 import { WifiManager } from './wifiManager.js';
+import { PendingEnrollmentStore } from './pendingEnrollment.js';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -64,6 +65,7 @@ async function main() {
   const identity = new DeviceIdentity(config, logger, transport);
   const hardwareAdapter = new HardwareAdapter(config, logger);
   const wifiManager = new WifiManager(logger);
+  const pendingEnrollmentStore = new PendingEnrollmentStore(config.credentialsDir, logger);
   const syncEngine = new SyncEngine(config, logger, identity, hardwareAdapter);
   const server = new LocalServer(config, logger, identity, syncEngine);
   const operationsAgent = new OperationsAgent({
@@ -83,23 +85,37 @@ async function main() {
     server,
     hardwareAdapter,
     operationsAgent,
-    wifiManager
+    wifiManager,
+    pendingEnrollmentStore
   );
 
-  // If pairing code provided via CLI, pair immediately
+  // If pairing code provided via CLI, persist to pending-enrollment.json and redeem immediately
   if (pairCode) {
-    logger.info('Redeeming CLI pairing code for digital display enrollment...');
-    const pairResult = await identity.pairWithCode(pairCode);
-    if (!pairResult.success) {
-      logger.error(`Pairing failed: ${pairResult.error}`);
-    } else {
-      logger.info(`Pairing succeeded for digital display: ${pairResult.displayId}`);
+    logger.info('Saving CLI pairing code and attempting digital display enrollment...');
+    try {
+      pendingEnrollmentStore.saveNew(pairCode, 'cli');
+      const attempt = await supervisor.getEnrollmentWorker().kick(true);
+      if (attempt.status === 'enrolled') {
+        logger.info(`Pairing succeeded for digital display: ${attempt.displayId}`);
+      } else if (attempt.status === 'failed_terminal') {
+        logger.error(`Pairing failed: ${attempt.error?.message || 'Terminal error'}`);
+      } else {
+        logger.info(
+          `Pairing code saved (status: ${attempt.status}). Enrollment worker will retry automatically once online.`
+        );
+      }
+    } catch (err: any) {
+      logger.error(`Invalid CLI pairing code: ${err?.message || err}`);
     }
   } else if (identity.isEnrolled()) {
     // Attempt session restoration
     await identity.restoreSession();
+  } else if (pendingEnrollmentStore.exists()) {
+    logger.info(
+      'Digital display has a stored pending pairing code. Enrollment worker will register automatically once online.'
+    );
   } else {
-    logger.info('Device is unprovisioned. First-run pairing screen will be presented.');
+    logger.info('Digital display is unprovisioned. Mobile onboarding screen will be presented.');
   }
 
   // Start loopback server

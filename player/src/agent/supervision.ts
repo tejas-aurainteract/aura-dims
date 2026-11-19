@@ -21,6 +21,8 @@ import { HardwareAdapter } from './hardwareAdapter.js';
 import { OperationsAgent } from './operationsAgent.js';
 import { WifiManager } from './wifiManager.js';
 import { CaptivePortalServer } from './captivePortal.js';
+import { PendingEnrollmentStore } from './pendingEnrollment.js';
+import { EnrollmentWorker } from './enrollmentWorker.js';
 import type {
   DeviceHeartbeatRequest,
   DeviceHeartbeatResponse,
@@ -36,6 +38,8 @@ export class Supervisor {
   private hardwareAdapter: HardwareAdapter;
   private operationsAgent: OperationsAgent;
   private wifiManager: WifiManager;
+  private pendingEnrollmentStore: PendingEnrollmentStore;
+  private enrollmentWorker: EnrollmentWorker;
   private captivePortal: CaptivePortalServer;
   private syncTimer: NodeJS.Timeout | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
@@ -52,7 +56,8 @@ export class Supervisor {
     server: LocalServer,
     hardwareAdapter?: HardwareAdapter,
     operationsAgent?: OperationsAgent,
-    wifiManager?: WifiManager
+    wifiManager?: WifiManager,
+    pendingEnrollmentStore?: PendingEnrollmentStore
   ) {
     this.config = config;
     this.logger = logger;
@@ -61,13 +66,10 @@ export class Supervisor {
     this.server = server;
     this.hardwareAdapter = hardwareAdapter || new HardwareAdapter(config, logger);
     this.wifiManager = wifiManager || new WifiManager(logger);
-    this.captivePortal = new CaptivePortalServer(
-      logger,
-      this.wifiManager,
-      this.identity,
-      this.syncEngine,
-      () => this.server.triggerRendererRefresh()
-    );
+    this.pendingEnrollmentStore =
+      pendingEnrollmentStore || new PendingEnrollmentStore(config.credentialsDir, logger);
+    this.server.setPendingEnrollmentStore(this.pendingEnrollmentStore);
+
     this.operationsAgent =
       operationsAgent ||
       new OperationsAgent({
@@ -79,6 +81,56 @@ export class Supervisor {
         wifiManager: this.wifiManager,
         onRefreshRenderer: () => this.server.triggerRendererRefresh(),
       });
+
+    this.enrollmentWorker = new EnrollmentWorker({
+      store: this.pendingEnrollmentStore,
+      identity: this.identity,
+      logger: this.logger,
+      checkOnline: () => this.wifiManager.checkInternetAccess(),
+      onEnrolled: () => {
+        this.operationsAgent.startRealtimeListener();
+        this.triggerSync();
+        this.triggerHeartbeat().catch(() => {});
+        this.server.triggerRendererRefresh();
+      },
+      onStateChange: () => {
+        this.server.triggerRendererRefresh();
+        const pending = this.pendingEnrollmentStore.read();
+        if (!this.identity.isEnrolled() && pending?.state === 'failed_terminal') {
+          setTimeout(() => {
+            if (this.isRunning && !this.identity.isEnrolled()) {
+              this.ensureOnboardingPortalIfNeeded('Stored pairing code failed terminally').catch(
+                () => {}
+              );
+            }
+          }, 8000);
+        }
+      },
+    });
+
+    this.captivePortal = new CaptivePortalServer(
+      logger,
+      this.wifiManager,
+      this.identity,
+      this.syncEngine,
+      () => this.server.triggerRendererRefresh(),
+      this.enrollmentWorker,
+      (active) => {
+        this.server.setApModeState(
+          active,
+          active ? this.wifiManager.getApSsid() : undefined,
+          active ? this.wifiManager.getApPassword() : undefined
+        );
+      }
+    );
+  }
+
+  public getEnrollmentWorker(): EnrollmentWorker {
+    return this.enrollmentWorker;
+  }
+
+  public getPendingEnrollmentStore(): PendingEnrollmentStore {
+    return this.pendingEnrollmentStore;
   }
 
   public getWifiManager(): WifiManager {
@@ -101,6 +153,9 @@ export class Supervisor {
 
     // Attach real-time Firestore listener for zero-latency wake-up (< 50ms)
     this.operationsAgent.startRealtimeListener();
+
+    // Start store-and-forward enrollment worker (redeems stored pairing code when online)
+    this.enrollmentWorker.start();
 
     // Initial sync check
     this.triggerSync();
@@ -158,6 +213,7 @@ export class Supervisor {
       this.wifiTimer = null;
     }
     this.operationsAgent.stopRealtimeListener();
+    this.enrollmentWorker.stop();
     this.captivePortal.stop().catch(() => {});
     this.logger.info('Digital display supervision timers stopped.');
   }
@@ -181,10 +237,48 @@ export class Supervisor {
           this.wifiManager.getApPassword()
         );
         this.server.triggerRendererRefresh();
+      } else {
+        // Digital display is online at boot -> kick store-and-forward enrollment immediately
+        this.enrollmentWorker.kick(true).catch(() => {});
+        // If unprovisioned with no active pending code (e.g. unpaired without keyboard),
+        // expose the mobile onboarding portal so the operator can enter a pairing code.
+        await this.ensureOnboardingPortalIfNeeded('Digital display is unprovisioned with no pending pairing code');
       }
     } catch (err: any) {
       this.logger.warn('[Supervisor] Error during startup network evaluation:', err?.message || err);
     }
+  }
+
+  private async ensureOnboardingPortalIfNeeded(reason: string): Promise<void> {
+    if (this.identity.isEnrolled()) return;
+    const pending = this.pendingEnrollmentStore.read();
+    if (pending && (pending.state === 'pending' || pending.state === 'redeeming')) {
+      return;
+    }
+
+    if (this.wifiManager.isApModeActive()) {
+      return;
+    }
+
+    const ethOnline = await this.wifiManager.isEthernetOnline().catch(() => false);
+    if (ethOnline) {
+      // On Ethernet, start the portal on LAN without disrupting wired internet
+      await this.captivePortal.start(80);
+      this.logger.info(`[Supervisor] Onboarding portal started on LAN (${reason}).`);
+      return;
+    }
+
+    this.logger.info(
+      `[Supervisor] ${reason}. Activating AP Mode (SSID: "${this.wifiManager.getApSsid()}") for mobile-only onboarding...`
+    );
+    await this.wifiManager.startApMode();
+    await this.captivePortal.start(80);
+    this.server.setApModeState(
+      true,
+      this.wifiManager.getApSsid(),
+      this.wifiManager.getApPassword()
+    );
+    this.server.triggerRendererRefresh();
   }
 
   private async checkNetworkAndManageApMode(): Promise<void> {
@@ -198,7 +292,11 @@ export class Supervisor {
       const isOnline = await this.wifiManager.checkInternetAccess();
 
       if (isOnline) {
+        const wasOffline = this.consecutiveOfflineChecks > 0;
         this.consecutiveOfflineChecks = 0;
+        if (wasOffline) {
+          this.enrollmentWorker.kick(true).catch(() => {});
+        }
         return;
       }
 

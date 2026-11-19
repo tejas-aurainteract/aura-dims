@@ -43,10 +43,10 @@ describe('Digital Display Wi-Fi Management & AP Onboarding', () => {
     expect(caps.supportedOperationTypes).toContain('CONNECT_WIFI');
   });
 
-  it('WifiManager initializes with default SSID incorporating MAC address "Aura-3456" and password "12345678"', () => {
+  it('WifiManager initializes with default SSID incorporating MAC address "Aura-3456" and password "aura12345678"', () => {
     const wifi = new WifiManager(logger);
     expect(wifi.getApSsid()).toBe('Aura-3456');
-    expect(wifi.getApPassword()).toBe('12345678');
+    expect(wifi.getApPassword()).toBe('aura12345678');
     expect(wifi.isApModeActive()).toBe(false);
 
     // Explicit custom SSID override

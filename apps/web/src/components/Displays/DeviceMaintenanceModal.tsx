@@ -58,7 +58,7 @@ const QUICK_COMMANDS = [
   },
   {
     label: 'Switch to AP Mode',
-    cmd: `sudo rfkill unblock wifi 2>/dev/null; sudo nmcli connection down "Aura-AP" 2>/dev/null; sudo nmcli connection down "Aura-Setup-AP" 2>/dev/null; sudo nmcli connection delete "Aura-AP" "Aura-Setup-AP" "Hotspot" 2>/dev/null; MAC_TAIL=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d ':\\n\\r ' | tail -c 4 | tr '[:lower:]' '[:upper:]'); SSID="Aura-\${MAC_TAIL:-WIFI}"; sudo iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || true; sudo nmcli connection add type wifi ifname wlan0 con-name "Aura-AP" autoconnect no ssid "$SSID" 802-11-wireless.mode ap 802-11-wireless.band bg 802-11-wireless.channel 6 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.psk "12345678" 802-11-wireless-security.pmf 1 ipv4.method shared ipv6.method disabled && sudo nmcli connection up "Aura-AP" && echo "SUCCESS: Digital display switched to AP Mode ($SSID, 2.4GHz, Pass: 12345678, IP: 10.42.0.1)"`,
+    cmd: `sudo rfkill unblock wifi 2>/dev/null; sudo nmcli connection down "Aura-AP" 2>/dev/null; sudo nmcli connection down "Aura-Setup-AP" 2>/dev/null; sudo nmcli connection delete "Aura-AP" "Aura-Setup-AP" "Hotspot" 2>/dev/null; MAC_TAIL=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d ':\\n\\r ' | tail -c 4 | tr '[:lower:]' '[:upper:]'); SSID="Aura-\${MAC_TAIL:-WIFI}"; sudo iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || true; sudo nmcli connection add type wifi ifname wlan0 con-name "Aura-AP" autoconnect no ssid "$SSID" 802-11-wireless.mode ap 802-11-wireless.band bg 802-11-wireless.channel 6 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.psk "aura12345678" 802-11-wireless-security.pmf 1 ipv4.method shared ipv6.method disabled && sudo nmcli connection up "Aura-AP" && echo "SUCCESS: Digital display switched to AP Mode ($SSID, 2.4GHz, Pass: aura12345678, IP: 10.42.0.1)"`,
   },
   { label: 'Disk Space', cmd: 'sudo df -h /' },
   { label: 'Memory (RAM)', cmd: 'sudo free -h' },
@@ -291,7 +291,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
     setShowSwitchApModal(false);
     setActiveTab('terminal');
     await handleRunTerminalCommand(
-      `sudo rfkill unblock wifi 2>/dev/null; sudo nmcli connection down "Aura-AP" 2>/dev/null; sudo nmcli connection down "Aura-Setup-AP" 2>/dev/null; sudo nmcli connection delete "Aura-AP" "Aura-Setup-AP" "Hotspot" 2>/dev/null; MAC_TAIL=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d ':\\n\\r ' | tail -c 4 | tr '[:lower:]' '[:upper:]'); SSID="Aura-\${MAC_TAIL:-WIFI}"; sudo iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || true; sudo nmcli connection add type wifi ifname wlan0 con-name "Aura-AP" autoconnect no ssid "$SSID" 802-11-wireless.mode ap 802-11-wireless.band bg 802-11-wireless.channel 6 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.psk "12345678" 802-11-wireless-security.pmf 1 ipv4.method shared ipv6.method disabled && sudo nmcli connection up "Aura-AP" && echo "SUCCESS: Digital display switched to AP Mode ($SSID, 2.4GHz, Pass: 12345678, IP: 10.42.0.1)"`
+      `sudo rfkill unblock wifi 2>/dev/null; sudo nmcli connection down "Aura-AP" 2>/dev/null; sudo nmcli connection down "Aura-Setup-AP" 2>/dev/null; sudo nmcli connection delete "Aura-AP" "Aura-Setup-AP" "Hotspot" 2>/dev/null; MAC_TAIL=$(cat /sys/class/net/wlan0/address 2>/dev/null | tr -d ':\\n\\r ' | tail -c 4 | tr '[:lower:]' '[:upper:]'); SSID="Aura-\${MAC_TAIL:-WIFI}"; sudo iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || true; sudo nmcli connection add type wifi ifname wlan0 con-name "Aura-AP" autoconnect no ssid "$SSID" 802-11-wireless.mode ap 802-11-wireless.band bg 802-11-wireless.channel 6 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.psk "aura12345678" 802-11-wireless-security.pmf 1 ipv4.method shared ipv6.method disabled && sudo nmcli connection up "Aura-AP" && echo "SUCCESS: Digital display switched to AP Mode ($SSID, 2.4GHz, Pass: aura12345678, IP: 10.42.0.1)"`
     );
   };
 
@@ -726,7 +726,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
                     <div>
                       <h4 className="text-sm font-semibold text-white">Switch to AP Mode</h4>
                       <p className="text-xs text-slate-400 mt-1">
-                        Forces digital display into Access Point mode broadcasting <code className="text-teal-300">Aura-&lt;Last4MAC&gt;</code> (pass: <code className="text-teal-300">12345678</code>).
+                        Forces digital display into Access Point mode broadcasting <code className="text-teal-300">Aura-&lt;Last4MAC&gt;</code> (pass: <code className="text-teal-300">aura12345678</code>).
                       </p>
                     </div>
                   </div>
@@ -1421,7 +1421,7 @@ export const DeviceMaintenanceModal: React.FC<DeviceMaintenanceModalProps> = ({
             </p>
             <div className="bg-teal-950/30 border border-teal-900/40 rounded-lg p-3 text-[11px] text-teal-300/90 leading-relaxed space-y-1">
               <div>• <strong>Hotspot SSID:</strong> <code className="text-teal-200">Aura-&lt;Last4MAC&gt;</code> (2.4 GHz)</div>
-              <div>• <strong>Hotspot Password:</strong> <code className="text-teal-200">12345678</code></div>
+              <div>• <strong>Hotspot Password:</strong> <code className="text-teal-200">aura12345678</code></div>
               <div>• <strong>Mobile Tip:</strong> If previously attempted, tap "Forget This Network" in phone settings before reconnecting.</div>
               <div>• <strong>Captive Portal:</strong> Directs phone browser automatically to setup portal at <code className="text-teal-200">http://10.42.0.1</code>.</div>
             </div>

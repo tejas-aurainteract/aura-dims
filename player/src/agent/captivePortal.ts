@@ -17,6 +17,8 @@ import type { Logger } from './logger.js';
 import type { WifiManager } from './wifiManager.js';
 import type { DeviceIdentity } from './identity.js';
 import type { SyncEngine } from './syncEngine.js';
+import type { EnrollmentWorker } from './enrollmentWorker.js';
+import { isValidPairingCode, normalizePairingCode } from './pendingEnrollment.js';
 
 function escapeHtml(str: string): string {
   return String(str || '').replace(/[&<>"']/g, (m) => {
@@ -37,22 +39,29 @@ export class CaptivePortalServer {
   private readonly identity?: DeviceIdentity;
   private readonly syncEngine?: SyncEngine;
   private readonly onRefreshRenderer?: () => void;
+  private readonly enrollmentWorker?: EnrollmentWorker;
+  private readonly onApModeChanged?: (active: boolean) => void;
   private server: http.Server | null = null;
   private isRunning = false;
   private activePort = 80;
+  private lastWifiError: string | null = null;
 
   constructor(
     logger: Logger,
     wifiManager: WifiManager,
     identity?: DeviceIdentity,
     syncEngine?: SyncEngine,
-    onRefreshRenderer?: () => void
+    onRefreshRenderer?: () => void,
+    enrollmentWorker?: EnrollmentWorker,
+    onApModeChanged?: (active: boolean) => void
   ) {
     this.logger = logger;
     this.wifiManager = wifiManager;
     this.identity = identity;
     this.syncEngine = syncEngine;
     this.onRefreshRenderer = onRefreshRenderer;
+    this.enrollmentWorker = enrollmentWorker;
+    this.onApModeChanged = onApModeChanged;
   }
 
   public async start(preferredPort = 80): Promise<number> {
@@ -169,7 +178,7 @@ export class CaptivePortalServer {
       return;
     }
 
-    // 5. API: Connect to Wi-Fi (Fast-ACK to prevent browser disconnect timeout on AP teardown)
+    // 5. API: Connect to Wi-Fi (Fast-ACK + optional store-and-forward pairing code)
     if (req.method === 'POST' && pathname === '/api/wifi/connect') {
       let body = '';
       req.on('data', (chunk) => {
@@ -181,6 +190,8 @@ export class CaptivePortalServer {
           const ssid = (parsed.ssid || '').trim();
           const password = parsed.password || '';
           const overridePassword = Boolean(parsed.overridePassword);
+          const rawPairingCode = typeof parsed.pairingCode === 'string' ? parsed.pairingCode : '';
+          const cleanPairingCode = normalizePairingCode(rawPairingCode);
 
           if (!ssid) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -188,8 +199,29 @@ export class CaptivePortalServer {
             return;
           }
 
+          if (cleanPairingCode && !isValidPairingCode(cleanPairingCode)) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                success: false,
+                error: 'Pairing key code must be exactly 6 letters or digits.',
+              })
+            );
+            return;
+          }
+
+          let enrollmentQueued = false;
+          if (cleanPairingCode && this.enrollmentWorker) {
+            // Persist pending-enrollment.json atomically BEFORE sending Fast-ACK or switching network
+            this.enrollmentWorker.getStore().saveNew(cleanPairingCode, 'captive_portal', ssid);
+            enrollmentQueued = true;
+            this.onRefreshRenderer?.();
+          }
+
+          this.lastWifiError = null;
+
           this.logger.info(
-            `[CaptivePortal] Received user connect request for SSID: "${ssid}" (overridePassword: ${overridePassword}). Sending Fast-ACK before AP mode switch...`
+            `[CaptivePortal] Received user connect request for SSID: "${ssid}" (overridePassword: ${overridePassword}, enrollmentQueued: ${enrollmentQueued}). Sending Fast-ACK before AP mode switch...`
           );
 
           // Fast-ACK: Immediately send 200 OK while AP hotspot link is fully alive so browser receives clean confirmation
@@ -199,7 +231,11 @@ export class CaptivePortalServer {
               success: true,
               pending: true,
               ssid,
-              resultSummary: `Connection initiated to "${ssid}". This digital display is now switching to Wi-Fi and closing the setup hotspot.`,
+              enrollmentQueued,
+              apSsid: this.wifiManager.getApSsid(),
+              resultSummary: enrollmentQueued
+                ? `Saved. This digital display is joining "${ssid}" and will register itself with Aura DIMS automatically once online.`
+                : `Connection initiated to "${ssid}". This digital display is now switching to Wi-Fi and closing the setup hotspot.`,
             })
           );
 
@@ -209,11 +245,36 @@ export class CaptivePortalServer {
               this.logger.info(`[CaptivePortal] Executing network switch to Wi-Fi "${ssid}"...`);
               await this.wifiManager.connectNetwork(ssid, password, 100, overridePassword);
               this.logger.info(`[CaptivePortal] Successfully joined Wi-Fi network "${ssid}".`);
+              this.onApModeChanged?.(false);
+              this.onRefreshRenderer?.();
+
+              // Immediately kick store-and-forward enrollment worker if a code is pending
+              if (this.enrollmentWorker) {
+                this.enrollmentWorker.kick(true).catch((err: any) => {
+                  this.logger.warn(
+                    '[CaptivePortal] Post-Wi-Fi enrollment kick warning:',
+                    err?.message || err
+                  );
+                });
+              }
             } catch (err: any) {
+              const errMsg = err?.message || 'Could not join Wi-Fi network.';
+              this.lastWifiError = `Failed to connect to "${ssid}": ${errMsg}`;
               this.logger.error(
                 `[CaptivePortal] Asynchronous switch to Wi-Fi "${ssid}" failed:`,
-                err?.message || err
+                errMsg
               );
+              // Fall back to AP mode while keeping any pending-enrollment.json intact
+              try {
+                await this.wifiManager.startApMode();
+                this.onApModeChanged?.(true);
+                this.onRefreshRenderer?.();
+              } catch (apErr: any) {
+                this.logger.error(
+                  '[CaptivePortal] Failed to restore AP mode after Wi-Fi failure:',
+                  apErr?.message || apErr
+                );
+              }
             }
           }, 600);
         } catch (err: any) {
@@ -224,10 +285,13 @@ export class CaptivePortalServer {
       return;
     }
 
-    // 6. API: Device Registration & Identity Info
+    // 6. API: Device Registration & Identity Info (pairing code is always masked)
     if (req.method === 'GET' && pathname === '/api/device/info') {
       const isEnrolled = this.identity?.isEnrolled() ?? false;
       const creds = isEnrolled ? this.identity?.getCredentials() : null;
+      const pendingEnrollment = !isEnrolled
+        ? (this.enrollmentWorker?.getStore().getView() ?? null)
+        : null;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
         JSON.stringify({
@@ -235,8 +299,113 @@ export class CaptivePortalServer {
           enrolled: isEnrolled,
           displayId: creds?.displayId || null,
           apSsid: this.wifiManager.getApSsid(),
+          pendingEnrollment,
+          lastWifiError: this.lastWifiError,
         })
       );
+      return;
+    }
+
+    // 6b. API: Save Pending Pairing Code (Store-and-forward without changing Wi-Fi)
+    if (req.method === 'POST' && pathname === '/api/enrollment/pending') {
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', async () => {
+        try {
+          const parsed = JSON.parse(body || '{}');
+          const cleanCode = normalizePairingCode(parsed.pairingCode || parsed.code || '');
+
+          if (!cleanCode) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Pairing key code is required.' }));
+            return;
+          }
+
+          if (!isValidPairingCode(cleanCode)) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                success: false,
+                error: 'Pairing key code must be exactly 6 letters or digits.',
+              })
+            );
+            return;
+          }
+
+          if (!this.enrollmentWorker) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                success: false,
+                error: 'Enrollment worker is not initialized on this digital display.',
+              })
+            );
+            return;
+          }
+
+          this.enrollmentWorker.getStore().saveNew(cleanCode, 'captive_portal');
+          this.onRefreshRenderer?.();
+
+          // If the digital display is already online (e.g. Ethernet), try redeeming right away (up to 15s)
+          const online = await this.wifiManager.checkInternetAccess().catch(() => false);
+          if (online) {
+            const timeoutPromise = new Promise<{ status: 'timeout' }>((resolve) =>
+              setTimeout(() => resolve({ status: 'timeout' }), 15_000)
+            );
+            const attemptResult = await Promise.race([
+              this.enrollmentWorker.kick(true),
+              timeoutPromise,
+            ]);
+
+            if (attemptResult.status === 'enrolled') {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(
+                JSON.stringify({
+                  success: true,
+                  state: 'enrolled',
+                  displayId: attemptResult.displayId,
+                  message: 'Digital display registered successfully!',
+                })
+              );
+              return;
+            }
+
+            if (attemptResult.status === 'failed_terminal') {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(
+                JSON.stringify({
+                  success: false,
+                  state: 'failed_terminal',
+                  error: attemptResult.error?.message || 'Pairing code was rejected by Aura DIMS.',
+                })
+              );
+              return;
+            }
+          }
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              success: true,
+              state: 'pending',
+              pendingEnrollment: this.enrollmentWorker.getStore().getView(),
+              message:
+                'Pairing code saved. This digital display will register with Aura DIMS automatically as soon as it has internet.',
+            })
+          );
+        } catch (err: any) {
+          this.logger.error('[CaptivePortal] Pending enrollment error:', err?.message || err);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              success: false,
+              error: err?.message || 'Could not save pairing code.',
+            })
+          );
+        }
+      });
       return;
     }
 
@@ -333,7 +502,10 @@ export class CaptivePortalServer {
         if (this.identity) {
           this.identity.clearCredentials();
         }
-        this.logger.info('[CaptivePortal] Digital display credentials cleared via unpair API.');
+        if (this.enrollmentWorker) {
+          this.enrollmentWorker.getStore().clear();
+        }
+        this.logger.info('[CaptivePortal] Digital display credentials and pending enrollment cleared via unpair API.');
 
         if (this.onRefreshRenderer) {
           try {
@@ -520,7 +692,27 @@ export class CaptivePortalServer {
         <input type="password" id="pass-input" placeholder="Enter Wi-Fi password..." autocomplete="off">
       </div>
 
-      <button type="submit" id="connect-btn" class="btn-connect">Connect Digital Display</button>
+      <div id="wifi-error-box" class="status-box status-error hidden" style="margin-top: 0; margin-bottom: 1rem;"></div>
+
+      <div class="form-group ${isEnrolled ? 'hidden' : ''}" id="wifi-pair-group">
+        <label for="wifi-pair-input">Pairing Key Code <span style="color: #64748b; font-weight: 400;">(6 characters from Aura DIMS)</span></label>
+        <input
+          type="text"
+          id="wifi-pair-input"
+          class="code-input"
+          placeholder="e.g. 7K2M9P"
+          maxlength="6"
+          autocomplete="off"
+          autocapitalize="characters"
+          spellcheck="false"
+          oninput="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '')"
+        />
+        <p id="wifi-pair-help" style="color: #94a3b8; font-size: 0.75rem; margin-top: 0.35rem; line-height: 1.4;">
+          Generate this in Aura DIMS &rarr; Displays &rarr; Pairing Code. This digital display will save it and register automatically once online.
+        </p>
+      </div>
+
+      <button type="submit" id="connect-btn" class="btn-connect">${isEnrolled ? 'Connect Digital Display' : 'Connect & Register Digital Display'}</button>
     </form>
 
     <div id="status-box" class="status-box"></div>
@@ -717,6 +909,7 @@ export class CaptivePortalServer {
       const ssid = document.getElementById('ssid-input').value.trim();
       const passInput = document.getElementById('pass-input');
       const overrideCheck = document.getElementById('override-check');
+      const pairInput = document.getElementById('wifi-pair-input');
       const statusBox = document.getElementById('status-box');
       const connectBtn = document.getElementById('connect-btn');
 
@@ -725,22 +918,38 @@ export class CaptivePortalServer {
       const isSaved = selectedNetwork && selectedNetwork.isSaved;
       const overridePassword = isSaved && overrideCheck && overrideCheck.checked;
       const password = passInput.value;
+      const pairingCode = pairInput ? pairInput.value.trim().toUpperCase() : '';
+
+      if (pairingCode && !/^[A-Z0-9]{6}$/.test(pairingCode)) {
+        statusBox.className = 'status-box status-error';
+        statusBox.innerHTML = '⚠ Pairing key code must be exactly 6 letters or digits.';
+        return;
+      }
 
       connectBtn.disabled = true;
       statusBox.className = 'status-box status-loading';
-      statusBox.innerHTML = '<span class="spinner"></span> Connecting to "' + escapeHtml(ssid) + '"...';
+      statusBox.innerHTML = '<span class="spinner"></span> Saving settings & connecting to "' + escapeHtml(ssid) + '"...';
 
       try {
         const res = await fetch('/api/wifi/connect', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ssid, password, overridePassword })
+          body: JSON.stringify({ ssid, password, overridePassword, pairingCode: pairingCode || undefined })
         });
         const data = await res.json();
 
         if (res.ok && data.success) {
+          const apName = data.apSsid || '${escapeHtml(apSsid)}';
           statusBox.className = 'status-box status-success';
-          statusBox.innerHTML = '✓ ' + escapeHtml(data.resultSummary || 'Wi-Fi connection initiated!') + '<br><small>This digital display is now switching to "' + escapeHtml(ssid) + '" and closing the hotspot. You may now reconnect to your regular Wi-Fi network.</small>';
+          if (data.enrollmentQueued) {
+            statusBox.innerHTML =
+              '✓ <strong>Saved!</strong> The digital display is joining <strong>' + escapeHtml(ssid) + '</strong> and will register itself with Aura DIMS automatically.<br>' +
+              '<small style="display:block;margin-top:0.4rem;">Reconnect your phone to normal Wi-Fi and watch this digital display turn <strong>Active</strong> in the Aura DIMS web console. If it cannot join, hotspot <strong>' + escapeHtml(apName) + '</strong> will reappear within ~60s.</small>';
+          } else {
+            statusBox.innerHTML =
+              '✓ ' + escapeHtml(data.resultSummary || 'Wi-Fi connection initiated!') + '<br>' +
+              '<small style="display:block;margin-top:0.4rem;">This digital display is now switching to <strong>' + escapeHtml(ssid) + '</strong> and closing the hotspot. Reconnect your phone to normal Wi-Fi. If it cannot join, hotspot <strong>' + escapeHtml(apName) + '</strong> will reappear within ~60s.</small>';
+          }
         } else {
           statusBox.className = 'status-box status-error';
           statusBox.innerHTML = '⚠ ' + escapeHtml(data.error || 'Connection failed.');
@@ -748,7 +957,7 @@ export class CaptivePortalServer {
         }
       } catch (err) {
         statusBox.className = 'status-box status-success';
-        statusBox.innerHTML = '✓ Wi-Fi command accepted!<br><small>Digital display switched interfaces to connect to "' + escapeHtml(ssid) + '". Setup hotspot closed. You may now reconnect your device to normal Wi-Fi.</small>';
+        statusBox.innerHTML = '✓ Settings saved!<br><small>Digital display switched interfaces to connect to "' + escapeHtml(ssid) + '". Reconnect your phone to normal Wi-Fi and check the Aura DIMS web console.</small>';
       }
     }
 
@@ -778,7 +987,7 @@ export class CaptivePortalServer {
     async function submitPairCode(e) {
       e.preventDefault();
       const input = document.getElementById('pairing-code-input');
-      const code = input.value.trim().toUpperCase();
+      const code = input.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
       const statusBox = document.getElementById('pair-status-box');
       const submitBtn = document.getElementById('pair-submit-btn');
 
@@ -786,10 +995,10 @@ export class CaptivePortalServer {
 
       submitBtn.disabled = true;
       statusBox.className = 'status-box status-loading';
-      statusBox.innerHTML = '<span class="spinner"></span> Redeeming pairing code with Aura DIMS Cloud...';
+      statusBox.innerHTML = '<span class="spinner"></span> Saving pairing code...';
 
       try {
-        const res = await fetch('/api/pair', {
+        const res = await fetch('/api/enrollment/pending', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ pairingCode: code })
@@ -798,32 +1007,19 @@ export class CaptivePortalServer {
 
         if (res.ok && data.success) {
           statusBox.className = 'status-box status-success';
-          statusBox.innerHTML = '✓ Digital display registered successfully!<br><small>Display ID: <strong>' + escapeHtml(data.displayId) + '</strong>. Initializing playback...</small>';
-
-          const badge = document.getElementById('enrollment-badge');
-          if (badge) {
-            badge.className = 'badge-status badge-enrolled';
-            badge.textContent = '✓ Registered';
-          }
-          const sub = document.getElementById('enrollment-sub');
-          if (sub) {
-            sub.innerHTML = 'Enrolled with Display ID: <code>' + escapeHtml(data.displayId) + '</code>';
-          }
-          const regBtn = document.getElementById('register-btn-label');
-          if (regBtn) {
-            regBtn.textContent = 'Re-pair Display';
-          }
-          const unpairBtn = document.getElementById('unpair-btn');
-          if (unpairBtn) {
-            unpairBtn.classList.remove('hidden');
+          if (data.state === 'enrolled' && data.displayId) {
+            statusBox.innerHTML = '✓ Digital display registered successfully!<br><small>Display ID: <strong>' + escapeHtml(data.displayId) + '</strong>. Initializing playback...</small>';
+          } else {
+            statusBox.innerHTML = '✓ Pairing code saved!<br><small>' + escapeHtml(data.message || 'This digital display will register automatically once online.') + '</small>';
           }
 
+          await loadDeviceInfo();
           setTimeout(function() {
             closePairModal();
-          }, 2500);
+          }, 2200);
         } else {
           statusBox.className = 'status-box status-error';
-          statusBox.innerHTML = '⚠ ' + escapeHtml(data.error || 'Pairing failed. Please verify code and internet connection.');
+          statusBox.innerHTML = '⚠ ' + escapeHtml(data.error || 'Pairing failed. Please verify the code.');
           submitBtn.disabled = false;
         }
       } catch (err) {
@@ -842,6 +1038,19 @@ export class CaptivePortalServer {
           const sub = document.getElementById('enrollment-sub');
           const regBtn = document.getElementById('register-btn-label');
           const unpairBtn = document.getElementById('unpair-btn');
+          const wifiPairGroup = document.getElementById('wifi-pair-group');
+          const wifiPairHelp = document.getElementById('wifi-pair-help');
+          const wifiErrBox = document.getElementById('wifi-error-box');
+
+          if (wifiErrBox) {
+            if (data.lastWifiError) {
+              wifiErrBox.textContent = '⚠ ' + data.lastWifiError;
+              wifiErrBox.classList.remove('hidden');
+            } else {
+              wifiErrBox.classList.add('hidden');
+            }
+          }
+
           if (data.enrolled && data.displayId) {
             if (badge) {
               badge.className = 'badge-status badge-enrolled';
@@ -852,16 +1061,46 @@ export class CaptivePortalServer {
             }
             if (regBtn) regBtn.textContent = 'Re-pair Display';
             if (unpairBtn) unpairBtn.classList.remove('hidden');
+            if (wifiPairGroup) wifiPairGroup.classList.add('hidden');
           } else {
-            if (badge) {
-              badge.className = 'badge-status badge-unregistered';
-              badge.textContent = '• Unregistered';
-            }
-            if (sub) {
-              sub.textContent = 'This digital display is not yet registered in Aura DIMS.';
-            }
-            if (regBtn) regBtn.textContent = 'Register Digital Display';
+            const p = data.pendingEnrollment;
+            if (wifiPairGroup) wifiPairGroup.classList.remove('hidden');
             if (unpairBtn) unpairBtn.classList.add('hidden');
+
+            if (p && p.state === 'failed_terminal') {
+              if (badge) {
+                badge.className = 'badge-status badge-unregistered';
+                badge.textContent = '⚠ Code Rejected';
+              }
+              if (sub) {
+                sub.innerHTML = 'Stored code (<code>' + escapeHtml(p.codeHint) + '</code>) failed: ' + escapeHtml((p.lastError && p.lastError.message) || 'Generate a new pairing code in Aura DIMS.');
+              }
+              if (wifiPairHelp) {
+                wifiPairHelp.innerHTML = '<span style="color:#fca5a5;">Previous code (' + escapeHtml(p.codeHint) + ') failed: ' + escapeHtml((p.lastError && p.lastError.message) || 'Enter a fresh 6-character code.') + '</span>';
+              }
+              if (regBtn) regBtn.textContent = 'Enter New Code';
+            } else if (p) {
+              if (badge) {
+                badge.className = 'badge-status badge-unregistered';
+                badge.textContent = '⏳ Code Saved';
+              }
+              if (sub) {
+                sub.innerHTML = 'Pairing code <code>' + escapeHtml(p.codeHint) + '</code> is saved. Waiting for internet to register with Aura DIMS.';
+              }
+              if (wifiPairHelp) {
+                wifiPairHelp.innerHTML = '<span style="color:#86efac;">✓ Code <strong>' + escapeHtml(p.codeHint) + '</strong> is already saved. Leave blank to keep it, or enter a new code to replace it.</span>';
+              }
+              if (regBtn) regBtn.textContent = 'Replace Pairing Code';
+            } else {
+              if (badge) {
+                badge.className = 'badge-status badge-unregistered';
+                badge.textContent = '• Unregistered';
+              }
+              if (sub) {
+                sub.textContent = 'This digital display is not yet registered in Aura DIMS.';
+              }
+              if (regBtn) regBtn.textContent = 'Register Digital Display';
+            }
           }
         }
       } catch (e) {}
