@@ -51,6 +51,7 @@ const crypto = __importStar(require("node:crypto"));
 const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
 const fs = __importStar(require("node:fs/promises"));
+const node_fs_1 = require("node:fs");
 const node_child_process_1 = require("node:child_process");
 const node_util_1 = require("node:util");
 const sharp_1 = __importDefault(require("sharp"));
@@ -140,6 +141,15 @@ function detectSignature(buffer) {
         }
     }
     return 'unknown';
+}
+function computeFileSha256(filePath) {
+    return new Promise((resolve, reject) => {
+        const hash = crypto.createHash('sha256');
+        const stream = (0, node_fs_1.createReadStream)(filePath);
+        stream.on('data', (data) => hash.update(data));
+        stream.on('end', () => resolve(hash.digest('hex')));
+        stream.on('error', reject);
+    });
 }
 // Audit event logger
 async function recordMediaAudit(actorId, action, targetId, departmentId, details) {
@@ -263,7 +273,7 @@ exports.initiateMediaUpload = (0, https_1.onCall)(CALLABLE_OPTS, async (request)
 // ==============================================================================
 // 2. finalizeMediaUpload
 // ==============================================================================
-exports.finalizeMediaUpload = (0, https_1.onCall)({ ...CALLABLE_OPTS, memory: '1GiB', timeoutSeconds: 120 }, async (request) => {
+exports.finalizeMediaUpload = (0, https_1.onCall)({ ...CALLABLE_OPTS, memory: '2GiB', timeoutSeconds: 300 }, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
     const { assetId } = request.data;
     if (!assetId || typeof assetId !== 'string') {
@@ -296,7 +306,7 @@ exports.finalizeMediaUpload = (0, https_1.onCall)({ ...CALLABLE_OPTS, memory: '1
         throw new https_1.HttpsError('failed-precondition', 'Staged file was not found in Cloud Storage. Ensure client transfer completed.');
     }
     const [metadata] = await stagingFile.getMetadata();
-    const actualSizeBytes = Number(metadata.size || 0);
+    let actualSizeBytes = Number(metadata.size || 0);
     // Transition to 'validating'
     await assetRef.update({
         status: 'validating',
@@ -304,15 +314,19 @@ exports.finalizeMediaUpload = (0, https_1.onCall)({ ...CALLABLE_OPTS, memory: '1
     });
     const tempDir = os.tmpdir();
     const localStagingPath = path.join(tempDir, `staging-${assetId}-${Date.now()}`);
+    let localTranscodedPath = null;
     let localThumbPath = null;
     try {
         // Download staging object to temp file
         await stagingFile.download({ destination: localStagingPath });
-        // 1. Compute Checksum
-        const fileBytes = await fs.readFile(localStagingPath);
-        const checksumSha256 = crypto.createHash('sha256').update(fileBytes).digest('hex');
-        // 2. Magic byte / Signature verification
-        const signature = detectSignature(fileBytes);
+        // 1. Compute Checksum (streamed)
+        let checksumSha256 = await computeFileSha256(localStagingPath);
+        // 2. Magic byte / Signature verification (first 4KB only)
+        const fileHandle = await fs.open(localStagingPath, 'r');
+        const headerBuffer = Buffer.alloc(4096);
+        await fileHandle.read(headerBuffer, 0, 4096, 0);
+        await fileHandle.close();
+        const signature = detectSignature(headerBuffer);
         if (signature === 'unknown') {
             throw new Error('Unsupported or unrecognized file signature. File header does not match JPEG, PNG, or MP4.');
         }
@@ -322,6 +336,7 @@ exports.finalizeMediaUpload = (0, https_1.onCall)({ ...CALLABLE_OPTS, memory: '1
         let durationSeconds = null;
         let videoCodec = null;
         let audioCodec = null;
+        let fileToUpload = localStagingPath;
         if (signature === 'jpeg' || signature === 'png') {
             detectedMimeType = signature === 'jpeg' ? 'image/jpeg' : 'image/png';
             detectedExt = signature === 'jpeg' ? 'jpg' : 'png';
@@ -362,36 +377,83 @@ exports.finalizeMediaUpload = (0, https_1.onCall)({ ...CALLABLE_OPTS, memory: '1
                 throw new Error('No valid video stream found inside the MP4 container.');
             }
             videoCodec = String(videoStream.codec_name || '').toLowerCase();
-            if (videoCodec !== 'h264') {
-                throw new Error(`Unsupported video codec "${videoCodec}". Digital signage playback strictly requires H.264 video.`);
-            }
             const rawDuration = Number(probeData.format?.duration) || Number(videoStream.duration) || 0;
             durationSeconds = Math.round(rawDuration);
             if (durationSeconds > display_schema_1.MEDIA_CONSTRAINTS.MAX_VIDEO_DURATION_SECONDS) {
                 throw new Error(`Video duration (${durationSeconds}s) exceeds maximum permitted limit of 10 minutes (600s).`);
             }
-            const vw = Number(videoStream.width || 0);
-            const vh = Number(videoStream.height || 0);
-            dimensions = { width: vw, height: vh };
-            // Video dimension constraints (max 1920x1080 landscape or 1080x1920 portrait)
-            const isLandscape = vw >= vh;
-            if (isLandscape) {
-                if (vw > 1920 || vh > 1080) {
-                    throw new Error(`Video resolution ${vw}x${vh} exceeds maximum landscape dimensions (1920×1080) for digital displays.`);
-                }
-            }
-            else {
-                if (vw > 1080 || vh > 1920) {
-                    throw new Error(`Video resolution ${vw}x${vh} exceeds maximum portrait dimensions (1080×1920) for digital displays.`);
-                }
-            }
-            // Check audio stream (optional, but must be AAC if present)
+            const rawVw = Number(videoStream.width || 0);
+            const rawVh = Number(videoStream.height || 0);
+            const isLandscape = rawVw >= rawVh;
             const audioStream = (probeData.streams || []).find((s) => s.codec_type === 'audio');
             if (audioStream) {
                 audioCodec = String(audioStream.codec_name || '').toLowerCase();
-                if (audioCodec !== 'aac') {
-                    throw new Error(`Unsupported audio codec "${audioCodec}". Only AAC audio is permitted in MP4 videos for digital displays.`);
+            }
+            // Check if video requires transcoding to H.264 1080p for Raspberry Pi hardware decoding
+            const exceedsResolution = isLandscape ? (rawVw > 1920 || rawVh > 1080) : (rawVw > 1080 || rawVh > 1920);
+            const isH264 = videoCodec === 'h264';
+            const isAac = !audioStream || audioCodec === 'aac';
+            const isNonStandardPixFmt = String(videoStream.pix_fmt || '').toLowerCase().includes('10');
+            const needsTranscode = !isH264 || exceedsResolution || !isAac || isNonStandardPixFmt;
+            if (needsTranscode) {
+                console.log(`[MediaAdmin] Video ${assetId} requires automated optimization (codec: ${videoCodec}, resolution: ${rawVw}x${rawVh}, audio: ${audioCodec || 'none'}). Transcoding to H.264 1080p for digital displays...`);
+                const ffmpegPath = getFfmpegPath();
+                localTranscodedPath = path.join(tempDir, `optimized-${assetId}.mp4`);
+                // Scale preserving aspect ratio within 1920x1080 (or 1080x1920) with even dimensions
+                const targetW = isLandscape ? 1920 : 1080;
+                const targetH = isLandscape ? 1080 : 1920;
+                const scaleFilter = `scale=w=${targetW}:h=${targetH}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2`;
+                const ffmpegArgs = [
+                    '-v',
+                    'error',
+                    '-i',
+                    localStagingPath,
+                    '-vf',
+                    scaleFilter,
+                    '-c:v',
+                    'libx264',
+                    '-profile:v',
+                    'high',
+                    '-level:v',
+                    '4.1',
+                    '-pix_fmt',
+                    'yuv420p',
+                    '-preset',
+                    'fast',
+                    '-crf',
+                    '22',
+                    ...(audioStream ? ['-c:a', 'aac', '-b:a', '128k'] : ['-an']),
+                    '-movflags',
+                    '+faststart',
+                    '-y',
+                    localTranscodedPath,
+                ];
+                try {
+                    await execFilePromise(ffmpegPath, ffmpegArgs, { timeout: 240000 });
                 }
+                catch (transcodeErr) {
+                    console.error(`[MediaAdmin] Transcode failed for ${assetId}:`, transcodeErr);
+                    throw new Error(`Automated video optimization failed: ${transcodeErr?.message || 'FFmpeg process error'}`);
+                }
+                // Probe transcoded output to confirm final properties
+                const { stdout: tcProbeOut } = await execFilePromise(ffprobePath, ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', localTranscodedPath], { timeout: 30000 });
+                const tcData = JSON.parse(tcProbeOut);
+                const tcVideoStream = (tcData.streams || []).find((s) => s.codec_type === 'video');
+                const tcAudioStream = (tcData.streams || []).find((s) => s.codec_type === 'audio');
+                const finalW = tcVideoStream ? Number(tcVideoStream.width || 0) : Math.min(rawVw, targetW);
+                const finalH = tcVideoStream ? Number(tcVideoStream.height || 0) : Math.min(rawVh, targetH);
+                dimensions = { width: finalW, height: finalH };
+                videoCodec = 'h264';
+                audioCodec = tcAudioStream ? 'aac' : null;
+                const tcStats = await fs.stat(localTranscodedPath);
+                actualSizeBytes = tcStats.size;
+                checksumSha256 = await computeFileSha256(localTranscodedPath);
+                fileToUpload = localTranscodedPath;
+                console.log(`[MediaAdmin] Video ${assetId} successfully optimized to H.264 ${finalW}x${finalH} (${(actualSizeBytes / 1024 / 1024).toFixed(1)} MB).`);
+            }
+            else {
+                dimensions = { width: rawVw, height: rawVh };
+                fileToUpload = localStagingPath;
             }
             // Generate poster thumbnail with ffmpeg (argument-based, shell-free)
             const ffmpegPath = getFfmpegPath();
@@ -401,11 +463,11 @@ exports.finalizeMediaUpload = (0, https_1.onCall)({ ...CALLABLE_OPTS, memory: '1
                 '-ss',
                 seekTime,
                 '-i',
-                localStagingPath,
+                fileToUpload,
                 '-vframes',
                 '1',
                 '-vf',
-                "scale='min(400,iw)':-1",
+                "scale='min(400,iw)':-2",
                 '-y',
                 localThumbPath,
             ], { timeout: 30000 });
@@ -414,7 +476,7 @@ exports.finalizeMediaUpload = (0, https_1.onCall)({ ...CALLABLE_OPTS, memory: '1
         const finalMediaPath = `media/${asset.departmentId}/${assetId}/original.${detectedExt}`;
         const finalThumbPath = `thumbnails/${asset.departmentId}/${assetId}/thumb.webp`;
         // Upload permanent original
-        await bucket.upload(localStagingPath, {
+        await bucket.upload(fileToUpload, {
             destination: finalMediaPath,
             metadata: {
                 contentType: detectedMimeType,
@@ -491,6 +553,9 @@ exports.finalizeMediaUpload = (0, https_1.onCall)({ ...CALLABLE_OPTS, memory: '1
     finally {
         // Local temp file cleanup
         await fs.unlink(localStagingPath).catch(() => { });
+        if (localTranscodedPath) {
+            await fs.unlink(localTranscodedPath).catch(() => { });
+        }
         if (localThumbPath) {
             await fs.unlink(localThumbPath).catch(() => { });
         }
