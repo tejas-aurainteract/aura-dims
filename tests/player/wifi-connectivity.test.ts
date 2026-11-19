@@ -149,6 +149,102 @@ describe('Digital Display Wi-Fi Management & AP Onboarding', () => {
     }
   });
 
+  it('CaptivePortalServer provides digital display maintenance UI with registration modal and reboot button', async () => {
+    const wifi = new WifiManager(logger);
+    const portal = new CaptivePortalServer(logger, wifi);
+    const port = await portal.start(8767);
+
+    try {
+      const setupRes = await makeRequest(`http://127.0.0.1:${port}/setup`);
+      expect(setupRes.statusCode).toBe(200);
+      // Maintenance section and registration button verification
+      expect(setupRes.body).toContain('Digital Display Maintenance');
+      expect(setupRes.body).toContain('Register Digital Display');
+      expect(setupRes.body).toContain('Reboot Display');
+      // Registration modal & pairing key code input verification
+      expect(setupRes.body).toContain('id="pair-modal"');
+      expect(setupRes.body).toContain('id="pairing-code-input"');
+      expect(setupRes.body).toContain('Pair & Activate');
+    } finally {
+      await portal.stop();
+    }
+  });
+
+  it('CaptivePortalServer handles /api/device/info, /api/pair validation, and /api/reboot', async () => {
+    const wifi = new WifiManager(logger);
+    const mockIdentity: any = {
+      isEnrolled: () => false,
+      getCredentials: () => null,
+      pairWithCode: async (code: string) => {
+        if (code === 'VALID99') {
+          return { success: true, displayId: 'disp_test_12345' };
+        }
+        return { success: false, error: 'Invalid pairing code' };
+      },
+    };
+
+    let rendererRefreshed = false;
+    const portal = new CaptivePortalServer(
+      logger,
+      wifi,
+      mockIdentity,
+      undefined,
+      () => { rendererRefreshed = true; }
+    );
+    const port = await portal.start(8768);
+
+    try {
+      // 1. Device Info
+      const infoRes = await fetch(`http://127.0.0.1:${port}/api/device/info`);
+      expect(infoRes.status).toBe(200);
+      const infoJson = await infoRes.json();
+      expect(infoJson.success).toBe(true);
+      expect(infoJson.enrolled).toBe(false);
+      expect(infoJson.displayId).toBeNull();
+
+      // 2. Pair: Missing Code
+      const emptyPairRes = await fetch(`http://127.0.0.1:${port}/api/pair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pairingCode: '' }),
+      });
+      expect(emptyPairRes.status).toBe(400);
+      const emptyPairJson = await emptyPairRes.json();
+      expect(emptyPairJson.success).toBe(false);
+
+      // 3. Pair: Invalid Code
+      const badPairRes = await fetch(`http://127.0.0.1:${port}/api/pair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pairingCode: 'WRONG1' }),
+      });
+      expect(badPairRes.status).toBe(400);
+      const badPairJson = await badPairRes.json();
+      expect(badPairJson.success).toBe(false);
+      expect(badPairJson.error).toContain('Invalid pairing code');
+
+      // 4. Pair: Valid Code Success
+      const goodPairRes = await fetch(`http://127.0.0.1:${port}/api/pair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pairingCode: 'valid99' }), // lower-case should be normalized
+      });
+      expect(goodPairRes.status).toBe(200);
+      const goodPairJson = await goodPairRes.json();
+      expect(goodPairJson.success).toBe(true);
+      expect(goodPairJson.displayId).toBe('disp_test_12345');
+      expect(rendererRefreshed).toBe(true);
+
+      // 5. Reboot endpoint
+      const rebootRes = await fetch(`http://127.0.0.1:${port}/api/reboot`, { method: 'POST' });
+      expect(rebootRes.status).toBe(200);
+      const rebootJson = await rebootRes.json();
+      expect(rebootJson.success).toBe(true);
+    } finally {
+      await portal.stop();
+    }
+  });
+
   it('parseNmcliWifiList parses terse nmcli stdout correctly into WifiScannedNetwork items', () => {
     const mockOutput = [
       '*:Office-Primary:85:WPA2',

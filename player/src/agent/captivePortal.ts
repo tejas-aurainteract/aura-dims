@@ -15,6 +15,8 @@
 import * as http from 'node:http';
 import type { Logger } from './logger.js';
 import type { WifiManager } from './wifiManager.js';
+import type { DeviceIdentity } from './identity.js';
+import type { SyncEngine } from './syncEngine.js';
 
 function escapeHtml(str: string): string {
   return String(str || '').replace(/[&<>"']/g, (m) => {
@@ -32,13 +34,25 @@ function escapeHtml(str: string): string {
 export class CaptivePortalServer {
   private readonly logger: Logger;
   private readonly wifiManager: WifiManager;
+  private readonly identity?: DeviceIdentity;
+  private readonly syncEngine?: SyncEngine;
+  private readonly onRefreshRenderer?: () => void;
   private server: http.Server | null = null;
   private isRunning = false;
   private activePort = 80;
 
-  constructor(logger: Logger, wifiManager: WifiManager) {
+  constructor(
+    logger: Logger,
+    wifiManager: WifiManager,
+    identity?: DeviceIdentity,
+    syncEngine?: SyncEngine,
+    onRefreshRenderer?: () => void
+  ) {
     this.logger = logger;
     this.wifiManager = wifiManager;
+    this.identity = identity;
+    this.syncEngine = syncEngine;
+    this.onRefreshRenderer = onRefreshRenderer;
   }
 
   public async start(preferredPort = 80): Promise<number> {
@@ -189,13 +203,134 @@ export class CaptivePortalServer {
       return;
     }
 
-    // 6. Catch-all redirect for captive portal detection on any other domain
+    // 6. API: Device Registration & Identity Info
+    if (req.method === 'GET' && pathname === '/api/device/info') {
+      const isEnrolled = this.identity?.isEnrolled() ?? false;
+      const creds = isEnrolled ? this.identity?.getCredentials() : null;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          success: true,
+          enrolled: isEnrolled,
+          displayId: creds?.displayId || null,
+          apSsid: this.wifiManager.getApSsid(),
+        })
+      );
+      return;
+    }
+
+    // 7. API: Redeem Pairing Key Code (Pair Digital Display)
+    if (req.method === 'POST' && pathname === '/api/pair') {
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', async () => {
+        try {
+          const parsed = JSON.parse(body || '{}');
+          const pairingCode = (parsed.pairingCode || parsed.code || '').trim().toUpperCase();
+
+          if (!pairingCode) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Pairing key code is required.' }));
+            return;
+          }
+
+          if (!this.identity) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                success: false,
+                error: 'Device identity provider is not initialized on this digital display.',
+              })
+            );
+            return;
+          }
+
+          this.logger.info(
+            `[CaptivePortal] Attempting to pair digital display with key code: "${pairingCode}"...`
+          );
+          const result = await this.identity.pairWithCode(pairingCode);
+
+          if (result.success) {
+            this.logger.info(
+              `[CaptivePortal] Digital display paired successfully as: "${result.displayId}".`
+            );
+
+            if (this.syncEngine) {
+              this.syncEngine.checkForUpdates().catch((err: any) => {
+                this.logger.warn('[CaptivePortal] Post-pairing sync check warning:', err?.message || err);
+              });
+            }
+
+            if (this.onRefreshRenderer) {
+              try {
+                this.onRefreshRenderer();
+              } catch (err: any) {
+                this.logger.warn(
+                  '[CaptivePortal] Post-pairing renderer refresh warning:',
+                  err?.message || err
+                );
+              }
+            }
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                success: true,
+                displayId: result.displayId,
+                message: 'Digital display registered successfully!',
+              })
+            );
+          } else {
+            this.logger.warn(`[CaptivePortal] Pairing failed: ${result.error}`);
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                success: false,
+                error: result.error || 'Invalid or expired pairing code.',
+              })
+            );
+          }
+        } catch (err: any) {
+          this.logger.error('[CaptivePortal] Pairing request error:', err?.message || err);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              success: false,
+              error: err?.message || 'Internal pairing error.',
+            })
+          );
+        }
+      });
+      return;
+    }
+
+    // 8. API: Reboot Digital Display
+    if (req.method === 'POST' && pathname === '/api/reboot') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, message: 'Rebooting digital display...' }));
+      this.logger.info('[CaptivePortal] Digital display reboot requested from captive portal.');
+      setTimeout(() => {
+        import('node:child_process').then(({ exec }) => {
+          exec('sudo systemctl reboot || sudo reboot', (err) => {
+            if (err) this.logger.error('[CaptivePortal] Reboot command failed:', err);
+          });
+        });
+      }, 1000);
+      return;
+    }
+
+    // 9. Catch-all redirect for captive portal detection on any other domain
     res.writeHead(302, { Location: `http://${hostHeader}/setup` });
     res.end();
   }
 
   private getSetupHtml(): string {
     const apSsid = this.wifiManager.getApSsid();
+    const isEnrolled = this.identity?.isEnrolled() ?? false;
+    const creds = isEnrolled ? this.identity?.getCredentials() : null;
+    const displayId = creds?.displayId || '';
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -243,6 +378,39 @@ export class CaptivePortalServer {
     .hidden { display: none !important; }
     .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #ffffff; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Maintenance & Pairing Section Styles */
+    .maintenance-section { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid #1e293b; }
+    .maintenance-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
+    .m-title { display: flex; align-items: center; gap: 0.45rem; font-size: 0.95rem; font-weight: 600; color: #f1f5f9; }
+    .m-sub { font-size: 0.8rem; color: #94a3b8; line-height: 1.4; margin-bottom: 1rem; }
+    .m-sub code { background: #020617; border: 1px solid #334155; padding: 0.15rem 0.4rem; border-radius: 0.25rem; color: #38bdf8; font-family: monospace; font-size: 0.8rem; }
+    .badge-status { font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .badge-enrolled { background: rgba(34,197,94,0.15); color: #4ade80; border: 1px solid rgba(34,197,94,0.3); }
+    .badge-unregistered { background: rgba(234,179,8,0.15); color: #facc15; border: 1px solid rgba(234,179,8,0.3); }
+    .m-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    .btn-m { padding: 0.7rem 0.85rem; border-radius: 0.5rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.45rem; transition: all 0.2s; border: none; }
+    .btn-register { background: #0284c7; color: #ffffff; }
+    .btn-register:hover { background: #0369a1; }
+    .btn-reboot { background: #1e293b; color: #f87171; border: 1px solid #334155; }
+    .btn-reboot:hover { background: #334155; border-color: #ef4444; }
+
+    /* Modal Dialog */
+    .modal-backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
+    .modal-card { background: #0f172a; border: 1px solid #334155; border-radius: 1rem; width: 100%; max-width: 440px; padding: 1.5rem; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8); animation: modalIn 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+    @keyframes modalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+    .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
+    .modal-title { display: flex; align-items: center; gap: 0.5rem; font-size: 1.15rem; font-weight: 700; color: #ffffff; }
+    .modal-close { background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; padding: 0.2rem 0.5rem; border-radius: 0.35rem; line-height: 1; }
+    .modal-close:hover { color: #f1f5f9; background: #1e293b; }
+    .modal-desc { font-size: 0.8rem; color: #94a3b8; line-height: 1.45; margin-bottom: 1.25rem; }
+    .code-input { letter-spacing: 0.2em; font-size: 1.35rem; font-weight: 700; text-align: center; text-transform: uppercase; color: #38bdf8; padding: 0.75rem !important; }
+    .modal-buttons { display: flex; gap: 0.75rem; margin-top: 1.25rem; }
+    .btn-cancel { flex: 1; padding: 0.75rem; background: #1e293b; color: #94a3b8; border: 1px solid #334155; border-radius: 0.5rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+    .btn-cancel:hover { background: #334155; color: #ffffff; }
+    .btn-pair-submit { flex: 1.6; padding: 0.75rem; background: #0d9488; color: #ffffff; border: none; border-radius: 0.5rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+    .btn-pair-submit:hover { background: #14b8a6; }
+    .btn-pair-submit:disabled { opacity: 0.5; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -294,6 +462,74 @@ export class CaptivePortalServer {
     </form>
 
     <div id="status-box" class="status-box"></div>
+
+    <!-- Maintenance & Device Registration Section -->
+    <div class="maintenance-section">
+      <div class="maintenance-header">
+        <div class="m-title">
+          <span>Digital Display Maintenance</span>
+        </div>
+        <span id="enrollment-badge" class="badge-status ${isEnrolled ? 'badge-enrolled' : 'badge-unregistered'}">
+          ${isEnrolled ? '✓ Registered' : '• Unregistered'}
+        </span>
+      </div>
+      <p class="m-sub" id="enrollment-sub">
+        ${
+          isEnrolled
+            ? `Enrolled with Display ID: <code id="display-id-text">${escapeHtml(displayId)}</code>`
+            : 'This digital display is not yet registered in Aura DIMS.'
+        }
+      </p>
+
+      <div class="m-actions">
+        <button type="button" class="btn-m btn-register" onclick="openPairModal()">
+          <span id="register-btn-label">${isEnrolled ? 'Re-pair Display' : 'Register Digital Display'}</span>
+        </button>
+        <button type="button" class="btn-m btn-reboot" onclick="rebootDevice()">
+          <span>Reboot Display</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Register Digital Display Popup Modal -->
+  <div id="pair-modal" class="modal-backdrop hidden" onclick="handleModalBackdrop(event)">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <h3>Register Digital Display</h3>
+        </div>
+        <button type="button" class="modal-close" onclick="closePairModal()">&times;</button>
+      </div>
+      <p class="modal-desc">
+        Enter the pairing code generated in the Aura DIMS Web Console (under <strong>Displays &gt; Add Digital Display</strong>) to pair this digital display with your organization.
+      </p>
+
+      <form id="pair-form" onsubmit="submitPairCode(event)">
+        <div class="form-group">
+          <label for="pairing-code-input">Pairing Key Code</label>
+          <input
+            type="text"
+            id="pairing-code-input"
+            class="code-input"
+            placeholder="e.g. 7K2M9P"
+            maxlength="12"
+            autocomplete="off"
+            autocapitalize="characters"
+            spellcheck="false"
+            required
+            oninput="this.value = this.value.toUpperCase()"
+          />
+        </div>
+
+        <div id="pair-status-box" class="status-box"></div>
+
+        <div class="modal-buttons">
+          <button type="button" class="btn-cancel" onclick="closePairModal()">Cancel</button>
+          <button type="submit" id="pair-submit-btn" class="btn-pair-submit">Pair & Activate</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <script>
@@ -449,6 +685,93 @@ export class CaptivePortalServer {
         statusBox.className = 'status-box status-error';
         statusBox.innerHTML = '⚠ Connection timed out or digital display switched networks. Please verify connection.';
         connectBtn.disabled = false;
+      }
+    }
+
+    function openPairModal() {
+      const modal = document.getElementById('pair-modal');
+      const input = document.getElementById('pairing-code-input');
+      const statusBox = document.getElementById('pair-status-box');
+      const submitBtn = document.getElementById('pair-submit-btn');
+      statusBox.className = 'status-box';
+      statusBox.innerHTML = '';
+      input.value = '';
+      submitBtn.disabled = false;
+      modal.classList.remove('hidden');
+      setTimeout(function() { input.focus(); }, 120);
+    }
+
+    function closePairModal() {
+      document.getElementById('pair-modal').classList.add('hidden');
+    }
+
+    function handleModalBackdrop(e) {
+      if (e.target.id === 'pair-modal') {
+        closePairModal();
+      }
+    }
+
+    async function submitPairCode(e) {
+      e.preventDefault();
+      const input = document.getElementById('pairing-code-input');
+      const code = input.value.trim().toUpperCase();
+      const statusBox = document.getElementById('pair-status-box');
+      const submitBtn = document.getElementById('pair-submit-btn');
+
+      if (!code) return;
+
+      submitBtn.disabled = true;
+      statusBox.className = 'status-box status-loading';
+      statusBox.innerHTML = '<span class="spinner"></span> Redeeming pairing code with Aura DIMS Cloud...';
+
+      try {
+        const res = await fetch('/api/pair', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pairingCode: code })
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          statusBox.className = 'status-box status-success';
+          statusBox.innerHTML = '✓ Digital display registered successfully!<br><small>Display ID: <strong>' + escapeHtml(data.displayId) + '</strong>. Initializing playback...</small>';
+
+          const badge = document.getElementById('enrollment-badge');
+          if (badge) {
+            badge.className = 'badge-status badge-enrolled';
+            badge.textContent = '✓ Registered';
+          }
+          const sub = document.getElementById('enrollment-sub');
+          if (sub) {
+            sub.innerHTML = 'Enrolled with Display ID: <code>' + escapeHtml(data.displayId) + '</code>';
+          }
+          const regBtn = document.getElementById('register-btn-label');
+          if (regBtn) {
+            regBtn.textContent = 'Re-pair Display';
+          }
+
+          setTimeout(function() {
+            closePairModal();
+          }, 2500);
+        } else {
+          statusBox.className = 'status-box status-error';
+          statusBox.innerHTML = '⚠ ' + escapeHtml(data.error || 'Pairing failed. Please verify code and internet connection.');
+          submitBtn.disabled = false;
+        }
+      } catch (err) {
+        statusBox.className = 'status-box status-error';
+        statusBox.innerHTML = '⚠ Could not contact digital display service. Please try again.';
+        submitBtn.disabled = false;
+      }
+    }
+
+    async function rebootDevice() {
+      if (!confirm('Are you sure you want to reboot this digital display?')) return;
+      try {
+        await fetch('/api/reboot', { method: 'POST' });
+        alert('Digital display reboot command issued. It will restart shortly.');
+      } catch (err) {
+        alert('Reboot requested.');
       }
     }
 

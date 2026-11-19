@@ -61,7 +61,13 @@ export class Supervisor {
     this.server = server;
     this.hardwareAdapter = hardwareAdapter || new HardwareAdapter(config, logger);
     this.wifiManager = wifiManager || new WifiManager(logger);
-    this.captivePortal = new CaptivePortalServer(logger, this.wifiManager);
+    this.captivePortal = new CaptivePortalServer(
+      logger,
+      this.wifiManager,
+      this.identity,
+      this.syncEngine,
+      () => this.server.triggerRendererRefresh()
+    );
     this.operationsAgent =
       operationsAgent ||
       new OperationsAgent({
