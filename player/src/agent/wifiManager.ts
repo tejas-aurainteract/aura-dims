@@ -488,8 +488,11 @@ export class WifiManager {
     }
 
     try {
-      // 1. Unblock Wi-Fi if soft-blocked
+      // 1. Unblock Wi-Fi and disable power-save; cleanly disconnect any active 5GHz/2.4GHz client link first
       await this.execCommand(`sudo rfkill unblock wifi 2>/dev/null`).catch(() => {});
+      await this.execCommand(`sudo iw dev "${this.wifiInterface}" set power_save off 2>/dev/null`).catch(() => {});
+      await this.execCommand(`sudo nmcli device disconnect "${this.wifiInterface}" 2>/dev/null`).catch(() => {});
+      await new Promise((r) => setTimeout(r, 1000));
 
       // 2. Redirect port 80 to 8080 so captive portal probes work seamlessly even without root port binding
       await this.execCommand(
@@ -501,9 +504,9 @@ export class WifiManager {
         `sudo nmcli connection delete "Aura-AP" "Aura-Setup-AP" "Hotspot" 2>/dev/null`
       ).catch(() => {});
 
-      // 4. Create explicit 2.4 GHz WPA2 AP connection profile with PMF disabled (maximum smartphone compatibility)
+      // 4. Create explicit 2.4 GHz pure WPA2-AES (RSN/CCMP) AP profile with PMF disabled for maximum Android/iOS compatibility
       await this.execCommand(
-        `sudo nmcli connection add type wifi ifname "${this.wifiInterface}" con-name "Aura-AP" autoconnect no ssid "${this.apSsid}" 802-11-wireless.mode ap 802-11-wireless.band bg 802-11-wireless.channel 6 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.psk "${this.apPassword}" 802-11-wireless-security.pmf 1 ipv4.method shared ipv6.method disabled`
+        `sudo nmcli connection add type wifi ifname "${this.wifiInterface}" con-name "Aura-AP" autoconnect no ssid "${this.apSsid}" 802-11-wireless.mode ap 802-11-wireless.band bg 802-11-wireless.channel 6 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.proto rsn 802-11-wireless-security.pairwise ccmp 802-11-wireless-security.group ccmp 802-11-wireless-security.pmf 1 802-11-wireless-security.psk "${this.apPassword}" ipv4.addresses 10.42.0.1/24 ipv4.method shared ipv6.method disabled`
       );
 
       // 5. Activate the AP connection
