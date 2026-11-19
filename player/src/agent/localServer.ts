@@ -260,7 +260,7 @@ export class LocalServer {
     }
 
     // Serve active package verified assets with path traversal defense
-    if (req.method === 'GET' && pathname.startsWith('/api/assets/')) {
+    if ((req.method === 'GET' || req.method === 'HEAD') && pathname.startsWith('/api/assets/')) {
       const assetId = decodeURIComponent(pathname.replace('/api/assets/', ''));
       const activePkg = this.syncEngine.getActivePackage();
 
@@ -284,17 +284,63 @@ export class LocalServer {
         return;
       }
 
-      // Stream asset with proper mime type
-      const ext = path.extname(safeAssetPath).toLowerCase();
-      let contentType = 'application/octet-stream';
-      if (['.jpg', '.jpeg'].includes(ext)) contentType = 'image/jpeg';
-      else if (ext === '.png') contentType = 'image/png';
-      else if (ext === '.webp') contentType = 'image/webp';
-      else if (ext === '.mp4') contentType = 'video/mp4';
-      else if (ext === '.webm') contentType = 'video/webm';
+      // Resolve MIME type from active manifest (UUID filenames have no extension on disk)
+      const manifest = this.syncEngine.loadActiveManifest();
+      const manifestAsset = manifest?.assets?.find((a: any) => a.assetId === assetId);
+      let contentType = manifestAsset?.mimeType || '';
+      if (!contentType) {
+        const ext = path.extname(safeAssetPath).toLowerCase();
+        if (['.jpg', '.jpeg'].includes(ext)) contentType = 'image/jpeg';
+        else if (ext === '.png') contentType = 'image/png';
+        else if (ext === '.webp') contentType = 'image/webp';
+        else if (ext === '.mp4') contentType = 'video/mp4';
+        else if (ext === '.webm') contentType = 'video/webm';
+        else contentType = 'application/octet-stream';
+      }
 
-      res.writeHead(200, { 'Content-Type': contentType });
-      fs.createReadStream(safeAssetPath).pipe(res);
+      const stat = fs.statSync(safeAssetPath);
+      const totalSize = stat.size;
+      const isHead = req.method === 'HEAD';
+      const range = req.headers.range;
+
+      if (range) {
+        // Support HTTP 206 Partial Content range requests required by Chromium for video streaming/seeking
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+
+        if (isNaN(start) || isNaN(end) || start >= totalSize || end >= totalSize || start > end) {
+          res.writeHead(416, {
+            'Content-Range': `bytes */${totalSize}`,
+          });
+          res.end();
+          return;
+        }
+
+        const chunkSize = end - start + 1;
+        res.writeHead(206, {
+          'Content-Range': `bytes ${start}-${end}/${totalSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunkSize,
+          'Content-Type': contentType,
+        });
+        if (isHead) {
+          res.end();
+        } else {
+          fs.createReadStream(safeAssetPath, { start, end }).pipe(res);
+        }
+      } else {
+        res.writeHead(200, {
+          'Content-Length': totalSize,
+          'Accept-Ranges': 'bytes',
+          'Content-Type': contentType,
+        });
+        if (isHead) {
+          res.end();
+        } else {
+          fs.createReadStream(safeAssetPath).pipe(res);
+        }
+      }
       return;
     }
 
