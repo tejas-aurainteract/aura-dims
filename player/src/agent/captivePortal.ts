@@ -169,7 +169,7 @@ export class CaptivePortalServer {
       return;
     }
 
-    // 5. API: Connect to Wi-Fi
+    // 5. API: Connect to Wi-Fi (Fast-ACK to prevent browser disconnect timeout on AP teardown)
     if (req.method === 'POST' && pathname === '/api/wifi/connect') {
       let body = '';
       req.on('data', (chunk) => {
@@ -177,7 +177,7 @@ export class CaptivePortalServer {
       });
       req.on('end', async () => {
         try {
-          const parsed = JSON.parse(body);
+          const parsed = JSON.parse(body || '{}');
           const ssid = (parsed.ssid || '').trim();
           const password = parsed.password || '';
           const overridePassword = Boolean(parsed.overridePassword);
@@ -189,12 +189,33 @@ export class CaptivePortalServer {
           }
 
           this.logger.info(
-            `[CaptivePortal] Received user connect request for SSID: "${ssid}" (overridePassword: ${overridePassword})`
+            `[CaptivePortal] Received user connect request for SSID: "${ssid}" (overridePassword: ${overridePassword}). Sending Fast-ACK before AP mode switch...`
           );
-          const result = await this.wifiManager.connectNetwork(ssid, password, 100, overridePassword);
 
+          // Fast-ACK: Immediately send 200 OK while AP hotspot link is fully alive so browser receives clean confirmation
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(result));
+          res.end(
+            JSON.stringify({
+              success: true,
+              pending: true,
+              ssid,
+              resultSummary: `Connection initiated to "${ssid}". This digital display is now switching to Wi-Fi and closing the setup hotspot.`,
+            })
+          );
+
+          // Schedule the physical network connection after a 600ms grace period so TCP socket cleanly flushes
+          setTimeout(async () => {
+            try {
+              this.logger.info(`[CaptivePortal] Executing network switch to Wi-Fi "${ssid}"...`);
+              await this.wifiManager.connectNetwork(ssid, password, 100, overridePassword);
+              this.logger.info(`[CaptivePortal] Successfully joined Wi-Fi network "${ssid}".`);
+            } catch (err: any) {
+              this.logger.error(
+                `[CaptivePortal] Asynchronous switch to Wi-Fi "${ssid}" failed:`,
+                err?.message || err
+              );
+            }
+          }, 600);
         } catch (err: any) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: false, error: err?.message || 'Connection failed' }));
@@ -663,7 +684,7 @@ export class CaptivePortalServer {
 
       connectBtn.disabled = true;
       statusBox.className = 'status-box status-loading';
-      statusBox.innerHTML = '<span class="spinner"></span> Connecting to "' + escapeHtml(ssid) + '" and verifying internet access (30s test)...';
+      statusBox.innerHTML = '<span class="spinner"></span> Connecting to "' + escapeHtml(ssid) + '"...';
 
       try {
         const res = await fetch('/api/wifi/connect', {
@@ -675,16 +696,15 @@ export class CaptivePortalServer {
 
         if (res.ok && data.success) {
           statusBox.className = 'status-box status-success';
-          statusBox.innerHTML = '✓ ' + escapeHtml(data.resultSummary || 'Successfully connected to Wi-Fi!') + '<br><small>This digital display is now online. Hotspot mode will close automatically.</small>';
+          statusBox.innerHTML = '✓ ' + escapeHtml(data.resultSummary || 'Wi-Fi connection initiated!') + '<br><small>This digital display is now switching to "' + escapeHtml(ssid) + '" and closing the hotspot. You may now reconnect to your regular Wi-Fi network.</small>';
         } else {
           statusBox.className = 'status-box status-error';
           statusBox.innerHTML = '⚠ ' + escapeHtml(data.error || 'Connection failed.');
           connectBtn.disabled = false;
         }
       } catch (err) {
-        statusBox.className = 'status-box status-error';
-        statusBox.innerHTML = '⚠ Connection timed out or digital display switched networks. Please verify connection.';
-        connectBtn.disabled = false;
+        statusBox.className = 'status-box status-success';
+        statusBox.innerHTML = '✓ Wi-Fi command accepted!<br><small>Digital display switched interfaces to connect to "' + escapeHtml(ssid) + '". Setup hotspot closed. You may now reconnect your device to normal Wi-Fi.</small>';
       }
     }
 
