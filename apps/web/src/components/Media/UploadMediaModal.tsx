@@ -392,7 +392,7 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-teal-600" />
                   {progressEvent.step === 'initiating' && 'Allocating staging path...'}
                   {progressEvent.step === 'uploading' && `Uploading (${progressEvent.progressPercent}%)`}
-                  {progressEvent.step === 'validating' && 'Validating & optimizing for digital displays...'}
+                  {progressEvent.step === 'validating' && 'Validating on server (checksum, codecs)...'}
                   {progressEvent.step === 'ready' && 'Ready!'}
                 </span>
                 <span className="font-mono">{progressEvent.progressPercent}%</span>

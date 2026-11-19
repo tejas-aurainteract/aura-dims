@@ -186,7 +186,7 @@ export function startMediaUpload(options: UploadMediaOptions): ActiveUploadHandl
       progressPercent: 100,
       bytesTransferred: file.size,
       totalBytes: file.size,
-      message: 'Optimizing and validating video for digital displays...',
+      message: 'Validating checksum, dimensions, and codecs on server...',
     });
 
     const finalizeResult = await api.finalizeMediaUpload({
