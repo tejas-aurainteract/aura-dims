@@ -488,11 +488,24 @@ export class WifiManager {
     }
 
     try {
-      // 1. Unblock Wi-Fi and disable power-save; cleanly disconnect any active 5GHz/2.4GHz client link first
+      // 1. Unblock Wi-Fi, disable NM autoconnect (prevents background scan race on brcmfmac43455),
+      //    and cleanly cycle the interface link so firmware exits STA mode without wedging AP mode.
       await this.execCommand(`sudo rfkill unblock wifi 2>/dev/null`).catch(() => {});
-      await this.execCommand(`sudo iw dev "${this.wifiInterface}" set power_save off 2>/dev/null`).catch(() => {});
-      await this.execCommand(`sudo nmcli device disconnect "${this.wifiInterface}" 2>/dev/null`).catch(() => {});
+      await this.execCommand(
+        `sudo nmcli device set "${this.wifiInterface}" autoconnect no 2>/dev/null`
+      ).catch(() => {});
+      await this.execCommand(`sudo nmcli connection down "Aura-AP" 2>/dev/null`).catch(() => {});
+      await this.execCommand(`sudo ip link set "${this.wifiInterface}" down 2>/dev/null`).catch(
+        () => {}
+      );
       await new Promise((r) => setTimeout(r, 1000));
+      await this.execCommand(`sudo ip link set "${this.wifiInterface}" up 2>/dev/null`).catch(
+        () => {}
+      );
+      await new Promise((r) => setTimeout(r, 1500));
+      await this.execCommand(
+        `sudo iw dev "${this.wifiInterface}" set power_save off 2>/dev/null`
+      ).catch(() => {});
 
       // 2. Redirect port 80 to 8080 so captive portal probes work seamlessly even without root port binding
       await this.execCommand(
