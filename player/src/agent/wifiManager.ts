@@ -494,9 +494,14 @@ export class WifiManager {
         `sudo iw dev "${this.wifiInterface}" set power_save off 2>/dev/null`
       ).catch(() => {});
 
-      // 2. Redirect port 80 to 8080 so captive portal probes work seamlessly even without root port binding
+      // 2. Ensure dnsmasq provides wildcard DNS + Default Gateway (Option 3) + DNS (Option 6) + RFC 8910 Captive Portal URI (Option 114)
       await this.execCommand(
-        `sudo iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || true`
+        `printf 'address=/#/10.42.0.1\\ndhcp-option=3,10.42.0.1\\ndhcp-option=6,10.42.0.1\\ndhcp-option=114,http://10.42.0.1/setup\\n' | sudo tee /etc/NetworkManager/dnsmasq-shared.d/captive.conf >/dev/null 2>&1 || true`
+      ).catch(() => {});
+
+      // 2b. Redirect port 80 to 8080 only if needed as fallback (if port 80 is bound natively via CAP_NET_BIND_SERVICE, remove stale REDIRECT rules)
+      await this.execCommand(
+        `sudo iptables -t nat -D PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || true`
       ).catch(() => {});
 
       // 3. Delete legacy AP profile names if they exist, and ensure "Aura-AP" exists without recreating it if already configured

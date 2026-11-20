@@ -13,6 +13,7 @@
  */
 
 import * as http from 'node:http';
+import * as child_process from 'node:child_process';
 import type { Logger } from './logger.js';
 import type { WifiManager } from './wifiManager.js';
 import type { DeviceIdentity } from './identity.js';
@@ -77,7 +78,11 @@ export class CaptivePortalServer {
           if (err.code === 'EACCES' || err.code === 'EADDRINUSE') {
             if (port === 80) {
               this.logger.warn(
-                `[CaptivePortal] Port 80 unavailable (${err.code}). Falling back to port 8080...`
+                `[CaptivePortal] Port 80 unavailable (${err.code}). Falling back to port 8080 with iptables REDIRECT...`
+              );
+              child_process.exec(
+                'sudo iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || true',
+                () => {}
               );
               tryPort(8080);
               return;
@@ -137,6 +142,17 @@ export class CaptivePortalServer {
     }
 
     // 1. Operating System Captive Portal Traps
+    //    Look closely at how Android / iOS / Windows captive portal detection works:
+    //    - When a phone connects to Aura-4EFE, Android's NetworkMonitor requests
+    //      `http://connectivitycheck.gstatic.com/generate_204`.
+    //    - Because our dnsmasq wildcard (`address=/#/10.42.0.1`) resolves all domains to 10.42.0.1,
+    //      the request hits this server.
+    //    - CRITICAL FOR ANDROID/iOS AUTO-POPUP:
+    //      If we return a 302 redirect, Android's System CaptivePortalLogin WebView follows the redirect,
+    //      OR if the user taps "Sign in to network", Android opens the URL.
+    //      Even better: if we serve a 200 OK HTML page directly on probe URLs when requested by a browser/WebView
+    //      OR redirect to `http://10.42.0.1/setup` with `Cache-Control: no-store`, both automatic probe detection
+    //      (which triggers whenever status !== 204) AND the CaptivePortalLogin WebView work immediately!
     const isProbe =
       pathname === '/generate_204' ||
       pathname === '/gen_204' ||
@@ -151,7 +167,10 @@ export class CaptivePortalServer {
       this.logger.info(
         `[CaptivePortal] Trapped OS captive probe: ${pathname} (Host: ${hostHeader}). Redirecting to ${portalSetupUrl}...`
       );
-      res.writeHead(302, { Location: portalSetupUrl });
+      res.writeHead(302, {
+        Location: portalSetupUrl,
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      });
       res.end();
       return;
     }
