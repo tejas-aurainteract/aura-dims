@@ -94,7 +94,7 @@
     const renderApQrBlock = (ap) => {
       const qrSvg =
         typeof window !== 'undefined' && window.AuraQr && typeof window.AuraQr.renderQrSvg === 'function'
-          ? window.AuraQr.renderQrSvg(buildWifiQrPayload(ap.ssid, ap.password || 'aura12345678'), 190)
+          ? window.AuraQr.renderQrSvg(buildWifiQrPayload(ap.ssid, ap.password || 'aura12345678'), 260)
           : '';
       return `
         <div style="display:flex;flex-direction:column;align-items:center;gap:0.85rem;margin-top:1.25rem;padding:1.1rem;background:#020617;border:1px solid #1e293b;border-radius:0.85rem;">

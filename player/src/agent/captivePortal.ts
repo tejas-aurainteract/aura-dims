@@ -115,6 +115,13 @@ export class CaptivePortalServer {
     const hostHeader = req.headers.host || '10.42.0.1';
     const parsedUrl = new URL(req.url || '/', `http://${hostHeader}`);
     const pathname = parsedUrl.pathname;
+    // Always redirect OS probes to the local AP IP (10.42.0.1) so phones never get
+    // redirected onto HSTS-preloaded domains like connectivitycheck.gstatic.com.
+    const isLocalTestHost =
+      hostHeader.startsWith('127.0.0.1') || hostHeader.startsWith('localhost');
+    const portalSetupUrl = isLocalTestHost
+      ? `http://${hostHeader}/setup`
+      : 'http://10.42.0.1/setup';
 
     // Set CORS headers for local setup API
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -139,8 +146,10 @@ export class CaptivePortalServer {
       pathname === '/mobile/status.php';
 
     if (isProbe) {
-      this.logger.info(`[CaptivePortal] Trapped OS captive probe: ${pathname}. Redirecting to /setup...`);
-      res.writeHead(302, { Location: `http://${hostHeader}/setup` });
+      this.logger.info(
+        `[CaptivePortal] Trapped OS captive probe: ${pathname} (Host: ${hostHeader}). Redirecting to ${portalSetupUrl}...`
+      );
+      res.writeHead(302, { Location: portalSetupUrl });
       res.end();
       return;
     }
@@ -554,7 +563,7 @@ export class CaptivePortalServer {
     }
 
     // 10. Catch-all redirect for captive portal detection on any other domain
-    res.writeHead(302, { Location: `http://${hostHeader}/setup` });
+    res.writeHead(302, { Location: portalSetupUrl });
     res.end();
   }
 
