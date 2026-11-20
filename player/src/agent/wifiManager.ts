@@ -488,24 +488,27 @@ export class WifiManager {
     }
 
     try {
-      // 1. Unblock Wi-Fi, disable NM autoconnect (prevents background scan race on brcmfmac43455),
-      //    and cleanly cycle the interface link so firmware exits STA mode without wedging AP mode.
+      // 1. Unblock Wi-Fi, disable NM autoconnect on wlan0, and cleanly deactivate any active client Wi-Fi
+      //    without cycling ip link down/up (which would reset NM autoconnect and trigger a scan collision).
       await this.execCommand(`sudo rfkill unblock wifi 2>/dev/null`).catch(() => {});
-      await this.execCommand(
-        `sudo nmcli device set "${this.wifiInterface}" autoconnect no 2>/dev/null`
-      ).catch(() => {});
-      await this.execCommand(`sudo nmcli connection down "Aura-AP" 2>/dev/null`).catch(() => {});
-      await this.execCommand(`sudo ip link set "${this.wifiInterface}" down 2>/dev/null`).catch(
-        () => {}
-      );
-      await new Promise((r) => setTimeout(r, 1000));
-      await this.execCommand(`sudo ip link set "${this.wifiInterface}" up 2>/dev/null`).catch(
-        () => {}
-      );
-      await new Promise((r) => setTimeout(r, 1500));
       await this.execCommand(
         `sudo iw dev "${this.wifiInterface}" set power_save off 2>/dev/null`
       ).catch(() => {});
+      await this.execCommand(
+        `sudo nmcli device set "${this.wifiInterface}" autoconnect no 2>/dev/null`
+      ).catch(() => {});
+
+      const activeConn = await this.getActiveSsid().catch(() => null);
+      if (activeConn && activeConn !== 'Aura-AP' && activeConn !== this.apSsid) {
+        this.logger.info(
+          `[WifiManager] Deactivating active Wi-Fi connection "${activeConn}" before starting AP mode...`
+        );
+        await this.execCommand(`sudo nmcli connection down "${activeConn}" 2>/dev/null`).catch(
+          () => {}
+        );
+        // Wait 2.5s for any in-flight brcmfmac43455 scan/deauth to settle completely
+        await new Promise((r) => setTimeout(r, 2500));
+      }
 
       // 2. Redirect port 80 to 8080 so captive portal probes work seamlessly even without root port binding
       await this.execCommand(
@@ -517,13 +520,28 @@ export class WifiManager {
         `sudo nmcli connection delete "Aura-AP" "Aura-Setup-AP" "Hotspot" 2>/dev/null`
       ).catch(() => {});
 
-      // 4. Create explicit 2.4 GHz pure WPA2-AES (RSN/CCMP) AP profile with PMF disabled for maximum Android/iOS compatibility
+      // 4. Create 2.4 GHz WPA2 AP connection profile with PMF disabled
       await this.execCommand(
-        `sudo nmcli connection add type wifi ifname "${this.wifiInterface}" con-name "Aura-AP" autoconnect no ssid "${this.apSsid}" 802-11-wireless.mode ap 802-11-wireless.band bg 802-11-wireless.channel 6 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.proto rsn 802-11-wireless-security.pairwise ccmp 802-11-wireless-security.group ccmp 802-11-wireless-security.pmf 1 802-11-wireless-security.psk "${this.apPassword}" ipv4.addresses 10.42.0.1/24 ipv4.method shared ipv6.method disabled`
+        `sudo nmcli connection add type wifi ifname "${this.wifiInterface}" con-name "Aura-AP" autoconnect no ssid "${this.apSsid}" 802-11-wireless.mode ap 802-11-wireless.band bg 802-11-wireless.channel 6 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.psk "${this.apPassword}" 802-11-wireless-security.pmf 1 ipv4.method shared ipv6.method disabled`
       );
 
       // 5. Activate the AP connection
       await this.execCommand(`sudo nmcli connection up "Aura-AP"`);
+
+      // 6. Self-verify on Linux: if wpa_supplicant hit a pending scan lock ("Failed to initiate AP scan"),
+      //    wait 2.5s for the scan lock to clear and re-up Aura-AP once so beacons always broadcast.
+      await new Promise((r) => setTimeout(r, 1500));
+      const wpaLog = await this.execCommand(
+        `sudo journalctl -u wpa_supplicant -n 8 --no-pager 2>/dev/null`
+      ).catch(() => '');
+      if (wpaLog.includes('Failed to initiate AP scan')) {
+        this.logger.warn(
+          '[WifiManager] Detected pending scan collision during AP startup; re-activating Aura-AP after scan lock clears...'
+        );
+        await this.execCommand(`sudo nmcli connection down "Aura-AP" 2>/dev/null`).catch(() => {});
+        await new Promise((r) => setTimeout(r, 2500));
+        await this.execCommand(`sudo nmcli connection up "Aura-AP"`);
+      }
 
       this.apActive = true;
       this.logger.info(

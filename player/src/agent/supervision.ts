@@ -220,13 +220,33 @@ export class Supervisor {
 
   /**
    * Fast boot-time evaluation:
-   * - If Ethernet online: suppress AP mode.
-   * - If 0 saved profiles: immediately starts AP mode.
-   * - If saved profiles exist: scans airwaves. If none in range: immediately starts AP mode.
-   * - If in range: attempts connection in order. If all fail: starts AP mode.
+   * - If the digital display is NOT enrolled and has NO active pending pairing code:
+   *   go straight into AP mode without connecting to client Wi-Fi first.
+   * - Otherwise (enrolled OR has a pending pairing code waiting for internet):
+   *   evaluate client connectivity (Ethernet / saved Wi-Fi) and fall back to AP mode if unreachable.
    */
   private async performInitialNetworkEvaluation(): Promise<void> {
     try {
+      const isEnrolled = this.identity.isEnrolled();
+      const pending = this.pendingEnrollmentStore.read();
+      const hasActivePendingCode =
+        pending !== null && (pending.state === 'pending' || pending.state === 'redeeming');
+
+      if (!isEnrolled && !hasActivePendingCode) {
+        this.logger.info(
+          `[Supervisor] Digital display is unregistered with no pending pairing code. Starting AP Mode (${this.wifiManager.getApSsid()}) directly...`
+        );
+        await this.wifiManager.startApMode();
+        await this.captivePortal.start(80);
+        this.server.setApModeState(
+          true,
+          this.wifiManager.getApSsid(),
+          this.wifiManager.getApPassword()
+        );
+        this.server.triggerRendererRefresh();
+        return;
+      }
+
       const result = await this.wifiManager.evaluateStartupConnectivity();
       if (result.action === 'ap_mode_started') {
         this.logger.info(`[Supervisor] AP Mode activated on startup: ${result.reason}`);
@@ -240,9 +260,6 @@ export class Supervisor {
       } else {
         // Digital display is online at boot -> kick store-and-forward enrollment immediately
         this.enrollmentWorker.kick(true).catch(() => {});
-        // If unprovisioned with no active pending code (e.g. unpaired without keyboard),
-        // expose the mobile onboarding portal so the operator can enter a pairing code.
-        await this.ensureOnboardingPortalIfNeeded('Digital display is unprovisioned with no pending pairing code');
       }
     } catch (err: any) {
       this.logger.warn('[Supervisor] Error during startup network evaluation:', err?.message || err);
@@ -257,14 +274,6 @@ export class Supervisor {
     }
 
     if (this.wifiManager.isApModeActive()) {
-      return;
-    }
-
-    const ethOnline = await this.wifiManager.isEthernetOnline().catch(() => false);
-    if (ethOnline) {
-      // On Ethernet, start the portal on LAN without disrupting wired internet
-      await this.captivePortal.start(80);
-      this.logger.info(`[Supervisor] Onboarding portal started on LAN (${reason}).`);
       return;
     }
 

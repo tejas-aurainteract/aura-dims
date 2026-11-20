@@ -201,6 +201,23 @@ describe('Store-and-Forward Digital Display Enrollment', () => {
     const port = await portal.start(8771);
 
     try {
+      // 0. Portal authentication gate requires Aura@12345678
+      const badAuthRes = await fetch(`http://127.0.0.1:${port}/api/auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: 'wrong' }),
+      });
+      expect(badAuthRes.status).toBe(401);
+
+      const goodAuthRes = await fetch(`http://127.0.0.1:${port}/api/auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: 'Aura@12345678' }),
+      });
+      expect(goodAuthRes.status).toBe(200);
+      const goodAuthJson = await goodAuthRes.json();
+      expect(goodAuthJson.success).toBe(true);
+
       // 1. Reject invalid pairing code on /api/wifi/connect
       const badRes = await fetch(`http://127.0.0.1:${port}/api/wifi/connect`, {
         method: 'POST',
@@ -234,10 +251,18 @@ describe('Store-and-Forward Digital Display Enrollment', () => {
       expect(infoJson.pendingEnrollment.codeHint).toBe('••••9P');
       expect(JSON.stringify(infoJson)).not.toContain('7K2M9P');
 
-      // 4. /api/unpair clears pending enrollment
+      // 3b. When pairing code is already present, /setup hides wifi-pair-group and shows Unpair button
+      const setupWithCodeHtml = await (await fetch(`http://127.0.0.1:${port}/setup`)).text();
+      expect(setupWithCodeHtml).toContain('id="auth-section"');
+      expect(setupWithCodeHtml).toContain('class="form-group hidden" id="wifi-pair-group"');
+
+      // 4. /api/unpair clears pending enrollment, and /setup asks for pairing code again
       const unpairRes = await fetch(`http://127.0.0.1:${port}/api/unpair`, { method: 'POST' });
       expect(unpairRes.status).toBe(200);
       expect(store.exists()).toBe(false);
+
+      const setupAfterUnpairHtml = await (await fetch(`http://127.0.0.1:${port}/setup`)).text();
+      expect(setupAfterUnpairHtml).toContain('class="form-group " id="wifi-pair-group"');
     } finally {
       await portal.stop();
     }

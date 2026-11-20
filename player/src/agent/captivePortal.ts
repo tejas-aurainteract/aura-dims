@@ -45,6 +45,8 @@ export class CaptivePortalServer {
   private isRunning = false;
   private activePort = 80;
   private lastWifiError: string | null = null;
+  private readonly portalPassword: string =
+    process.env.AURA_PORTAL_PASSWORD || 'Aura@12345678';
 
   constructor(
     logger: Logger,
@@ -158,6 +160,38 @@ export class CaptivePortalServer {
     if (pathname === '/' || pathname === '/setup') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(this.getSetupHtml());
+      return;
+    }
+
+    // 2b. API: Portal Administrator Password Verification
+    if (req.method === 'POST' && pathname === '/api/auth') {
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk;
+      });
+      req.on('end', () => {
+        try {
+          const parsed = JSON.parse(body || '{}');
+          const pwd = String(parsed.password || '');
+          if (pwd === this.portalPassword) {
+            this.logger.info('[CaptivePortal] Administrator authenticated on setup portal.');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+          } else {
+            this.logger.warn('[CaptivePortal] Rejected invalid setup portal password attempt.');
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                success: false,
+                error: 'Incorrect password. Please enter the administrator password.',
+              })
+            );
+          }
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Invalid request' }));
+        }
+      });
       return;
     }
 
@@ -572,6 +606,11 @@ export class CaptivePortalServer {
     const isEnrolled = this.identity?.isEnrolled() ?? false;
     const creds = isEnrolled ? this.identity?.getCredentials() : null;
     const displayId = creds?.displayId || '';
+    const pendingView = !isEnrolled
+      ? (this.enrollmentWorker?.getStore().getView() ?? null)
+      : null;
+    const hasPairingCodePresent =
+      isEnrolled || (pendingView !== null && pendingView.state !== 'failed_terminal');
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -667,6 +706,23 @@ export class CaptivePortalServer {
       </div>
     </div>
 
+    <!-- Step 1: Administrator Authentication Gate -->
+    <div id="auth-section">
+      <p style="font-size: 0.82rem; color: #cbd5e1; margin-bottom: 1rem; line-height: 1.45; text-align: center;">
+        Enter the administrator password to unlock Wi-Fi and digital display registration settings.
+      </p>
+      <form id="auth-form" onsubmit="unlockPortal(event)">
+        <div class="form-group">
+          <label for="auth-pass-input">Administrator Password</label>
+          <input type="password" id="auth-pass-input" placeholder="Enter administrator password..." required autocomplete="off">
+        </div>
+        <button type="submit" id="auth-btn" class="btn-connect">Unlock Setup Portal</button>
+      </form>
+      <div id="auth-status-box" class="status-box"></div>
+    </div>
+
+    <!-- Step 2: Wi-Fi & Registration Settings (Unlocked after Authentication) -->
+    <div id="setup-main-content" class="hidden">
     <button id="scan-btn" class="btn-scan" onclick="scanWifi()">
       <span id="scan-label">↻ Scan Available Networks</span>
     </button>
@@ -703,7 +759,7 @@ export class CaptivePortalServer {
 
       <div id="wifi-error-box" class="status-box status-error hidden" style="margin-top: 0; margin-bottom: 1rem;"></div>
 
-      <div class="form-group ${isEnrolled ? 'hidden' : ''}" id="wifi-pair-group">
+      <div class="form-group ${hasPairingCodePresent ? 'hidden' : ''}" id="wifi-pair-group">
         <label for="wifi-pair-input">Pairing Key Code <span style="color: #64748b; font-weight: 400;">(6 characters from Aura DIMS)</span></label>
         <input
           type="text"
@@ -721,7 +777,7 @@ export class CaptivePortalServer {
         </p>
       </div>
 
-      <button type="submit" id="connect-btn" class="btn-connect">${isEnrolled ? 'Connect Digital Display' : 'Connect & Register Digital Display'}</button>
+      <button type="submit" id="connect-btn" class="btn-connect">${hasPairingCodePresent ? 'Connect Digital Display' : 'Connect & Register Digital Display'}</button>
     </form>
 
     <div id="status-box" class="status-box"></div>
@@ -732,29 +788,32 @@ export class CaptivePortalServer {
         <div class="m-title">
           <span>Digital Display Maintenance</span>
         </div>
-        <span id="enrollment-badge" class="badge-status ${isEnrolled ? 'badge-enrolled' : 'badge-unregistered'}">
-          ${isEnrolled ? '✓ Registered' : '• Unregistered'}
+        <span id="enrollment-badge" class="badge-status ${hasPairingCodePresent ? 'badge-enrolled' : 'badge-unregistered'}">
+          ${isEnrolled ? '✓ Registered' : hasPairingCodePresent ? '✓ Code Saved' : '• Unregistered'}
         </span>
       </div>
       <p class="m-sub" id="enrollment-sub">
         ${
           isEnrolled
             ? `Enrolled with Display ID: <code id="display-id-text">${escapeHtml(displayId)}</code>`
-            : 'This digital display is not yet registered in Aura DIMS.'
+            : hasPairingCodePresent && pendingView
+              ? `Pairing code <code>${escapeHtml(pendingView.codeHint)}</code> is saved. Select a Wi-Fi network above to connect, or unpair below to enter a new code.`
+              : 'This digital display is not yet registered in Aura DIMS.'
         }
       </p>
 
       <div class="m-actions">
-        <button type="button" class="btn-m btn-register" onclick="openPairModal()">
-          <span id="register-btn-label">${isEnrolled ? 'Re-pair Display' : 'Register Digital Display'}</span>
+        <button type="button" class="btn-m btn-register ${hasPairingCodePresent ? 'hidden' : ''}" id="register-btn" onclick="openPairModal()">
+          <span id="register-btn-label">Register Digital Display</span>
         </button>
-        <button type="button" class="btn-m btn-unpair ${isEnrolled ? '' : 'hidden'}" id="unpair-btn" onclick="unpairDevice()">
+        <button type="button" class="btn-m btn-unpair ${hasPairingCodePresent ? '' : 'hidden'}" id="unpair-btn" onclick="unpairDevice()">
           <span>Unpair Display</span>
         </button>
         <button type="button" class="btn-m btn-reboot" onclick="rebootDevice()">
           <span>Reboot Display</span>
         </button>
       </div>
+    </div>
     </div>
   </div>
 
@@ -1038,6 +1097,44 @@ export class CaptivePortalServer {
       }
     }
 
+    async function unlockPortal(e) {
+      e.preventDefault();
+      const passInput = document.getElementById('auth-pass-input');
+      const authBtn = document.getElementById('auth-btn');
+      const statusBox = document.getElementById('auth-status-box');
+      const password = passInput ? passInput.value : '';
+
+      if (!password) return;
+
+      authBtn.disabled = true;
+      statusBox.className = 'status-box status-loading';
+      statusBox.innerHTML = '<span class="spinner"></span> Verifying password...';
+
+      try {
+        const res = await fetch('/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          try { sessionStorage.setItem('aura_portal_unlocked', '1'); } catch (err) {}
+          document.getElementById('auth-section').classList.add('hidden');
+          document.getElementById('setup-main-content').classList.remove('hidden');
+          loadDeviceInfo();
+          scanWifi();
+        } else {
+          statusBox.className = 'status-box status-error';
+          statusBox.innerHTML = '⚠ ' + escapeHtml(data.error || 'Incorrect administrator password.');
+          authBtn.disabled = false;
+        }
+      } catch (err) {
+        statusBox.className = 'status-box status-error';
+        statusBox.innerHTML = '⚠ Could not reach setup portal service.';
+        authBtn.disabled = false;
+      }
+    }
+
     async function loadDeviceInfo() {
       try {
         const res = await fetch('/api/device/info');
@@ -1045,11 +1142,14 @@ export class CaptivePortalServer {
         if (data.success) {
           const badge = document.getElementById('enrollment-badge');
           const sub = document.getElementById('enrollment-sub');
+          const regBtnEl = document.getElementById('register-btn');
           const regBtn = document.getElementById('register-btn-label');
           const unpairBtn = document.getElementById('unpair-btn');
           const wifiPairGroup = document.getElementById('wifi-pair-group');
+          const wifiPairInput = document.getElementById('wifi-pair-input');
           const wifiPairHelp = document.getElementById('wifi-pair-help');
           const wifiErrBox = document.getElementById('wifi-error-box');
+          const connectBtn = document.getElementById('connect-btn');
 
           if (wifiErrBox) {
             if (data.lastWifiError) {
@@ -1060,21 +1160,43 @@ export class CaptivePortalServer {
             }
           }
 
+          const p = data.pendingEnrollment;
+          const hasValidPendingCode = p && p.state !== 'failed_terminal';
+
           if (data.enrolled && data.displayId) {
+            // Pairing / registration already present -> do NOT ask for pairing code again; only Wi-Fi profile
             if (badge) {
               badge.className = 'badge-status badge-enrolled';
               badge.textContent = '✓ Registered';
             }
             if (sub) {
-              sub.innerHTML = 'Enrolled with Display ID: <code>' + escapeHtml(data.displayId) + '</code>';
+              sub.innerHTML = 'Enrolled with Display ID: <code>' + escapeHtml(data.displayId) + '</code>. Unpair below if you need to enter a new pairing code.';
             }
-            if (regBtn) regBtn.textContent = 'Re-pair Display';
+            if (regBtnEl) regBtnEl.classList.add('hidden');
             if (unpairBtn) unpairBtn.classList.remove('hidden');
             if (wifiPairGroup) wifiPairGroup.classList.add('hidden');
+            if (wifiPairInput) wifiPairInput.value = '';
+            if (connectBtn) connectBtn.textContent = 'Connect Digital Display';
+          } else if (hasValidPendingCode) {
+            // Pairing code already saved in pending-enrollment.json -> do NOT ask for pairing code again; only Wi-Fi profile
+            if (badge) {
+              badge.className = 'badge-status badge-enrolled';
+              badge.textContent = '✓ Code Saved';
+            }
+            if (sub) {
+              sub.innerHTML = 'Pairing code <code>' + escapeHtml(p.codeHint) + '</code> is already saved. Select a Wi-Fi network above to connect, or tap <strong>Unpair Display</strong> below to enter a different pairing code.';
+            }
+            if (regBtnEl) regBtnEl.classList.add('hidden');
+            if (unpairBtn) unpairBtn.classList.remove('hidden');
+            if (wifiPairGroup) wifiPairGroup.classList.add('hidden');
+            if (wifiPairInput) wifiPairInput.value = '';
+            if (connectBtn) connectBtn.textContent = 'Connect Digital Display';
           } else {
-            const p = data.pendingEnrollment;
+            // Unpaired (or code was rejected) -> ask for pairing code
             if (wifiPairGroup) wifiPairGroup.classList.remove('hidden');
+            if (regBtnEl) regBtnEl.classList.remove('hidden');
             if (unpairBtn) unpairBtn.classList.add('hidden');
+            if (connectBtn) connectBtn.textContent = 'Connect & Register Digital Display';
 
             if (p && p.state === 'failed_terminal') {
               if (badge) {
@@ -1087,19 +1209,7 @@ export class CaptivePortalServer {
               if (wifiPairHelp) {
                 wifiPairHelp.innerHTML = '<span style="color:#fca5a5;">Previous code (' + escapeHtml(p.codeHint) + ') failed: ' + escapeHtml((p.lastError && p.lastError.message) || 'Enter a fresh 6-character code.') + '</span>';
               }
-              if (regBtn) regBtn.textContent = 'Enter New Code';
-            } else if (p) {
-              if (badge) {
-                badge.className = 'badge-status badge-unregistered';
-                badge.textContent = '⏳ Code Saved';
-              }
-              if (sub) {
-                sub.innerHTML = 'Pairing code <code>' + escapeHtml(p.codeHint) + '</code> is saved. Waiting for internet to register with Aura DIMS.';
-              }
-              if (wifiPairHelp) {
-                wifiPairHelp.innerHTML = '<span style="color:#86efac;">✓ Code <strong>' + escapeHtml(p.codeHint) + '</strong> is already saved. Leave blank to keep it, or enter a new code to replace it.</span>';
-              }
-              if (regBtn) regBtn.textContent = 'Replace Pairing Code';
+              if (regBtn) regBtn.textContent = 'Register Digital Display';
             } else {
               if (badge) {
                 badge.className = 'badge-status badge-unregistered';
@@ -1107,6 +1217,9 @@ export class CaptivePortalServer {
               }
               if (sub) {
                 sub.textContent = 'This digital display is not yet registered in Aura DIMS.';
+              }
+              if (wifiPairHelp) {
+                wifiPairHelp.innerHTML = 'Generate this in Aura DIMS &rarr; Displays &rarr; Pairing Code. This digital display will save it and register automatically once online.';
               }
               if (regBtn) regBtn.textContent = 'Register Digital Display';
             }
@@ -1149,10 +1262,19 @@ export class CaptivePortalServer {
       });
     }
 
-    // Auto-scan and status refresh on load
+    // Check if already unlocked in this tab session; otherwise focus password input
     window.addEventListener('DOMContentLoaded', function() {
-      loadDeviceInfo();
-      scanWifi();
+      let unlocked = false;
+      try { unlocked = sessionStorage.getItem('aura_portal_unlocked') === '1'; } catch (e) {}
+      if (unlocked) {
+        document.getElementById('auth-section').classList.add('hidden');
+        document.getElementById('setup-main-content').classList.remove('hidden');
+        loadDeviceInfo();
+        scanWifi();
+      } else {
+        const authInput = document.getElementById('auth-pass-input');
+        if (authInput) authInput.focus();
+      }
     });
   </script>
 </body>
