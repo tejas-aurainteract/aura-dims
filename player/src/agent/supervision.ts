@@ -181,12 +181,12 @@ export class Supervisor {
       }
     }, 2000);
 
-    // Fast boot-time network connectivity & AP mode evaluation (after brief 5s hardware stabilization)
+    // Fast boot-time network connectivity & AP mode evaluation (after 10s so NetworkManager's initial boot Wi-Fi scan finishes cleanly)
     setTimeout(() => {
       if (this.isRunning) {
         this.performInitialNetworkEvaluation();
       }
-    }, 5000);
+    }, 10_000);
 
     // Periodic network reachability & AP fallback evaluation (every 30 seconds)
     this.wifiTimer = setInterval(() => {

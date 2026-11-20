@@ -499,31 +499,38 @@ export class WifiManager {
         `sudo iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || true`
       ).catch(() => {});
 
-      // 3. Delete old AP profiles if they exist
+      // 3. Delete legacy AP profile names if they exist, and ensure "Aura-AP" exists without recreating it if already configured
       await this.execCommand(
-        `sudo nmcli connection delete "Aura-AP" "Aura-Setup-AP" "Hotspot" 2>/dev/null`
+        `sudo nmcli connection delete "Aura-Setup-AP" "Hotspot" 2>/dev/null`
       ).catch(() => {});
 
-      // 4. Create 2.4 GHz WPA2 AP connection profile with PMF disabled
-      await this.execCommand(
-        `sudo nmcli connection add type wifi ifname "${this.wifiInterface}" con-name "Aura-AP" autoconnect no ssid "${this.apSsid}" 802-11-wireless.mode ap 802-11-wireless.band bg 802-11-wireless.channel 6 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.psk "${this.apPassword}" 802-11-wireless-security.pmf 1 ipv4.method shared ipv6.method disabled`
-      );
+      const existingAp = await this.execCommand(
+        `sudo nmcli -t -f NAME connection show "Aura-AP" 2>/dev/null`
+      ).catch(() => '');
+
+      if (!existingAp.includes('Aura-AP')) {
+        // 4. Create 2.4 GHz WPA2-AES (RSN+CCMP) AP connection profile with PMF disabled
+        await this.execCommand(
+          `sudo nmcli connection add type wifi ifname "${this.wifiInterface}" con-name "Aura-AP" autoconnect no ssid "${this.apSsid}" 802-11-wireless.mode ap 802-11-wireless.band bg 802-11-wireless.channel 6 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.psk "${this.apPassword}" 802-11-wireless-security.proto rsn 802-11-wireless-security.pairwise ccmp 802-11-wireless-security.group ccmp 802-11-wireless-security.pmf 1 ipv4.method shared ipv4.addresses 10.42.0.1/24 ipv6.method disabled`
+        );
+      }
 
       // 5. Activate the AP connection
       await this.execCommand(`sudo nmcli connection up "Aura-AP"`);
 
-      // 6. Self-verify on Linux: if wpa_supplicant hit a pending scan lock ("Failed to initiate AP scan"),
-      //    wait 5s for the hardware scan lock to finish and re-up Aura-AP once so beacons always broadcast.
-      await new Promise((r) => setTimeout(r, 1500));
+      // 6. On Raspberry Pi 5 (brcmfmac43455), if NetworkManager had a background client scan in flight
+      //    when Aura-AP came up, wpa_supplicant logs "Failed to initiate AP scan" and brcmfmac aborts
+      //    that scan after its 10s escan timer expires. Wait 12s for the escan timeout to clear, then
+      //    re-activate Aura-AP once so beacons broadcast reliably at 100% power.
+      await new Promise((r) => setTimeout(r, 2000));
       const wpaLog = await this.execCommand(
-        `sudo journalctl -u wpa_supplicant -n 8 --no-pager 2>/dev/null`
+        `sudo journalctl -u wpa_supplicant -n 12 --no-pager 2>/dev/null`
       ).catch(() => '');
       if (wpaLog.includes('Failed to initiate AP scan')) {
         this.logger.warn(
-          '[WifiManager] Detected pending scan collision during AP startup; re-activating Aura-AP after scan lock clears...'
+          '[WifiManager] Detected pending brcmfmac scan collision during AP startup; waiting 12s for escan timer to clear and re-activating Aura-AP...'
         );
-        await this.execCommand(`sudo nmcli connection down "Aura-AP" 2>/dev/null`).catch(() => {});
-        await new Promise((r) => setTimeout(r, 5000));
+        await new Promise((r) => setTimeout(r, 12_000));
         await this.execCommand(`sudo nmcli connection up "Aura-AP"`);
       }
 
