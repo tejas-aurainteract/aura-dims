@@ -1573,6 +1573,7 @@ export const preparePublication = onCall(
       storagePath,
       manifestChecksumSha256: checksum,
       status: 'prepared',
+      targetedDisplayIds: displayIds,
       idempotencyKey,
       generatedAt: now,
       expiresAt,
@@ -1636,7 +1637,142 @@ export const rollbackPublication = onCall(
   CALLABLE_OPTS,
   async (request): Promise<RollbackPublicationResponse> => {
     const caller = await getAuthenticatedCaller(request.auth);
-    const { displayId, targetPublicationId } = request.data as RollbackPublicationRequest;
+    const { displayId, targetPublicationId, scheduleId, reason } = request.data as RollbackPublicationRequest;
+    const now = new Date().toISOString();
+
+    // 1. Schedule-level rollback (Option A: Revert targeted displays to previous publication or fallback, move schedule to Draft)
+    if (scheduleId) {
+      const sRef = db.collection('schedules').doc(scheduleId);
+      const sDoc = await sRef.get();
+      if (!sDoc.exists) {
+        throw new HttpsError('not-found', `Schedule '${scheduleId}' not found.`);
+      }
+
+      const schedule = sDoc.data() as ScheduleRecord;
+
+      // Access control: Only Admin or Department Head for this department
+      const isAdmin = caller.role === 'admin';
+      const isDeptHead = caller.role === 'department_head' && caller.departmentId === schedule.departmentId;
+      if (!isAdmin && !isDeptHead) {
+        throw new HttpsError(
+          'permission-denied',
+          'Only Administrators or Department Heads for this department can roll back publications.'
+        );
+      }
+
+      const targetDisplayIds = schedule.targetDisplayIds || [];
+      const batch = db.batch();
+
+      // For each targeted digital display, query previous valid publication
+      for (const dId of targetDisplayIds) {
+        const dRef = db.collection('displays').doc(dId);
+
+        const prevPubQuery = await db
+          .collection('publications')
+          .where('displayId', '==', dId)
+          .where('status', '==', 'prepared')
+          .orderBy('createdAt', 'desc')
+          .limit(5)
+          .get();
+
+        const candidate = prevPubQuery.docs
+          .map((doc) => doc.data() as PublicationRecord)
+          .find(
+            (p) =>
+              p.id !== schedule.publishedPublicationId &&
+              (!p.expiresAt || new Date(p.expiresAt).getTime() > Date.now())
+          );
+
+        if (candidate) {
+          // Revert digital display to candidate publication
+          let prevSchedTitle: string | null = null;
+          let prevPlaylistTitle: string | null = null;
+          let prevWindow: string | null = null;
+
+          if (candidate.scheduleId) {
+            const prevSchedDoc = await db.collection('schedules').doc(candidate.scheduleId).get();
+            if (prevSchedDoc.exists) {
+              const psData = prevSchedDoc.data() as ScheduleRecord;
+              prevSchedTitle = psData.title || null;
+              prevPlaylistTitle = psData.playlistTitle || null;
+              prevWindow = psData.scheduleRule
+                ? `${psData.scheduleRule.startTime} - ${psData.scheduleRule.endTime}`
+                : null;
+            }
+          }
+
+          batch.update(dRef, {
+            desiredPublicationId: candidate.id,
+            currentPublicationId: candidate.id,
+            publishedScheduleId: candidate.scheduleId || null,
+            publishedScheduleTitle: prevSchedTitle,
+            publishedPlaylistTitle: prevPlaylistTitle,
+            publishedScheduleWindow: prevWindow,
+            publicationUpdatedAt: now,
+            updatedAt: now,
+          });
+        } else {
+          // No prior publication found: revert digital display to corporate neutral fallback
+          batch.update(dRef, {
+            desiredPublicationId: null,
+            currentPublicationId: null,
+            publishedScheduleId: null,
+            publishedScheduleTitle: null,
+            publishedPlaylistTitle: null,
+            publishedScheduleWindow: null,
+            publicationUpdatedAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+
+      // Revert schedule back to draft status so it can be edited and resubmitted
+      batch.update(sRef, {
+        status: 'draft',
+        publishedPublicationId: null,
+        publicationStatus: null,
+        updatedAt: now,
+      });
+
+      // Mark current publication as revoked if it exists
+      if (schedule.publishedPublicationId) {
+        const pubRef = db.collection('publications').doc(schedule.publishedPublicationId);
+        batch.update(pubRef, {
+          status: 'revoked',
+          updatedAt: now,
+        });
+      }
+
+      await batch.commit();
+
+      await writeAuditLog({
+        actorId: caller.uid,
+        action: 'publication.rollback',
+        targetId: scheduleId,
+        targetType: 'schedule',
+        newState: {
+          scheduleId,
+          status: 'draft',
+          revertedDisplayCount: targetDisplayIds.length,
+          reason: reason || 'Rolled back to draft by authorized operator',
+        },
+        metadata: { departmentId: schedule.departmentId },
+      });
+
+      return {
+        scheduleId,
+        revertedDisplayCount: targetDisplayIds.length,
+        status: 'draft',
+      };
+    }
+
+    // 2. Legacy / Single-display rollback
+    if (!displayId || !targetPublicationId) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Either scheduleId or displayId and targetPublicationId must be provided.'
+      );
+    }
 
     const dRef = db.collection('displays').doc(displayId);
     const dDoc = await dRef.get();
@@ -1660,7 +1796,6 @@ export const rollbackPublication = onCall(
       );
     }
 
-    const now = new Date().toISOString();
     await dRef.update({
       desiredPublicationId: targetPublicationId,
       currentPublicationId: targetPublicationId,

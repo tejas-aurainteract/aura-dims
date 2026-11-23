@@ -175,7 +175,7 @@ packages:
     resolution: {integrity: sha512-r1w81DpR+KyRWd3f+rk6TNqMgedmAxZP5v5KWlXQWlgMUUtyEJch0DKEci1SorPMiSeM8XPl7MZ3miJ60JIpQg==}
 
   '@aura-dims/display-schema@file:functions/aura-dims-display-schema-0.1.0.tgz':
-    resolution: {integrity: sha512-buZc4AtlyPfpt6B6OH9BaL8a3tFGIYEhnPGrHXg8lPnwNCRDkR3H7Yn3SGSUTIZ1UcVLl81BhEZPd7kxXyvU2A==, tarball: file:functions/aura-dims-display-schema-0.1.0.tgz}
+    resolution: {integrity: sha512-qlLP6wQ3lzQMrk4A0V++3XHre2gydLf3wYsTFt1BjvtCvywURFWQT8/MvpHoYtvddtlGgT25TlwXv807VM4TLw==, tarball: file:functions/aura-dims-display-schema-0.1.0.tgz}
     version: 0.1.0
 
   '@babel/code-frame@7.29.7':

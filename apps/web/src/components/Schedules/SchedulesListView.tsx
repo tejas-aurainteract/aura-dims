@@ -23,6 +23,7 @@ import {
   Pencil,
   Ban,
   RefreshCw,
+  RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { api, getApiErrorMessage } from '@/lib/api';
@@ -162,6 +163,25 @@ export const SchedulesListView: React.FC = () => {
       fetchSchedules();
     } catch (err: any) {
       alert(`Withdrawal failed: ${err.message}`);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleRollback = async (schedule: ScheduleRecord) => {
+    const confirmMsg = `Roll back publication for "${schedule.title}"?\n\nThis will immediately revert targeted digital display(s) to their previous broadcast (or corporate neutral fallback) and move this schedule back to Draft so you can edit it.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setActionLoadingId(schedule.id);
+    try {
+      const res = await api.rollbackPublication({
+        scheduleId: schedule.id,
+        reason: 'Operator initiated rollback to Draft',
+      });
+      fetchSchedules();
+      alert(`Publication rolled back successfully. Reverted ${res.revertedDisplayCount ?? schedule.targetDisplayIds.length} digital display(s) to previous content. Schedule is now back in Draft.`);
+    } catch (err: any) {
+      alert(`Rollback failed: ${getApiErrorMessage(err)}`);
     } finally {
       setActionLoadingId(null);
     }
@@ -433,6 +453,20 @@ export const SchedulesListView: React.FC = () => {
                     >
                       <RefreshCw className="h-3.5 w-3.5 text-teal-600" />
                       <span>Rollout Progress</span>
+                    </button>
+                  )}
+
+                  {/* Rollback button if a publication exists and caller is Admin or Department Head */}
+                  {(isAdmin || userProfile?.role === 'department_head') && s.publishedPublicationId && (
+                    <button
+                      type="button"
+                      disabled={isActionLoading}
+                      onClick={() => handleRollback(s)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold rounded-xl border border-rose-200 transition-colors"
+                      title="Roll back active broadcast to previous content and revert schedule to Draft"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5 text-rose-600" />
+                      <span>Rollback to Draft</span>
                     </button>
                   )}
 
