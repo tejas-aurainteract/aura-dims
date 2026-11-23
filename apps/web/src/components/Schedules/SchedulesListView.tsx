@@ -437,12 +437,13 @@ export const SchedulesListView: React.FC = () => {
                   )}
 
                   {/* Submit for approval if draft */}
-                  {s.status === 'draft' && !canDirectPublish && (
+                  {s.status === 'draft' && (
                     <button
                       type="button"
                       disabled={isActionLoading}
                       onClick={() => handleSubmitForApproval(s)}
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 text-white text-xs font-semibold rounded-xl shadow-xs transition-colors"
+                      title="Submit this schedule into the editorial review & approval pipeline"
                     >
                       <Send className="h-4 w-4" />
                       <span>Submit for Review</span>
