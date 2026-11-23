@@ -817,7 +817,7 @@ export const DisplaysPage: React.FC = () => {
                 return (
                   <div
                     key={display.id}
-                    className={`bg-slate-900/70 border transition-all rounded-xl p-5 flex flex-col justify-between shadow-sm relative group ${isSelected
+                    className={`bg-slate-900/70 border transition-all rounded-xl p-5 flex flex-col justify-between shadow-sm relative group overflow-hidden ${isSelected
                       ? 'border-teal-500/80 ring-1 ring-teal-500/50 bg-slate-900/90'
                       : 'border-slate-800 hover:border-slate-700/80'
                       }`}
@@ -842,24 +842,24 @@ export const DisplaysPage: React.FC = () => {
 
                           {/* Connectivity badge */}
                           {display.connectivity === 'online' ? (
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">
                               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                               Online
                             </span>
                           ) : display.connectivity === 'offline' ? (
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-950/80 text-amber-400 border border-amber-800/60">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-950/80 text-amber-400 border border-amber-800/60">
                               <span className="w-2 h-2 rounded-full bg-amber-400"></span>
                               Offline
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700">
                               <span className="w-2 h-2 rounded-full bg-slate-500"></span>
                               Unpaired
                             </span>
                           )}
 
                           {/* Orientation badge */}
-                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-800/80 text-slate-300 border border-slate-700/60">
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800/80 text-slate-300 border border-slate-700/60">
                             {display.orientation === 'landscape' ? 'Landscape 16:9' : 'Portrait 9:16'}
                           </span>
                         </div>
@@ -867,15 +867,21 @@ export const DisplaysPage: React.FC = () => {
                         {/* Commissioning status badge */}
                         <div>
                           {isCommissioned ? (
-                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setCommissioningDisplay(display)}
+                              title="View commissioning checklist"
+                              className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 inline-flex items-center gap-1 hover:bg-emerald-900/60 transition-colors cursor-pointer"
+                            >
                               <CheckCircle2 className="w-3 h-3" />
                               Commissioned
-                            </span>
+                            </button>
                           ) : (
                             <button
                               type="button"
                               onClick={() => setCommissioningDisplay(display)}
-                              className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-950/80 text-amber-400 hover:bg-amber-900/80 border border-amber-800/60 inline-flex items-center gap-1 transition-colors"
+                              title="Complete commissioning checklist"
+                              className="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-950/80 text-amber-400 hover:bg-amber-900/80 border border-amber-800/60 inline-flex items-center gap-1 transition-colors cursor-pointer"
                             >
                               <ClipboardCheck className="w-3 h-3" />
                               Commissioning
@@ -885,13 +891,17 @@ export const DisplaysPage: React.FC = () => {
                       </div>
 
                       {/* Display Title & Installation Ref */}
-                      <div>
+                      <div
+                        className="cursor-pointer group/title"
+                        onClick={() => openDetails(display, 'health')}
+                        title="Click to view digital display telemetry & details"
+                      >
                         {display.installationRef && (
                           <span className="font-mono text-[10px] text-teal-400 bg-teal-500/10 px-1.5 py-0.5 rounded border border-teal-500/20 mr-1.5">
                             {display.installationRef}
                           </span>
                         )}
-                        <h3 className="text-base font-bold text-white group-hover:text-teal-400 transition-colors inline">
+                        <h3 className="text-base font-bold text-white group-hover/title:text-teal-400 transition-colors inline">
                           {display.name}
                         </h3>
                       </div>
@@ -906,26 +916,28 @@ export const DisplaysPage: React.FC = () => {
                       </div>
 
                       {/* Diagnostic Warning Pills */}
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {isStale && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">
-                            <Clock className="w-3 h-3" />
-                            Stale Telemetry (&gt;15m)
-                          </span>
-                        )}
-                        {isLowStorage && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 font-medium">
-                            <HardDrive className="w-3 h-3" />
-                            Low Storage (&lt;1GB)
-                          </span>
-                        )}
-                        {display.lastDeliveryError && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 font-medium" title={display.lastDeliveryError}>
-                            <AlertCircle className="w-3 h-3" />
-                            Delivery / Sync Error
-                          </span>
-                        )}
-                      </div>
+                      {(isStale || isLowStorage || display.lastDeliveryError) && (
+                        <div className="flex flex-wrap gap-1.5 mt-2.5">
+                          {isStale && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">
+                              <Clock className="w-3 h-3" />
+                              Stale Telemetry (&gt;15m)
+                            </span>
+                          )}
+                          {isLowStorage && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 font-medium">
+                              <HardDrive className="w-3 h-3" />
+                              Low Storage (&lt;1GB)
+                            </span>
+                          )}
+                          {display.lastDeliveryError && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 font-medium" title={display.lastDeliveryError}>
+                              <AlertCircle className="w-3 h-3" />
+                              Delivery / Sync Error
+                            </span>
+                          )}
+                        </div>
+                      )}
 
                       {/* Published Broadcast & Schedule Block */}
                       <div className="mt-3 p-3 rounded-lg bg-slate-950/70 border border-slate-800/80 space-y-2">
@@ -988,11 +1000,10 @@ export const DisplaysPage: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Telemetry & Delivery Progress Bar */}
-                      <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2.5">
-                        {/* Delivery Status Badge */}
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-400">Delivery Status:</span>
+                      {/* Delivery Status & Heartbeat Summary Strip */}
+                      <div className="mt-3.5 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-slate-400">Delivery:</span>
                           {display.deliveryStage === 'active' ? (
                             <span className="inline-flex items-center gap-1 text-teal-400 font-medium">
                               <CheckCircle2 className="w-3.5 h-3.5" />
@@ -1001,92 +1012,31 @@ export const DisplaysPage: React.FC = () => {
                           ) : display.deliveryStage === 'downloading' ? (
                             <span className="inline-flex items-center gap-1 text-blue-400 font-medium">
                               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              Downloading Assets
+                              Downloading
                             </span>
                           ) : display.deliveryStage === 'verifying' ? (
                             <span className="inline-flex items-center gap-1 text-yellow-400 font-medium">
                               <Shield className="w-3.5 h-3.5 animate-pulse" />
-                              Verifying SHA-256
+                              Verifying
                             </span>
                           ) : display.deliveryStage === 'failed' ? (
-                            <span className="inline-flex items-center gap-1 text-rose-400 font-medium" title={display.lastDeliveryError || 'Unknown error'}>
+                            <span className="inline-flex items-center gap-1 text-rose-400 font-medium" title={display.lastDeliveryError || 'Verification failed'}>
                               <AlertTriangle className="w-3.5 h-3.5" />
-                              Verification Failed
+                              Sync Failed
                             </span>
                           ) : (
                             <span className="text-slate-500 font-medium">Idle / Standby</span>
                           )}
                         </div>
 
-                        {/* Version Match / Lag */}
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-400">Publication Version:</span>
-                          {display.desiredPublicationId ? (
-                            <span className="font-mono text-slate-300">
-                              {display.activePublicationId ? (
-                                display.desiredPublicationId === display.activePublicationId ? (
-                                  <span className="text-emerald-400">v.{display.activePublicationId.slice(-6)} (Synced)</span>
-                                ) : (
-                                  <span className="text-amber-400">
-                                    v.{display.activePublicationId.slice(-6)} → v.{display.desiredPublicationId.slice(-6)} (Lag)
-                                  </span>
-                                )
-                              ) : (
-                                <span className="text-blue-400">Target v.{display.desiredPublicationId.slice(-6)}</span>
-                              )}
-                            </span>
-                          ) : (
-                            <span className="text-slate-500">None Targeted</span>
-                          )}
-                        </div>
-
-                        {/* Current Playing Content */}
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-400">Playing Now:</span>
-                          <span className="text-slate-300 truncate max-w-[170px]" title={display.reported?.playback?.currentSlideId || 'Fallback'}>
-                            {display.reported?.playback?.currentPlaylistId
-                              ? `Slide ${display.reported?.playback?.currentSlideId || 'Active'}`
-                              : 'Corporate Neutral Fallback'}
-                          </span>
-                        </div>
-
-                        {/* Local Storage Metric */}
-                        {display.reported?.storage && (
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between text-[11px] text-slate-400">
-                              <span>Device Storage:</span>
-                              <span>
-                                {((display.reported.storage.freeBytes || 0) / (1024 * 1024 * 1024)).toFixed(1)} GB free / {((display.reported.storage.totalBytes || 0) / (1024 * 1024 * 1024)).toFixed(1)} GB
-                              </span>
-                            </div>
-                            <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                              <div
-                                className="bg-teal-500 h-full rounded-full"
-                                style={{
-                                  width: `${Math.min(
-                                    100,
-                                    Math.round(
-                                      ((display.reported.storage.usedBytes || 0) /
-                                        (display.reported.storage.totalBytes || 1)) *
-                                      100
-                                    )
-                                  )}%`,
-                                }}
-                              ></div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Last Heartbeat */}
-                        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
-                          <span>Last heartbeat:</span>
+                        <div className="flex items-center gap-1 text-[11px] text-slate-500" title="Last Heartbeat timestamp">
+                          <Clock className="w-3 h-3 text-slate-500" />
                           <span>
                             {display.lastHeartbeatAt
                               ? new Date(display.lastHeartbeatAt).toLocaleTimeString('en-IN', {
                                 timeZone: 'Asia/Kolkata',
                                 hour: '2-digit',
                                 minute: '2-digit',
-                                second: '2-digit',
                               }) + ' IST'
                               : 'Never connected'}
                           </span>
@@ -1095,72 +1045,73 @@ export const DisplaysPage: React.FC = () => {
                     </div>
 
                     {/* Card Footer Actions */}
-                    <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
+                    <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2">
+                      {/* Primary Quick Actions (3 equal columns) */}
+                      <div className="grid grid-cols-3 gap-1.5">
                         <button
+                          type="button"
                           onClick={() => openDetails(display, 'health')}
-                          className="text-xs text-slate-400 hover:text-slate-200 inline-flex items-center gap-1 font-medium"
+                          className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-slate-800/60 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-medium border border-slate-700/60 transition-colors shadow-sm"
+                          title="View telemetry, diagnostics, and playback health"
                         >
-                          <Activity className="w-3.5 h-3.5" />
-                          Telemetry
+                          <Activity className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Telemetry</span>
                         </button>
 
                         <button
+                          type="button"
                           onClick={() => setMaintenanceModalDisplay(display)}
-                          className="text-xs text-teal-400 hover:text-teal-300 inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded bg-teal-500/10 border border-teal-500/30 hover:bg-teal-500/20 transition-all shadow-sm"
+                          className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 hover:text-teal-200 text-xs font-medium border border-teal-500/30 transition-colors shadow-sm"
                           title="Restart, refresh, sync, clear cache, or capture a preview of this digital display"
                           data-testid={`maintenance-btn-${display.id}`}
                         >
-                          <Wrench className="w-3.5 h-3.5" />
-                          Maintenance
+                          <Wrench className="w-3.5 h-3.5 text-teal-400" />
+                          <span>Maintenance</span>
                         </button>
 
                         <button
+                          type="button"
                           onClick={() => setWifiModalDisplay(display)}
-                          className="text-xs text-cyan-400 hover:text-cyan-300 inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/30 hover:bg-cyan-500/20 transition-all shadow-sm"
+                          className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-200 text-xs font-medium border border-cyan-500/30 transition-colors shadow-sm"
                           title="Scan and configure Wi-Fi network for this digital display"
                           data-testid={`wifi-btn-${display.id}`}
                         >
-                          <Wifi className="w-3.5 h-3.5" />
-                          Wi-Fi
-                        </button>
-
-                        <button
-                          onClick={() => setCommissioningDisplay(display)}
-                          className="text-xs text-slate-400 hover:text-teal-300 inline-flex items-center gap-1 font-medium"
-                        >
-                          <ClipboardCheck className="w-3.5 h-3.5" />
-                          Checklist
+                          <Wifi className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Wi-Fi</span>
                         </button>
                       </div>
 
+                      {/* Admin Fleet Actions */}
                       {isAdmin && (
                         display.lifecycle === 'pending_enrollment' ? (
                           <button
+                            type="button"
                             onClick={() => handleGeneratePairingCode(display)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 text-xs font-medium border border-teal-500/30 transition-colors shadow-sm"
+                            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-medium border border-emerald-500/30 transition-colors shadow-sm"
                             title="Generate one-time pairing code for initial device commissioning"
                           >
-                            <Key className="w-3 h-3" />
-                            Pairing Code
+                            <Key className="w-3 h-3 text-emerald-400" />
+                            <span>Pairing Code</span>
                           </button>
                         ) : (
-                          <div className="flex items-center gap-1.5">
+                          <div className="grid grid-cols-2 gap-1.5">
                             <button
+                              type="button"
                               onClick={() => handleUnpairDisplay(display)}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-medium border border-rose-500/30 transition-colors"
+                              className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 text-xs font-medium border border-rose-500/30 transition-colors shadow-sm"
                               title="Unpair and disconnect this digital display from Aura DIMS"
                             >
-                              <Unlink className="w-3 h-3" />
-                              Unpair
+                              <Unlink className="w-3 h-3 text-rose-400" />
+                              <span>Unpair</span>
                             </button>
                             <button
+                              type="button"
                               onClick={() => handleGeneratePairingCode(display)}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-xs font-medium border border-amber-500/30 transition-colors"
+                              className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 text-xs font-medium border border-amber-500/30 transition-colors shadow-sm"
                               title="Unpair and generate a fresh pairing code to re-pair this digital display"
                             >
-                              <Key className="w-3 h-3" />
-                              New Code
+                              <Key className="w-3 h-3 text-amber-400" />
+                              <span>New Code</span>
                             </button>
                           </div>
                         )
