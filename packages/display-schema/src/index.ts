@@ -1528,7 +1528,6 @@ export interface PublicationRecord {
   manifestVersion: '1.0';
   displayId: string;
   displayName: string;
-  targetedDisplayIds?: string[];
   scheduleId: string;
   playlistRevisionId: string;
   departmentId: string;
@@ -2239,18 +2238,13 @@ export interface PreparePublicationResponse {
 }
 
 export interface RollbackPublicationRequest {
-  displayId?: string;
-  targetPublicationId?: string;
-  scheduleId?: string;
-  reason?: string;
+  displayId: string;
+  targetPublicationId: string;
 }
 
 export interface RollbackPublicationResponse {
-  displayId?: string;
-  activePublicationId?: string;
-  scheduleId?: string;
-  revertedDisplayCount?: number;
-  status?: string;
+  displayId: string;
+  activePublicationId: string;
 }
 
 export interface SetUserDirectPublishPermissionRequest {
