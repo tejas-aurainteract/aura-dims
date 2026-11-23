@@ -167,9 +167,10 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
         snap.forEach((d) => disps.push({ id: d.id, ...(d.data() as any) }));
         setAvailableDisplays(disps);
 
-        // Preselect all available displays if none selected
-        if (selectedDisplayIds.length === 0 && disps.length > 0 && disps[0]) {
-          setSelectedDisplayIds([disps[0].id]);
+        // Preselect the first assigned digital display if none currently selected
+        const eligible = disps.filter((d: any) => isAdmin || d.assignedUserIds?.includes(userProfile?.uid));
+        if (selectedDisplayIds.length === 0 && eligible.length > 0 && eligible[0]) {
+          setSelectedDisplayIds([eligible[0].id]);
         }
       } catch (err) {
         console.error('Failed to load eligible digital displays:', err);
@@ -508,21 +509,33 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto pr-1">
-                {availableDisplays.map((d) => {
+                {availableDisplays.map((d: any) => {
+                  const isAssigned = isAdmin || d.assignedUserIds?.includes(userProfile?.uid);
                   const isSelected = selectedDisplayIds.includes(d.id);
                   return (
                     <button
                       key={d.id}
                       type="button"
-                      onClick={() => toggleDisplaySelection(d.id)}
+                      disabled={!isAssigned}
+                      onClick={() => isAssigned && toggleDisplaySelection(d.id)}
                       className={`p-2.5 rounded-xl border text-left text-xs transition-colors flex items-center justify-between ${
-                        isSelected
-                          ? 'border-teal-600 bg-teal-50/40 text-slate-900'
-                          : 'border-slate-200 hover:border-slate-300 text-slate-600'
+                        !isAssigned
+                          ? 'border-slate-200 bg-slate-50 opacity-60 cursor-not-allowed text-slate-400'
+                          : isSelected
+                          ? 'border-teal-600 bg-teal-50/40 text-slate-900 cursor-pointer'
+                          : 'border-slate-200 hover:border-slate-300 text-slate-600 cursor-pointer'
                       }`}
+                      title={!isAssigned ? 'Not assigned to your account. An Administrator must assign this digital display to you.' : ''}
                     >
                       <div className="truncate mr-2">
-                        <p className="font-semibold truncate">{d.name}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-semibold truncate">{d.name}</p>
+                          {!isAssigned && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                              Unassigned
+                            </span>
+                          )}
+                        </div>
                         <p className="text-[10px] text-slate-400 truncate">{d.locationDescription}</p>
                       </div>
                       <div
