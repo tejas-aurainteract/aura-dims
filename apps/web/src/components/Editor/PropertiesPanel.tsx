@@ -11,7 +11,7 @@
  * - Slide properties when nothing is selected (Background, duration)
  */
 
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   CanvasElement,
   TextElement,
@@ -40,6 +40,8 @@ import {
   Paintbrush,
   Clock,
   Layers,
+  Maximize2,
+  Scan,
 } from 'lucide-react';
 
 export interface PropertiesPanelProps {
@@ -54,6 +56,9 @@ export interface PropertiesPanelProps {
   onBringToFront: (id: string) => void;
   onSendToBack: (id: string) => void;
   onOpenAssetPicker: (mediaType: 'image' | 'video') => void;
+  canvasDimensions?: { width: number; height: number };
+  assetsMap?: Map<string, string>;
+  assetDimensionsMap?: Map<string, { width: number; height: number }>;
 }
 
 export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
@@ -68,7 +73,110 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   onBringToFront,
   onSendToBack,
   onOpenAssetPicker,
+  canvasDimensions,
+  assetsMap,
+  assetDimensionsMap,
 }) => {
+  const [nativeDims, setNativeDims] = useState<{ width: number; height: number } | null>(null);
+
+  const canvasWidth = canvasDimensions?.width || 1920;
+  const canvasHeight = canvasDimensions?.height || 1080;
+
+  const getNaturalDimensions = useCallback(
+    (callback: (dims: { width: number; height: number }) => void) => {
+      if (!selectedElement || (selectedElement.type !== 'image' && selectedElement.type !== 'video')) return;
+      const mediaEl = selectedElement as ImageElement | VideoElement;
+
+      // 1. Check known asset dimensions map
+      if (mediaEl.assetId && assetDimensionsMap?.has(mediaEl.assetId)) {
+        const d = assetDimensionsMap.get(mediaEl.assetId)!;
+        if (d.width > 0 && d.height > 0) {
+          callback(d);
+          return;
+        }
+      }
+
+      // 2. Check rendered DOM element
+      const domEl = document.querySelector(
+        `[data-element-id="${selectedElement.id}"] img, [data-element-id="${selectedElement.id}"] video`
+      ) as HTMLImageElement | HTMLVideoElement | null;
+
+      const domW =
+        domEl instanceof HTMLImageElement
+          ? domEl.naturalWidth
+          : domEl instanceof HTMLVideoElement
+          ? domEl.videoWidth
+          : 0;
+      const domH =
+        domEl instanceof HTMLImageElement
+          ? domEl.naturalHeight
+          : domEl instanceof HTMLVideoElement
+          ? domEl.videoHeight
+          : 0;
+
+      if (domW > 0 && domH > 0) {
+        callback({ width: domW, height: domH });
+        return;
+      }
+
+      // 3. Fallback: load from URL
+      const url = mediaEl.assetId ? assetsMap?.get(mediaEl.assetId) : null;
+      if (url) {
+        if (selectedElement.type === 'image') {
+          const img = new Image();
+          img.onload = () => {
+            if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+              callback({ width: img.naturalWidth, height: img.naturalHeight });
+            }
+          };
+          img.src = url;
+        } else if (selectedElement.type === 'video') {
+          const vid = document.createElement('video');
+          vid.onloadedmetadata = () => {
+            if (vid.videoWidth > 0 && vid.videoHeight > 0) {
+              callback({ width: vid.videoWidth, height: vid.videoHeight });
+            }
+          };
+          vid.src = url;
+        }
+      }
+    },
+    [selectedElement, assetDimensionsMap, assetsMap]
+  );
+
+  useEffect(() => {
+    if (selectedElement && (selectedElement.type === 'image' || selectedElement.type === 'video')) {
+      getNaturalDimensions((dims) => setNativeDims(dims));
+    } else {
+      setNativeDims(null);
+    }
+  }, [selectedElement?.id, selectedElement?.type, getNaturalDimensions]);
+
+  const handleFitFullScreen = () => {
+    if (!selectedElement) return;
+    onUpdateElement(selectedElement.id, {
+      x: 0,
+      y: 0,
+      width: canvasWidth,
+      height: canvasHeight,
+      fit: 'contain',
+    });
+  };
+
+  const handleFitOriginalResolution = () => {
+    if (!selectedElement) return;
+    getNaturalDimensions(({ width: nw, height: nh }) => {
+      const x = Math.max(0, Math.round((canvasWidth - nw) / 2));
+      const y = Math.max(0, Math.round((canvasHeight - nh) / 2));
+      onUpdateElement(selectedElement.id, {
+        x,
+        y,
+        width: nw,
+        height: nh,
+        fit: 'contain',
+      });
+    });
+  };
   // If nothing is selected, show slide properties
   if (!selectedElement) {
     return (
@@ -246,9 +354,37 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
       {/* Geometry: X, Y, W, H */}
       <div className="space-y-2">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-          Geometry (px)
-        </span>
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Geometry (px)
+          </span>
+          {(el.type === 'image' || el.type === 'video') && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={el.locked}
+                onClick={handleFitFullScreen}
+                className="px-1.5 py-0.5 text-[9px] font-semibold rounded bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200 transition-colors"
+                title={`Fit to full digital display (${canvasWidth}×${canvasHeight})`}
+              >
+                Full Display
+              </button>
+              <button
+                type="button"
+                disabled={el.locked}
+                onClick={handleFitOriginalResolution}
+                className="px-1.5 py-0.5 text-[9px] font-semibold rounded bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200 transition-colors"
+                title={
+                  nativeDims
+                    ? `Set to original media resolution (${nativeDims.width}×${nativeDims.height})`
+                    : 'Set to original media resolution'
+                }
+              >
+                Native Size
+              </button>
+            </div>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div>
             <label className="text-[10px] text-slate-500">X Position</label>
@@ -712,6 +848,47 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               <option value="cover">Cover (Crop to fill frame)</option>
               {el.type === 'image' && <option value="fill">Fill / Stretch</option>}
             </select>
+          </div>
+
+          {/* Digital Display Bounds & Resolution Options */}
+          <div className="space-y-2 pt-1 border-t border-slate-100">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+              Digital Display Sizing
+            </span>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={el.locked}
+                onClick={handleFitFullScreen}
+                className="flex flex-col items-center justify-center p-2 rounded-lg border border-teal-200 bg-teal-50/70 hover:bg-teal-100/80 text-teal-900 transition-colors gap-1 text-center"
+                title={`Fit to whole digital display (${canvasWidth}×${canvasHeight})`}
+              >
+                <Maximize2 className="w-4 h-4 text-teal-600" />
+                <span className="text-[11px] font-bold">Full Display</span>
+                <span className="text-[9px] text-teal-700 font-mono">
+                  {canvasWidth}×{canvasHeight}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                disabled={el.locked}
+                onClick={handleFitOriginalResolution}
+                className="flex flex-col items-center justify-center p-2 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-800 transition-colors gap-1 text-center"
+                title="Resize element to match native media resolution"
+              >
+                <Scan className="w-4 h-4 text-slate-600" />
+                <span className="text-[11px] font-bold">Native Size</span>
+                <span className="text-[9px] text-slate-500 font-mono">
+                  {nativeDims ? `${nativeDims.width}×${nativeDims.height}` : 'Original W×H'}
+                </span>
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400 leading-tight">
+              {nativeDims
+                ? `Original media resolution: ${nativeDims.width}×${nativeDims.height}px.`
+                : 'Captures full digital display dimensions or snaps to native resolution.'}
+            </p>
           </div>
 
           {/* Video Specific: Muted & Loop */}

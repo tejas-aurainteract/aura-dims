@@ -255,9 +255,29 @@ export class CaptivePortalServer {
           const rawPairingCode = typeof parsed.pairingCode === 'string' ? parsed.pairingCode : '';
           const cleanPairingCode = normalizePairingCode(rawPairingCode);
 
+          const isEnrolled = this.identity?.isEnrolled() ?? false;
+          const store = this.enrollmentWorker?.getStore();
+          const pending = store?.read();
+          const hasStoredCode =
+            isEnrolled ||
+            (Boolean(pending) &&
+              (pending?.state === 'pending' || pending?.state === 'redeeming'));
+
           if (!ssid) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: false, error: 'SSID is required' }));
+            return;
+          }
+
+          // If digital display is unregistered and has NO stored pairing code, code is mandatory
+          if (!hasStoredCode && !cleanPairingCode) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                success: false,
+                error: 'Pairing key code is required to register this digital display.',
+              })
+            );
             return;
           }
 
@@ -266,7 +286,7 @@ export class CaptivePortalServer {
             res.end(
               JSON.stringify({
                 success: false,
-                error: 'Pairing key code must be exactly 6 letters or digits.',
+                error: 'Pairing key code must be 6 to 12 letters or digits (e.g. UQP9848QYP).',
               })
             );
             return;
@@ -274,10 +294,16 @@ export class CaptivePortalServer {
 
           let enrollmentQueued = false;
           if (cleanPairingCode && this.enrollmentWorker) {
+            // If display was already enrolled under an older identity, clear old credentials
+            if (isEnrolled && this.identity) {
+              this.identity.clearCredentials();
+            }
             // Persist pending-enrollment.json atomically BEFORE sending Fast-ACK or switching network
             this.enrollmentWorker.getStore().saveNew(cleanPairingCode, 'captive_portal', ssid);
             enrollmentQueued = true;
             this.onRefreshRenderer?.();
+          } else if (hasStoredCode) {
+            enrollmentQueued = !isEnrolled;
           }
 
           this.lastWifiError = null;
@@ -354,6 +380,11 @@ export class CaptivePortalServer {
       const pendingEnrollment = !isEnrolled
         ? (this.enrollmentWorker?.getStore().getView() ?? null)
         : null;
+      const hasStoredPairingCode =
+        isEnrolled ||
+        (pendingEnrollment !== null &&
+          (pendingEnrollment.state === 'pending' ||
+            pendingEnrollment.state === 'redeeming'));
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
         JSON.stringify({
@@ -362,6 +393,8 @@ export class CaptivePortalServer {
           displayId: creds?.displayId || null,
           apSsid: this.wifiManager.getApSsid(),
           pendingEnrollment,
+          hasStoredPairingCode,
+          storedCodeMasked: pendingEnrollment?.codeHint || null,
           lastWifiError: this.lastWifiError,
         })
       );
@@ -390,7 +423,7 @@ export class CaptivePortalServer {
             res.end(
               JSON.stringify({
                 success: false,
-                error: 'Pairing key code must be exactly 6 letters or digits.',
+                error: 'Pairing key code must be 6 to 12 letters or digits (e.g. UQP9848QYP).',
               })
             );
             return;
@@ -778,25 +811,32 @@ export class CaptivePortalServer {
 
       <div id="wifi-error-box" class="status-box status-error hidden" style="margin-top: 0; margin-bottom: 1rem;"></div>
 
-      <div class="form-group ${hasPairingCodePresent ? 'hidden' : ''}" id="wifi-pair-group">
-        <label for="wifi-pair-input">Pairing Key Code <span style="color: #64748b; font-weight: 400;">(6 characters from Aura DIMS)</span></label>
+      <div class="form-group" id="wifi-pair-group">
+        <label for="wifi-pair-input" id="wifi-pair-label" style="display: flex; justify-content: space-between; align-items: center;">
+          <span>Pairing Key Code</span>
+          <span id="wifi-pair-tag" style="font-size: 0.75rem; font-weight: 600; color: ${hasPairingCodePresent ? '#14b8a6' : '#f87171'};">
+            ${hasPairingCodePresent ? '✓ Code Saved (' + escapeHtml(pendingView?.codeHint || 'Stored') + ')' : '• Code Required'}
+          </span>
+        </label>
         <input
           type="text"
           id="wifi-pair-input"
           class="code-input"
-          placeholder="e.g. 7K2M9P"
-          maxlength="6"
+          placeholder="${hasPairingCodePresent ? 'Leave blank to keep saved code, or enter new code to update...' : 'e.g. UQP9848QYP'}"
+          maxlength="16"
           autocomplete="off"
           autocapitalize="characters"
           spellcheck="false"
-          oninput="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '')"
+          oninput="handlePairInput(this)"
         />
         <p id="wifi-pair-help" style="color: #94a3b8; font-size: 0.75rem; margin-top: 0.35rem; line-height: 1.4;">
-          Generate this in Aura DIMS &rarr; Displays &rarr; Pairing Code. This digital display will save it and register automatically once online.
+          ${hasPairingCodePresent
+            ? '✓ A pairing code is already saved. Leave blank to keep it, or enter a new code to update it.'
+            : '⚠ Digital display is unregistered. Enter the pairing code from Aura DIMS (e.g. UQP9848QYP) to pair and connect.'}
         </p>
       </div>
 
-      <button type="submit" id="connect-btn" class="btn-connect">${hasPairingCodePresent ? 'Connect Digital Display' : 'Connect & Register Digital Display'}</button>
+      <button type="submit" id="connect-btn" class="btn-connect">${hasPairingCodePresent ? 'Connect Digital Display' : 'Pair & Connect Digital Display'}</button>
     </form>
 
     <div id="status-box" class="status-box"></div>
@@ -879,6 +919,55 @@ export class CaptivePortalServer {
   <script>
     let scannedList = [];
     let selectedNetwork = null;
+    let deviceHasStoredPairingCode = ${hasPairingCodePresent ? 'true' : 'false'};
+
+    function validateConnectButton() {
+      const ssidEl = document.getElementById('ssid-input');
+      const ssid = ssidEl ? ssidEl.value.trim() : '';
+      const pairInput = document.getElementById('wifi-pair-input');
+      const pairVal = pairInput ? pairInput.value.trim().toUpperCase() : '';
+      const connectBtn = document.getElementById('connect-btn');
+      if (!connectBtn) return;
+
+      let valid = true;
+      let reason = '';
+
+      if (!ssid) {
+        valid = false;
+        reason = 'Select or enter a Wi-Fi network';
+      }
+
+      // If no stored code exists, pairing code is mandatory and must be at least 6 characters (e.g. 10-char UQP9848QYP)
+      if (!deviceHasStoredPairingCode) {
+        if (!pairVal || pairVal.length < 6) {
+          valid = false;
+          reason = 'Enter valid pairing code';
+        }
+      } else {
+        // Stored code exists; if user entered a new code to update, it must be at least 6 chars
+        if (pairVal.length > 0 && pairVal.length < 6) {
+          valid = false;
+          reason = 'Pairing code must be at least 6 characters';
+        }
+      }
+
+      if (valid) {
+        connectBtn.disabled = false;
+        connectBtn.style.opacity = '1';
+        connectBtn.style.cursor = 'pointer';
+        connectBtn.title = '';
+      } else {
+        connectBtn.disabled = true;
+        connectBtn.style.opacity = '0.5';
+        connectBtn.style.cursor = 'not-allowed';
+        connectBtn.title = reason;
+      }
+    }
+
+    function handlePairInput(el) {
+      el.value = el.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      validateConnectButton();
+    }
 
     async function scanWifi() {
       const btn = document.getElementById('scan-btn');
@@ -983,6 +1072,7 @@ export class CaptivePortalServer {
           connectBtn.textContent = 'Connect Digital Display';
         }
       }
+      validateConnectButton();
     }
 
     function toggleOverride() {
@@ -1007,9 +1097,9 @@ export class CaptivePortalServer {
       const password = passInput.value;
       const pairingCode = pairInput ? pairInput.value.trim().toUpperCase() : '';
 
-      if (pairingCode && !/^[A-Z0-9]{6}$/.test(pairingCode)) {
+      if (pairingCode && !/^[A-Z0-9]{6,16}$/.test(pairingCode)) {
         statusBox.className = 'status-box status-error';
-        statusBox.innerHTML = '⚠ Pairing key code must be exactly 6 letters or digits.';
+        statusBox.innerHTML = '⚠ Pairing key code must be 6 to 12 alphanumeric characters.';
         return;
       }
 
@@ -1180,42 +1270,66 @@ export class CaptivePortalServer {
           }
 
           const p = data.pendingEnrollment;
-          const hasValidPendingCode = p && p.state !== 'failed_terminal';
+          const hasValidPendingCode = Boolean(p && p.state !== 'failed_terminal');
+          deviceHasStoredPairingCode = Boolean(data.enrolled || hasValidPendingCode);
+
+          const wifiPairTag = document.getElementById('wifi-pair-tag');
+
+          if (wifiPairGroup) wifiPairGroup.classList.remove('hidden');
 
           if (data.enrolled && data.displayId) {
-            // Pairing / registration already present -> do NOT ask for pairing code again; only Wi-Fi profile
             if (badge) {
               badge.className = 'badge-status badge-enrolled';
               badge.textContent = '✓ Registered';
             }
             if (sub) {
-              sub.innerHTML = 'Enrolled with Display ID: <code>' + escapeHtml(data.displayId) + '</code>. Unpair below if you need to enter a new pairing code.';
+              sub.innerHTML = 'Enrolled with Display ID: <code>' + escapeHtml(data.displayId) + '</code>. Enter a new pairing code above to re-pair, or unpair below.';
             }
             if (regBtnEl) regBtnEl.classList.add('hidden');
             if (unpairBtn) unpairBtn.classList.remove('hidden');
-            if (wifiPairGroup) wifiPairGroup.classList.add('hidden');
-            if (wifiPairInput) wifiPairInput.value = '';
+            if (wifiPairTag) {
+              wifiPairTag.textContent = '✓ Enrolled (Optional to change)';
+              wifiPairTag.style.color = '#14b8a6';
+            }
+            if (wifiPairInput) {
+              wifiPairInput.placeholder = 'Leave blank to keep current registration, or enter new code to re-pair...';
+            }
+            if (wifiPairHelp) {
+              wifiPairHelp.innerHTML = '✓ Digital display is already registered. Leave blank to only change Wi-Fi, or enter a new pairing code to re-pair.';
+            }
             if (connectBtn) connectBtn.textContent = 'Connect Digital Display';
           } else if (hasValidPendingCode) {
-            // Pairing code already saved in pending-enrollment.json -> do NOT ask for pairing code again; only Wi-Fi profile
             if (badge) {
               badge.className = 'badge-status badge-enrolled';
               badge.textContent = '✓ Code Saved';
             }
             if (sub) {
-              sub.innerHTML = 'Pairing code <code>' + escapeHtml(p.codeHint) + '</code> is already saved. Select a Wi-Fi network above to connect, or tap <strong>Unpair Display</strong> below to enter a different pairing code.';
+              sub.innerHTML = 'Pairing code <code>' + escapeHtml(p.codeHint) + '</code> is saved. Select Wi-Fi to connect, or enter a new code above to update.';
             }
             if (regBtnEl) regBtnEl.classList.add('hidden');
             if (unpairBtn) unpairBtn.classList.remove('hidden');
-            if (wifiPairGroup) wifiPairGroup.classList.add('hidden');
-            if (wifiPairInput) wifiPairInput.value = '';
+            if (wifiPairTag) {
+              wifiPairTag.textContent = '✓ Saved (' + escapeHtml(p.codeHint) + ')';
+              wifiPairTag.style.color = '#14b8a6';
+            }
+            if (wifiPairInput) {
+              wifiPairInput.placeholder = 'Leave blank to keep ' + escapeHtml(p.codeHint) + ', or enter new code to update...';
+            }
+            if (wifiPairHelp) {
+              wifiPairHelp.innerHTML = '✓ Pairing code <strong>' + escapeHtml(p.codeHint) + '</strong> is already saved. Leave blank to keep it, or enter a new 6-character code to update it.';
+            }
             if (connectBtn) connectBtn.textContent = 'Connect Digital Display';
           } else {
-            // Unpaired (or code was rejected) -> ask for pairing code
-            if (wifiPairGroup) wifiPairGroup.classList.remove('hidden');
             if (regBtnEl) regBtnEl.classList.remove('hidden');
             if (unpairBtn) unpairBtn.classList.add('hidden');
-            if (connectBtn) connectBtn.textContent = 'Connect & Register Digital Display';
+            if (wifiPairTag) {
+              wifiPairTag.textContent = '• Code Required';
+              wifiPairTag.style.color = '#f87171';
+            }
+            if (wifiPairInput) {
+              wifiPairInput.placeholder = 'e.g. UQP9848QYP';
+            }
+            if (connectBtn) connectBtn.textContent = 'Pair & Connect Digital Display';
 
             if (p && p.state === 'failed_terminal') {
               if (badge) {
@@ -1226,7 +1340,7 @@ export class CaptivePortalServer {
                 sub.innerHTML = 'Stored code (<code>' + escapeHtml(p.codeHint) + '</code>) failed: ' + escapeHtml((p.lastError && p.lastError.message) || 'Generate a new pairing code in Aura DIMS.');
               }
               if (wifiPairHelp) {
-                wifiPairHelp.innerHTML = '<span style="color:#fca5a5;">Previous code (' + escapeHtml(p.codeHint) + ') failed: ' + escapeHtml((p.lastError && p.lastError.message) || 'Enter a fresh 6-character code.') + '</span>';
+                wifiPairHelp.innerHTML = '<span style="color:#fca5a5;">Previous code (' + escapeHtml(p.codeHint) + ') failed: ' + escapeHtml((p.lastError && p.lastError.message) || 'Enter a fresh pairing code.') + '</span>';
               }
               if (regBtn) regBtn.textContent = 'Register Digital Display';
             } else {
@@ -1238,11 +1352,12 @@ export class CaptivePortalServer {
                 sub.textContent = 'This digital display is not yet registered in Aura DIMS.';
               }
               if (wifiPairHelp) {
-                wifiPairHelp.innerHTML = 'Generate this in Aura DIMS &rarr; Displays &rarr; Pairing Code. This digital display will save it and register automatically once online.';
+                wifiPairHelp.innerHTML = '⚠ Pairing code is required. Enter the 6-character code from Aura DIMS &rarr; Displays &rarr; Add Digital Display.';
               }
               if (regBtn) regBtn.textContent = 'Register Digital Display';
             }
           }
+          validateConnectButton();
         }
       } catch (e) {}
     }

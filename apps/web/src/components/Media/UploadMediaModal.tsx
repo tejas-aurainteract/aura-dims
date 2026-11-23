@@ -7,7 +7,7 @@
  * with client-side bounds verification, upload cancellation, and server-side validation feedback.
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   X,
   UploadCloud,
@@ -40,11 +40,17 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({
   const { userProfile } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const activeDepts = departments.filter((d) => d.status === 'active');
+  const defaultDeptId =
+    selectedDepartmentId ||
+    userProfile?.departmentId ||
+    activeDepts[0]?.id ||
+    departments[0]?.id ||
+    '';
+
   // Form states
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [targetDeptId, setTargetDeptId] = useState<string>(
-    selectedDepartmentId || userProfile?.departmentId || (departments[0]?.id ?? '')
-  );
+  const [targetDeptId, setTargetDeptId] = useState<string>(defaultDeptId);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [tagInput, setTagInput] = useState('');
@@ -57,7 +63,56 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const activeUploadRef = useRef<ActiveUploadHandle | null>(null);
 
+  // Reset all form fields to empty state
+  const resetForm = useCallback(() => {
+    setSelectedFile(null);
+    setTitle('');
+    setDescription('');
+    setTagInput('');
+    setTags([]);
+    setErrorMessage(null);
+    setProgressEvent(null);
+    setIsUploading(false);
+    setIsDragging(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, []);
+
+  // When modal is opened or closed, reset fields and sync default target department
+  useEffect(() => {
+    if (isOpen) {
+      resetForm();
+      const initialDept =
+        selectedDepartmentId ||
+        userProfile?.departmentId ||
+        activeDepts[0]?.id ||
+        departments[0]?.id ||
+        '';
+      setTargetDeptId(initialDept);
+    } else {
+      resetForm();
+    }
+  }, [isOpen, selectedDepartmentId, departments, userProfile?.departmentId, resetForm]);
+
+  // Synchronize target department if departments list loads while modal is open
+  useEffect(() => {
+    if (isOpen && activeDepts.length > 0) {
+      if (!targetDeptId || !departments.some((d) => d.id === targetDeptId)) {
+        setTargetDeptId(defaultDeptId);
+      }
+    }
+  }, [isOpen, departments, targetDeptId, defaultDeptId]);
+
   if (!isOpen) return null;
+
+  const handleClose = () => {
+    if (isUploading) {
+      handleCancelUpload();
+    }
+    resetForm();
+    onClose();
+  };
 
   const isImage = selectedFile?.type.startsWith('image/');
 
@@ -124,7 +179,10 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({
       return;
     }
 
-    const deptToUse = userProfile?.role === 'admin' ? targetDeptId : (userProfile?.departmentId ?? '');
+    const deptToUse =
+      userProfile?.role === 'admin'
+        ? (targetDeptId || defaultDeptId)
+        : (userProfile?.departmentId ?? '');
     if (!deptToUse) {
       setErrorMessage('A department must be assigned to upload media.');
       return;
@@ -149,6 +207,7 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({
       const readyAsset = await handle.done;
       activeUploadRef.current = null;
       setIsUploading(false);
+      resetForm();
       onUploadSuccess(readyAsset);
       onClose();
     } catch (err: unknown) {
@@ -173,7 +232,7 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({
           {!isUploading && (
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="rounded-lg p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
             >
               <X className="h-5 w-5" />
@@ -272,7 +331,7 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({
               </label>
               <select
                 id="dept-select"
-                value={targetDeptId}
+                value={targetDeptId || defaultDeptId}
                 disabled={isUploading}
                 onChange={(e) => setTargetDeptId(e.target.value)}
                 className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-500 disabled:bg-slate-100"
@@ -421,7 +480,7 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({
               <>
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="px-4 py-2 text-xs font-medium rounded-xl text-slate-600 hover:bg-slate-100 transition-colors"
                 >
                   Cancel

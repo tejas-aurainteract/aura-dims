@@ -476,70 +476,60 @@ export class WifiManager {
       this.logger.info(`[WifiManager] AP mode already active (SSID: "${this.apSsid}").`);
       return;
     }
+    // Immediately lock AP mode so background timers never interfere
+    this.apActive = true;
 
     this.logger.info(
       `[WifiManager] Switching digital display to AP Mode (SSID: "${this.apSsid}", Pass: "${this.apPassword}")...`
     );
 
     if (!this.isLinux) {
-      this.apActive = true;
       this.logger.info('[WifiManager] Dev/Mock: AP mode activated.');
       return;
     }
 
     try {
-      // 1. Unblock Wi-Fi and disable power-save (never call `nmcli dev wifi` here as it triggers a hardware scan!)
+      // 1. Check if Aura-AP is ALREADY actively running on wlan0 — if so, do not touch it
+      const activeConns = await this.execCommand(
+        `sudo nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null`
+      ).catch(() => '');
+      if (activeConns.includes('Aura-AP:wlan0')) {
+        this.logger.info('[WifiManager] Aura-AP is already broadcasting on wlan0.');
+        return;
+      }
+
+      // 2. Unblock Wi-Fi and disable power-save (never call `nmcli dev wifi` here as it triggers a hardware scan!)
       await this.execCommand(`sudo rfkill unblock wifi 2>/dev/null`).catch(() => {});
       await this.execCommand(
         `sudo iw dev "${this.wifiInterface}" set power_save off 2>/dev/null`
       ).catch(() => {});
 
-      // 2. Ensure dnsmasq provides wildcard DNS + Default Gateway (Option 3) + DNS (Option 6) + RFC 8910 Captive Portal URI (Option 114)
+      // 3. Ensure dnsmasq provides wildcard DNS + Default Gateway (Option 3) + DNS (Option 6) + RFC 8910 Captive Portal URI (Option 114)
       await this.execCommand(
         `printf 'address=/#/10.42.0.1\\ndhcp-option=3,10.42.0.1\\ndhcp-option=6,10.42.0.1\\ndhcp-option=114,http://10.42.0.1/setup\\n' | sudo tee /etc/NetworkManager/dnsmasq-shared.d/captive.conf >/dev/null 2>&1 || true`
       ).catch(() => {});
 
-      // 2b. Redirect port 80 to 8080 only if needed as fallback (if port 80 is bound natively via CAP_NET_BIND_SERVICE, remove stale REDIRECT rules)
-      await this.execCommand(
-        `sudo iptables -t nat -D PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080 2>/dev/null || true`
-      ).catch(() => {});
-
-      // 3. Delete legacy AP profile names if they exist, and ensure "Aura-AP" exists without recreating it if already configured
+      // 4. Clean up any conflicting legacy profile names
       await this.execCommand(
         `sudo nmcli connection delete "Aura-Setup-AP" "Hotspot" 2>/dev/null`
       ).catch(() => {});
 
-      const existingAp = await this.execCommand(
-        `sudo nmcli -t -f NAME connection show "Aura-AP" 2>/dev/null`
+      // 5. Check if profile "Aura-AP" exists in connection list
+      const allConns = await this.execCommand(
+        `sudo nmcli -t -f NAME connection show 2>/dev/null`
       ).catch(() => '');
+      const connExists = allConns.split('\n').map((l) => l.trim()).includes('Aura-AP');
 
-      if (!existingAp.includes('Aura-AP')) {
-        // 4. Create 2.4 GHz WPA2-AES (RSN+CCMP) AP connection profile with PMF disabled
+      if (!connExists) {
+        // Create 2.4 GHz WPA2-AES (RSN+CCMP) AP connection profile with PMF disabled
         await this.execCommand(
           `sudo nmcli connection add type wifi ifname "${this.wifiInterface}" con-name "Aura-AP" autoconnect no ssid "${this.apSsid}" 802-11-wireless.mode ap 802-11-wireless.band bg 802-11-wireless.channel 6 802-11-wireless-security.key-mgmt wpa-psk 802-11-wireless-security.psk "${this.apPassword}" 802-11-wireless-security.proto rsn 802-11-wireless-security.pairwise ccmp 802-11-wireless-security.group ccmp 802-11-wireless-security.pmf 1 ipv4.method shared ipv4.addresses 10.42.0.1/24 ipv6.method disabled`
         );
       }
 
-      // 5. Activate the AP connection
+      // 6. Activate the AP connection once
       await this.execCommand(`sudo nmcli connection up "Aura-AP"`);
 
-      // 6. On Raspberry Pi 5 (brcmfmac43455), if NetworkManager had a background client scan in flight
-      //    when Aura-AP came up, wpa_supplicant logs "Failed to initiate AP scan" and brcmfmac aborts
-      //    that scan after its 10s escan timer expires. Wait 12s for the escan timeout to clear, then
-      //    re-activate Aura-AP once so beacons broadcast reliably at 100% power.
-      await new Promise((r) => setTimeout(r, 2000));
-      const wpaLog = await this.execCommand(
-        `sudo journalctl -u wpa_supplicant -n 12 --no-pager 2>/dev/null`
-      ).catch(() => '');
-      if (wpaLog.includes('Failed to initiate AP scan')) {
-        this.logger.warn(
-          '[WifiManager] Detected pending brcmfmac scan collision during AP startup; waiting 12s for escan timer to clear and re-activating Aura-AP...'
-        );
-        await new Promise((r) => setTimeout(r, 12_000));
-        await this.execCommand(`sudo nmcli connection up "Aura-AP"`);
-      }
-
-      this.apActive = true;
       this.logger.info(
         `[WifiManager] AP Mode active on interface "${this.wifiInterface}". Digital display is broadcasting SSID "${this.apSsid}" (2.4 GHz, Pass: "${this.apPassword}").`
       );

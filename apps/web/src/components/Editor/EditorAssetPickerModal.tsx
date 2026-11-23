@@ -126,6 +126,15 @@ export const EditorAssetPickerModal: React.FC<EditorAssetPickerModalProps> = ({
     }
   };
 
+  const handleClose = () => {
+    setSearch('');
+    setUploadError(null);
+    setIsUploading(false);
+    setUploadProgress(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    onClose();
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -153,7 +162,7 @@ export const EditorAssetPickerModal: React.FC<EditorAssetPickerModalProps> = ({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
           >
             <X className="w-5 h-5" />

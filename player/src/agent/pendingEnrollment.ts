@@ -19,7 +19,7 @@ import type {
 } from '@aura-dims/display-schema';
 import type { Logger } from './logger.js';
 
-const PAIRING_CODE_REGEX = /^[A-Z0-9]{6}$/;
+const PAIRING_CODE_REGEX = /^[A-Z0-9]{6,12}$/;
 
 export function normalizePairingCode(raw: string): string {
   return String(raw || '')
@@ -34,8 +34,8 @@ export function isValidPairingCode(code: string): boolean {
 
 export function maskPairingCode(code: string): string {
   const clean = normalizePairingCode(code);
-  if (clean.length >= 2) {
-    return `••••${clean.slice(-2)}`;
+  if (clean.length >= 4) {
+    return `${clean.slice(0, 2)}••••${clean.slice(-2)}`;
   }
   return '••••••';
 }
@@ -125,7 +125,7 @@ export class PendingEnrollmentStore {
   ): PendingEnrollment {
     const pairingCode = normalizePairingCode(rawPairingCode);
     if (!isValidPairingCode(pairingCode)) {
-      throw new Error('Pairing key code must be exactly 6 uppercase letters or digits.');
+      throw new Error('Pairing key code must be 6 to 12 uppercase letters or digits.');
     }
 
     const record: PendingEnrollment = {

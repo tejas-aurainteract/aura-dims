@@ -92,6 +92,9 @@ export const DesignEditorPage: React.FC = () => {
 
   // Assets Map for previews
   const [assetsMap, setAssetsMap] = useState<Map<string, string>>(new Map());
+  const [assetDimensionsMap, setAssetDimensionsMap] = useState<
+    Map<string, { width: number; height: number }>
+  >(new Map());
 
   // History Stack for Undo / Redo
   const [history, setHistory] = useState<
@@ -489,6 +492,14 @@ export const DesignEditorPage: React.FC = () => {
       return;
     }
 
+    // Cache asset dimensions if available
+    if (asset.dimensions?.width && asset.dimensions?.height) {
+      setAssetDimensionsMap((prev) => new Map(prev).set(asset.id, asset.dimensions));
+    }
+
+    const canvasWidth = design.document.dimensions?.width || 1920;
+    const canvasHeight = design.document.dimensions?.height || 1080;
+
     // Check if replacing an existing element or adding new
     if (selectedElement && (selectedElement.type === 'image' || selectedElement.type === 'video')) {
       const isVideo = asset.mediaType === 'video';
@@ -507,16 +518,16 @@ export const DesignEditorPage: React.FC = () => {
       return;
     }
 
-    // Adding new element
+    // Adding new element: spans the full digital display canvas with native resolution preserved (fit: 'contain')
     if (asset.mediaType === 'image') {
       const newImg: ImageElement = {
         id: `el_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         type: 'image',
         name: asset.title || 'Image Element',
-        x: 120,
-        y: 120,
-        width: 500,
-        height: 350,
+        x: 0,
+        y: 0,
+        width: canvasWidth,
+        height: canvasHeight,
         rotation: 0,
         zIndex: currentSlide.elements.length + 1,
         opacity: 1,
@@ -537,10 +548,10 @@ export const DesignEditorPage: React.FC = () => {
         id: `el_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         type: 'video',
         name: asset.title || 'Video Player',
-        x: 120,
-        y: 120,
-        width: 640,
-        height: 360,
+        x: 0,
+        y: 0,
+        width: canvasWidth,
+        height: canvasHeight,
         rotation: 0,
         zIndex: currentSlide.elements.length + 1,
         opacity: 1,
@@ -773,6 +784,9 @@ export const DesignEditorPage: React.FC = () => {
           onOpenAssetPicker={(mediaType) =>
             setAssetPickerState({ isOpen: true, mediaType, target: 'element' })
           }
+          canvasDimensions={design.document.dimensions}
+          assetsMap={assetsMap}
+          assetDimensionsMap={assetDimensionsMap}
         />
       </div>
 
