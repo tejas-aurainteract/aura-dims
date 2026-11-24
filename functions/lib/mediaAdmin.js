@@ -45,6 +45,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.cleanupExpiredUploads = exports.listMediaAssets = exports.setMediaArchivedStatus = exports.updateMediaMetadata = exports.getMediaPreviewUrl = exports.finalizeMediaUpload = exports.initiateMediaUpload = void 0;
+exports.computeAccessScopes = computeAccessScopes;
+exports.deriveAssetKind = deriveAssetKind;
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
 const crypto = __importStar(require("node:crypto"));
@@ -55,6 +57,56 @@ const node_child_process_1 = require("node:child_process");
 const node_util_1 = require("node:util");
 const sharp_1 = __importDefault(require("sharp"));
 const display_schema_1 = require("@aura-dims/display-schema");
+const projectsAdmin_1 = require("./projectsAdmin");
+/**
+ * Computes authoritative access scopes for a media asset based on visibility,
+ * owner project, owner department, share targets, and global approval state.
+ *
+ * Invariants:
+ * - 'project'    -> ['proj:{id}'] only (NOT visible to rest of department through scopes)
+ * - 'department' -> ['proj:{id}', 'dept:{departmentId}']
+ * - 'shared'     -> ['proj:{id}'] plus each explicitly shared target ('dept:{id}' or 'proj:{id}')
+ * - 'global'     -> adds 'global' strictly after administrator approval
+ */
+function computeAccessScopes(ownerProjectId, visibility, ownerDepartmentId, sharedWith = [], globalApprovalState = 'none') {
+    const scopes = new Set();
+    // Every asset is always scoped to its owner project
+    scopes.add(`proj:${ownerProjectId}`);
+    // Department visibility adds department scope
+    if (visibility === 'department') {
+        scopes.add(`dept:${ownerDepartmentId}`);
+    }
+    // Shared visibility adds each explicitly targeted department or project
+    if (visibility === 'shared') {
+        for (const target of sharedWith) {
+            if (target.type === 'department') {
+                scopes.add(`dept:${target.id}`);
+            }
+            else if (target.type === 'project') {
+                scopes.add(`proj:${target.id}`);
+            }
+        }
+    }
+    // Global visibility adds 'global' strictly after administrator approval
+    if (globalApprovalState === 'approved') {
+        scopes.add('global');
+    }
+    return Array.from(scopes).sort();
+}
+/**
+ * Derives asset kind server-side from validated MIME type and magic bytes.
+ * Images and videos are 'displayable'; documents/spreadsheets/PDFs are 'reference'.
+ */
+function deriveAssetKind(mimeType) {
+    const cleanMime = (mimeType || '').toLowerCase().trim();
+    if (cleanMime === 'image/jpeg' ||
+        cleanMime === 'image/png' ||
+        cleanMime === 'image/webp' ||
+        cleanMime === 'video/mp4') {
+        return 'displayable';
+    }
+    return 'reference';
+}
 const execFilePromise = (0, node_util_1.promisify)(node_child_process_1.execFile);
 const db = admin.firestore();
 const REGION = 'asia-south1'; // India (Mumbai) regional target
@@ -163,7 +215,7 @@ async function recordMediaAudit(actorId, action, targetId, departmentId, details
 // ==============================================================================
 exports.initiateMediaUpload = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
-    const { fileName, fileSizeBytes, declaredMimeType, departmentId, title, description, tags } = request.data;
+    const { fileName, fileSizeBytes, declaredMimeType, departmentId, title, description, tags, projectId, visibility, sharedWith, } = request.data;
     if (!fileName || typeof fileName !== 'string') {
         throw new https_1.HttpsError('invalid-argument', 'A valid file name must be provided.');
     }
@@ -185,16 +237,81 @@ exports.initiateMediaUpload = (0, https_1.onCall)(CALLABLE_OPTS, async (request)
     }
     else {
         if (!targetDeptId) {
-            throw new https_1.HttpsError('failed-precondition', 'Department Head is not assigned to an active department.');
+            throw new https_1.HttpsError('failed-precondition', 'User is not assigned to an active department.');
         }
         if (departmentId && departmentId !== targetDeptId) {
-            throw new https_1.HttpsError('permission-denied', 'Department Heads cannot initiate uploads into other departments.');
+            throw new https_1.HttpsError('permission-denied', 'Users cannot initiate uploads into other departments.');
         }
     }
     // Validate department exists and is active
     const deptDoc = await db.collection('departments').doc(targetDeptId).get();
     if (!deptDoc.exists || deptDoc.data()?.status !== 'active') {
         throw new https_1.HttpsError('failed-precondition', 'The selected department does not exist or has been deactivated.');
+    }
+    // Validate target project
+    let targetProjectId;
+    if (projectId && typeof projectId === 'string' && projectId.trim()) {
+        const pId = projectId.trim();
+        const pDoc = await db.collection('projects').doc(pId).get();
+        if (!pDoc.exists) {
+            throw new https_1.HttpsError('not-found', `Target project '${pId}' not found.`);
+        }
+        const pData = pDoc.data();
+        if (pData.status !== 'active') {
+            throw new https_1.HttpsError('failed-precondition', `Project '${pData.name}' is archived and cannot receive new assets.`);
+        }
+        if (pData.departmentId !== targetDeptId) {
+            throw new https_1.HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${targetDeptId}'.`);
+        }
+        // Check caller authorization to upload into project
+        if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === targetDeptId)) {
+            const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
+            if (!mDoc.exists) {
+                throw new https_1.HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
+            }
+        }
+        targetProjectId = pId;
+    }
+    else {
+        targetProjectId = `proj_general_${targetDeptId}`;
+        await (0, projectsAdmin_1.ensureGeneralProject)(targetDeptId);
+    }
+    // Validate visibility & global approval state
+    const reqVis = visibility === 'department' || visibility === 'shared' || visibility === 'global' ? visibility : 'project';
+    let effectiveVisibility = reqVis;
+    let globalApprovalState = 'none';
+    if (reqVis === 'global') {
+        // Requested 'global' creates a pending approval and leaves current visibility as 'project'
+        effectiveVisibility = 'project';
+        globalApprovalState = 'pending';
+    }
+    // Validate sharedWith if visibility is 'shared'
+    const cleanSharedWith = [];
+    if (effectiveVisibility === 'shared') {
+        if (!Array.isArray(sharedWith) || sharedWith.length === 0) {
+            throw new https_1.HttpsError('invalid-argument', 'Visibility "shared" requires at least one target in sharedWith.');
+        }
+        for (const target of sharedWith) {
+            if (target.type !== 'department' && target.type !== 'project') {
+                throw new https_1.HttpsError('invalid-argument', `Invalid share target type "${target.type}".`);
+            }
+            if (!target.id || typeof target.id !== 'string') {
+                throw new https_1.HttpsError('invalid-argument', 'Valid target ID is required for each shared target.');
+            }
+            if (target.type === 'department') {
+                const tDept = await db.collection('departments').doc(target.id).get();
+                if (!tDept.exists || tDept.data()?.status !== 'active') {
+                    throw new https_1.HttpsError('failed-precondition', `Target department '${target.id}' does not exist or is inactive.`);
+                }
+            }
+            else if (target.type === 'project') {
+                const tProj = await db.collection('projects').doc(target.id).get();
+                if (!tProj.exists || tProj.data()?.status !== 'active') {
+                    throw new https_1.HttpsError('failed-precondition', `Target project '${target.id}' does not exist or is archived.`);
+                }
+            }
+            cleanSharedWith.push({ type: target.type, id: target.id });
+        }
     }
     // Validate size bounds by declared media type
     const isImage = declaredMimeType === 'image/jpeg' || declaredMimeType === 'image/png';
@@ -214,6 +331,11 @@ exports.initiateMediaUpload = (0, https_1.onCall)(CALLABLE_OPTS, async (request)
     const expiresAt = new Date(Date.now() + display_schema_1.MEDIA_CONSTRAINTS.UPLOAD_INTENT_EXPIRY_MS).toISOString();
     const cleanTitle = (title && typeof title === 'string' ? title.trim() : '') || sanitized.replace(/\.[^/.]+$/, '');
     const cleanDesc = description && typeof description === 'string' ? description.trim() : '';
+    // Derive kind and accessScopes strictly server-side
+    const kind = deriveAssetKind(declaredMimeType);
+    const accessScopes = computeAccessScopes(targetProjectId, effectiveVisibility, targetDeptId, cleanSharedWith, 'none' // Never grant global on initial upload
+    );
+    const now = new Date().toISOString();
     const newAsset = {
         id: assetId,
         title: cleanTitle.slice(0, display_schema_1.MEDIA_CONSTRAINTS.MAX_TITLE_LENGTH),
@@ -242,16 +364,44 @@ exports.initiateMediaUpload = (0, https_1.onCall)(CALLABLE_OPTS, async (request)
         status: 'awaiting_upload',
         failureReason: null,
         intentExpiresAt: expiresAt,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
         validatedAt: null,
         archivedAt: null,
+        // Phase 2 Hierarchical & Visibility Scoping
+        ownerDepartmentId: targetDeptId,
+        ownerProjectId: targetProjectId,
+        kind,
+        visibility: effectiveVisibility,
+        sharedWith: cleanSharedWith,
+        accessScopes,
+        globalApprovalState,
+        version: 1,
     };
     await db.collection('assets').doc(assetId).set(newAsset);
+    // If global visibility was requested, record a pending approval document
+    if (reqVis === 'global') {
+        await db.collection('approvals').add({
+            type: 'asset_global_visibility',
+            status: 'pending',
+            requesterUid: caller.uid,
+            requesterEmail: caller.email,
+            requesterDisplayName: caller.displayName || caller.email,
+            assetId,
+            assetTitle: cleanTitle.slice(0, display_schema_1.MEDIA_CONSTRAINTS.MAX_TITLE_LENGTH),
+            departmentId: targetDeptId,
+            projectId: targetProjectId,
+            createdAt: now,
+            updatedAt: now,
+        });
+    }
     await recordMediaAudit(caller.uid, 'media_upload_initiated', assetId, targetDeptId, {
         fileName: sanitized,
         declaredMimeType,
         fileSizeBytes,
+        projectId: targetProjectId,
+        visibility: effectiveVisibility,
+        globalApprovalState,
     });
     return {
         assetId,
@@ -441,8 +591,25 @@ exports.finalizeMediaUpload = (0, https_1.onCall)({ ...CALLABLE_OPTS, memory: '1
         // Delete staging file in Cloud Storage
         await stagingFile.delete({ ignoreNotFound: true });
         // Update Firestore record to 'ready'
+        const finalKind = deriveAssetKind(detectedMimeType);
+        const ownerDeptId = asset.ownerDepartmentId || asset.departmentId;
+        const ownerProjId = asset.ownerProjectId || `proj_general_${ownerDeptId}`;
+        const vis = asset.visibility || 'project';
+        const sharedTargets = asset.sharedWith || [];
+        const globalState = asset.globalApprovalState || 'none';
+        const scopes = asset.accessScopes && asset.accessScopes.length > 0
+            ? asset.accessScopes
+            : computeAccessScopes(ownerProjId, vis, ownerDeptId, sharedTargets, globalState);
         const updatedData = {
             status: 'ready',
+            kind: finalKind,
+            ownerDepartmentId: ownerDeptId,
+            ownerProjectId: ownerProjId,
+            visibility: vis,
+            sharedWith: sharedTargets,
+            accessScopes: scopes,
+            globalApprovalState: globalState,
+            version: asset.version || 1,
             storagePath: finalMediaPath,
             thumbnailPath: finalThumbPath,
             fileSizeBytes: actualSizeBytes,

@@ -41,10 +41,9 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.rollbackPublication = exports.preparePublication = exports.getApproval = exports.listApprovals = exports.withdrawApproval = exports.reviewApproval = exports.submitForApproval = exports.setScheduleStatus = exports.listSchedules = exports.getSchedule = exports.updateSchedule = exports.createSchedule = exports.getPlaylistRevision = exports.createPlaylistRevision = exports.setPlaylistArchivedStatus = exports.listPlaylists = exports.getPlaylist = exports.updatePlaylist = exports.createPlaylist = exports.getDesignRevision = exports.listDesignRevisions = exports.createDesignRevision = exports.seedStarterTemplates = exports.setTemplateArchivedStatus = exports.instantiateTemplate = exports.createTemplate = exports.listTemplates = exports.convertDesignOrientation = exports.listDesigns = exports.setDesignArchivedStatus = exports.duplicateDesign = exports.updateDesign = exports.getDesign = exports.createDesign = exports.cleanupExpiredUploads = exports.listMediaAssets = exports.setMediaArchivedStatus = exports.updateMediaMetadata = exports.getMediaPreviewUrl = exports.finalizeMediaUpload = exports.initiateMediaUpload = exports.setDepartmentStatus = exports.updateDepartment = exports.createDepartment = exports.triggerPasswordReset = exports.setUserActiveStatus = exports.updateUser = exports.provisionUser = exports.apiHealth = exports.healthCheck = void 0;
-exports.updateProject = exports.createProject = exports.reportDeviceShutdown = exports.discardDisplayPreview = exports.getDisplayPreviewUrl = exports.uploadDevicePreview = exports.expireStaleOperationsScheduled = exports.retryDisplayOperation = exports.cancelDisplayOperation = exports.reportDeviceOperation = exports.renewOperationLease = exports.claimDeviceOperation = exports.listDisplayOperations = exports.requestDisplayOperation = exports.retryPublicationTarget = exports.getPublicationRolloutProgress = exports.convertPlannedToRegistered = exports.updatePlannedInstallation = exports.createPlannedInstallation = exports.listPlannedInstallations = exports.finalizeCommissioning = exports.updateCommissioningCheck = exports.getCommissioningChecklist = exports.executeBulkAssignDisplays = exports.preflightBulkAssignDisplays = exports.executeBulkDisplayImport = exports.preflightBulkDisplayImport = exports.getDisplay = exports.listDisplays = exports.reportDeviceHeartbeat = exports.reportDeviceDelivery = exports.getDevicePublicationManifest = exports.getDevicePublication = exports.deviceSignIn = exports.redeemPairingCode = exports.listUserAssignments = exports.unassignDisplayUser = exports.assignDisplayUser = exports.generateDisplayPairingCode = exports.resetEnrollment = exports.setDisplayLifecycle = exports.updateDisplay = exports.registerDisplay = exports.setDisplayGroupStatus = exports.updateDisplayGroup = exports.createDisplayGroup = exports.updateSite = exports.createSite = exports.evaluateSchedulePreview = exports.setUserDirectPublishPermission = void 0;
-exports.ALLOWED_PROJECT_CREATOR_ROLES = exports.moveAssetProject = exports.listProjectMembers = exports.updateProjectMemberRole = exports.removeProjectMember = exports.addProjectMember = exports.listProjects = exports.archiveProject = void 0;
-exports.ensureGeneralProject = ensureGeneralProject;
+exports.preparePublication = exports.getApproval = exports.listApprovals = exports.withdrawApproval = exports.reviewApproval = exports.submitForApproval = exports.setScheduleStatus = exports.listSchedules = exports.getSchedule = exports.updateSchedule = exports.createSchedule = exports.getPlaylistRevision = exports.createPlaylistRevision = exports.setPlaylistArchivedStatus = exports.listPlaylists = exports.getPlaylist = exports.updatePlaylist = exports.createPlaylist = exports.getDesignRevision = exports.listDesignRevisions = exports.createDesignRevision = exports.seedStarterTemplates = exports.setTemplateArchivedStatus = exports.instantiateTemplate = exports.createTemplate = exports.listTemplates = exports.convertDesignOrientation = exports.listDesigns = exports.setDesignArchivedStatus = exports.duplicateDesign = exports.updateDesign = exports.getDesign = exports.createDesign = exports.cleanupExpiredUploads = exports.listMediaAssets = exports.setMediaArchivedStatus = exports.updateMediaMetadata = exports.getMediaPreviewUrl = exports.finalizeMediaUpload = exports.initiateMediaUpload = exports.setDepartmentStatus = exports.updateDepartment = exports.createDepartment = exports.triggerPasswordReset = exports.setUserActiveStatus = exports.updateUser = exports.provisionUser = exports.ensureGeneralProject = exports.apiHealth = exports.healthCheck = void 0;
+exports.createProject = exports.reportDeviceShutdown = exports.discardDisplayPreview = exports.getDisplayPreviewUrl = exports.uploadDevicePreview = exports.expireStaleOperationsScheduled = exports.retryDisplayOperation = exports.cancelDisplayOperation = exports.reportDeviceOperation = exports.renewOperationLease = exports.claimDeviceOperation = exports.listDisplayOperations = exports.requestDisplayOperation = exports.retryPublicationTarget = exports.getPublicationRolloutProgress = exports.convertPlannedToRegistered = exports.updatePlannedInstallation = exports.createPlannedInstallation = exports.listPlannedInstallations = exports.finalizeCommissioning = exports.updateCommissioningCheck = exports.getCommissioningChecklist = exports.executeBulkAssignDisplays = exports.preflightBulkAssignDisplays = exports.executeBulkDisplayImport = exports.preflightBulkDisplayImport = exports.getDisplay = exports.listDisplays = exports.reportDeviceHeartbeat = exports.reportDeviceDelivery = exports.getDevicePublicationManifest = exports.getDevicePublication = exports.deviceSignIn = exports.redeemPairingCode = exports.listUserAssignments = exports.unassignDisplayUser = exports.assignDisplayUser = exports.generateDisplayPairingCode = exports.resetEnrollment = exports.setDisplayLifecycle = exports.updateDisplay = exports.registerDisplay = exports.setDisplayGroupStatus = exports.updateDisplayGroup = exports.createDisplayGroup = exports.updateSite = exports.createSite = exports.evaluateSchedulePreview = exports.setUserDirectPublishPermission = exports.rollbackPublication = void 0;
+exports.ALLOWED_PROJECT_CREATOR_ROLES = exports.moveAssetProject = exports.listProjectMembers = exports.updateProjectMemberRole = exports.removeProjectMember = exports.addProjectMember = exports.listProjects = exports.archiveProject = exports.updateProject = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-admin/firestore");
@@ -136,44 +135,14 @@ exports.apiHealth = (0, https_1.onRequest)({ cors: true, region: REGION }, (req,
 // ==============================================================================
 // Project Enrollment & Department Membership Helpers
 // ==============================================================================
-/**
- * Ensures the default General project exists for a department, and enrolls the user as a member.
- */
-/**
- * Ensures the default General project exists for a given department.
- */
-async function ensureGeneralProject(departmentId, departmentName, actorId = 'system') {
-    const generalProjectId = `proj_general_${departmentId}`;
-    const projectRef = db.collection('projects').doc(generalProjectId);
-    const projectSnap = await projectRef.get();
-    const now = new Date().toISOString();
-    if (projectSnap.exists) {
-        return projectSnap.data();
-    }
-    let name = departmentName;
-    if (!name) {
-        const deptDoc = await db.collection('departments').doc(departmentId).get();
-        name = deptDoc.exists ? deptDoc.data()?.name || departmentId : departmentId;
-    }
-    const generalProject = {
-        id: generalProjectId,
-        departmentId,
-        name: 'General',
-        description: `Default workspace for ${name}`,
-        status: 'active',
-        isGeneral: true,
-        createdBy: actorId,
-        createdAt: now,
-        updatedAt: now,
-    };
-    await projectRef.set(generalProject);
-    return generalProject;
-}
+var projectsAdmin_1 = require("./projectsAdmin");
+Object.defineProperty(exports, "ensureGeneralProject", { enumerable: true, get: function () { return projectsAdmin_1.ensureGeneralProject; } });
+const projectsAdmin_2 = require("./projectsAdmin");
 /**
  * Automatically enrolls a user into their department's default General project.
  */
 async function enrollUserInGeneralProject(uid, departmentId, userProfile, actorId) {
-    await ensureGeneralProject(departmentId, undefined, actorId);
+    await (0, projectsAdmin_2.ensureGeneralProject)(departmentId, undefined, actorId);
     const generalProjectId = `proj_general_${departmentId}`;
     const now = new Date().toISOString();
     let memberRole = 'member';
@@ -726,7 +695,7 @@ exports.createDepartment = (0, https_1.onCall)({ cors: true, region: REGION }, a
         updatedAt: firestore_1.FieldValue.serverTimestamp(),
     });
     // Automatically create default General project for the new department
-    await ensureGeneralProject(deptRef.id, cleanName, caller.uid);
+    await (0, projectsAdmin_2.ensureGeneralProject)(deptRef.id, cleanName, caller.uid);
     await writeAuditLog({
         actorId: caller.uid,
         action: 'department.create',
@@ -939,15 +908,15 @@ Object.defineProperty(exports, "reportDeviceShutdown", { enumerable: true, get: 
 // ==============================================================================
 // Project Workspace & Member Administration
 // ==============================================================================
-var projectsAdmin_1 = require("./projectsAdmin");
-Object.defineProperty(exports, "createProject", { enumerable: true, get: function () { return projectsAdmin_1.createProject; } });
-Object.defineProperty(exports, "updateProject", { enumerable: true, get: function () { return projectsAdmin_1.updateProject; } });
-Object.defineProperty(exports, "archiveProject", { enumerable: true, get: function () { return projectsAdmin_1.archiveProject; } });
-Object.defineProperty(exports, "listProjects", { enumerable: true, get: function () { return projectsAdmin_1.listProjects; } });
-Object.defineProperty(exports, "addProjectMember", { enumerable: true, get: function () { return projectsAdmin_1.addProjectMember; } });
-Object.defineProperty(exports, "removeProjectMember", { enumerable: true, get: function () { return projectsAdmin_1.removeProjectMember; } });
-Object.defineProperty(exports, "updateProjectMemberRole", { enumerable: true, get: function () { return projectsAdmin_1.updateProjectMemberRole; } });
-Object.defineProperty(exports, "listProjectMembers", { enumerable: true, get: function () { return projectsAdmin_1.listProjectMembers; } });
-Object.defineProperty(exports, "moveAssetProject", { enumerable: true, get: function () { return projectsAdmin_1.moveAssetProject; } });
-Object.defineProperty(exports, "ALLOWED_PROJECT_CREATOR_ROLES", { enumerable: true, get: function () { return projectsAdmin_1.ALLOWED_PROJECT_CREATOR_ROLES; } });
+var projectsAdmin_3 = require("./projectsAdmin");
+Object.defineProperty(exports, "createProject", { enumerable: true, get: function () { return projectsAdmin_3.createProject; } });
+Object.defineProperty(exports, "updateProject", { enumerable: true, get: function () { return projectsAdmin_3.updateProject; } });
+Object.defineProperty(exports, "archiveProject", { enumerable: true, get: function () { return projectsAdmin_3.archiveProject; } });
+Object.defineProperty(exports, "listProjects", { enumerable: true, get: function () { return projectsAdmin_3.listProjects; } });
+Object.defineProperty(exports, "addProjectMember", { enumerable: true, get: function () { return projectsAdmin_3.addProjectMember; } });
+Object.defineProperty(exports, "removeProjectMember", { enumerable: true, get: function () { return projectsAdmin_3.removeProjectMember; } });
+Object.defineProperty(exports, "updateProjectMemberRole", { enumerable: true, get: function () { return projectsAdmin_3.updateProjectMemberRole; } });
+Object.defineProperty(exports, "listProjectMembers", { enumerable: true, get: function () { return projectsAdmin_3.listProjectMembers; } });
+Object.defineProperty(exports, "moveAssetProject", { enumerable: true, get: function () { return projectsAdmin_3.moveAssetProject; } });
+Object.defineProperty(exports, "ALLOWED_PROJECT_CREATOR_ROLES", { enumerable: true, get: function () { return projectsAdmin_3.ALLOWED_PROJECT_CREATOR_ROLES; } });
 //# sourceMappingURL=index.js.map

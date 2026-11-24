@@ -10,25 +10,34 @@
  * COLLECTIONS DELETED:
  *   - assets
  *   - designs
+ *   - designRevisions
  *   - playlists
- *   - playlist_revisions
+ *   - playlistRevisions
  *   - schedules
  *   - approvals
  *   - publications
- *   - displays/{displayId}/operations (per-display device operations queue/history)
+ *   - displays/{displayId}/operations (per-display hardware operations queue/history)
+ *   - displays/{displayId}/previews   (per-display preview captures)
  *
  * STORAGE PREFIXES DELETED:
  *   - media/
  *   - staging/
  *   - thumbnails/
  *   - publications/
+ *   - packages/   (compiled digital display publication packages)
+ *   - previews/   (digital display screenshot captures)
  *
  * STRICTLY PRESERVED:
  *   - users & Firebase Auth credentials
  *   - departments
- *   - displays (digital display records preserved; publication & schedule links reset to null)
+ *   - sites & displayGroups
+ *   - displays (digital display hardware enrollment preserved; playback pointers reset)
+ *   - displaySecrets & displayAssignments
+ *   - plannedInstallations & commissioning
  *   - projects & project memberships
+ *   - templates (bundled design templates)
  *   - auditEvents (immutable regulatory log)
+ *   - systemMetadata & rateLimits
  *
  * USAGE:
  *   Dry-run (default):
@@ -72,6 +81,11 @@ function parseArgs(): WipeOptions {
     }
   }
 
+  // Fallback to GCLOUD_PROJECT if in emulator environment
+  if (!projectId && process.env.GCLOUD_PROJECT) {
+    projectId = process.env.GCLOUD_PROJECT;
+  }
+
   if (!projectId) {
     console.error('❌ ERROR: Missing required --project parameter.');
     console.error('Usage: node scripts/wipe-content-data.ts --project=<projectId> [--apply] [--confirm-production]');
@@ -91,8 +105,9 @@ function parseArgs(): WipeOptions {
 const TARGET_COLLECTIONS = [
   'assets',
   'designs',
+  'designRevisions',
   'playlists',
-  'playlist_revisions',
+  'playlistRevisions',
   'schedules',
   'approvals',
   'publications',
@@ -103,6 +118,8 @@ const TARGET_STORAGE_PREFIXES = [
   'staging/',
   'thumbnails/',
   'publications/',
+  'packages/',
+  'previews/',
 ] as const;
 
 async function runWipe() {
@@ -152,12 +169,15 @@ async function runWipe() {
     collectionCounts[colName] = snap.size;
   }
 
-  // 2. Scan per-display operations subcollections
+  // 2. Scan per-display subcollections (operations & previews)
   const displaysSnap = await db.collection('displays').get();
   let operationsCount = 0;
+  let previewsCount = 0;
   for (const dispDoc of displaysSnap.docs) {
     const opsSnap = await dispDoc.ref.collection('operations').get();
     operationsCount += opsSnap.size;
+    const prevSnap = await dispDoc.ref.collection('previews').get();
+    previewsCount += prevSnap.size;
   }
 
   // 3. Scan Storage Prefixes
@@ -176,25 +196,31 @@ async function runWipe() {
   console.log(' SUMMARY OF DATA TARGETED FOR DELETION:');
   console.log('------------------------------------------------------------------------------');
   for (const colName of TARGET_COLLECTIONS) {
-    console.log(`  Collection: "${colName.padEnd(20)}" -> ${collectionCounts[colName]} documents`);
+    console.log(`  Collection: "${colName.padEnd(22)}" -> ${collectionCounts[colName]} documents`);
   }
-  console.log(`  Subcollection: "displays/*/operations" -> ${operationsCount} operations across ${displaysSnap.size} digital displays\n`);
+  console.log(`  Subcollection: "displays/*/operations"  -> ${operationsCount} operations across ${displaysSnap.size} digital displays`);
+  console.log(`  Subcollection: "displays/*/previews"    -> ${previewsCount} preview documents across ${displaysSnap.size} digital displays\n`);
 
   console.log(' Storage Blobs:');
   for (const prefix of TARGET_STORAGE_PREFIXES) {
-    console.log(`  Prefix: "${prefix.padEnd(20)}"     -> ${storageCounts[prefix]} files`);
+    console.log(`  Prefix: "${prefix.padEnd(22)}"     -> ${storageCounts[prefix]} files`);
   }
 
   console.log('\n Digital Display Fallback Reset:');
   console.log(`  Will reset publication & schedule fields on ${displaysSnap.size} digital display documents.`);
   console.log('------------------------------------------------------------------------------\n');
 
-  console.log(' PRESERVED COLLECTIONS (WILL NOT BE MODIFIED):');
+  console.log(' PRESERVED INFRASTRUCTURE & HIERARCHY (WILL NOT BE DELETED):');
   console.log('  ✓ users (and Firebase Auth records)');
   console.log('  ✓ departments');
+  console.log('  ✓ sites & displayGroups');
   console.log('  ✓ displays (hardware enrollment, name, site, pairing secret, groups)');
-  console.log('  ✓ projects (and members)');
+  console.log('  ✓ displaySecrets & displayAssignments');
+  console.log('  ✓ plannedInstallations & commissioning records');
+  console.log('  ✓ projects (and project members)');
+  console.log('  ✓ templates (bundled slide design templates)');
   console.log('  ✓ auditEvents');
+  console.log('  ✓ systemMetadata & rateLimits');
   console.log('------------------------------------------------------------------------------\n');
 
   if (isDryRun) {
@@ -231,17 +257,23 @@ async function runWipe() {
     console.log(` ✓ Cleared "${colName}" (${snap.size} docs deleted).`);
   }
 
-  // Delete display operations subcollections & reset display fields
-  console.log('\nDeleting display operations subcollections & resetting digital display fields...');
+  // Delete display subcollections (operations & previews) & reset display fields
+  console.log('\nDeleting display subcollections & resetting digital display fields...');
   const resetBatch = db.batch();
   for (const dispDoc of displaysSnap.docs) {
-    // Delete operations
+    // Delete operations subcollection
     const opsSnap = await dispDoc.ref.collection('operations').get();
     for (const opDoc of opsSnap.docs) {
       resetBatch.delete(opDoc.ref);
     }
 
-    // Reset digital display publication & schedule fields
+    // Delete previews subcollection
+    const prevSnap = await dispDoc.ref.collection('previews').get();
+    for (const pDoc of prevSnap.docs) {
+      resetBatch.delete(pDoc.ref);
+    }
+
+    // Reset digital display playback pointers
     resetBatch.update(dispDoc.ref, {
       desiredPublicationId: null,
       readyPublicationId: null,
@@ -258,7 +290,7 @@ async function runWipe() {
     });
   }
   await resetBatch.commit();
-  console.log(` ✓ Cleared operations and reset playback pointers on ${displaysSnap.size} digital displays.`);
+  console.log(` ✓ Cleared subcollections and reset playback pointers on ${displaysSnap.size} digital displays.`);
 
   // Delete Storage Files
   console.log('\nDeleting Storage prefixes...');
@@ -271,7 +303,7 @@ async function runWipe() {
     }
   }
 
-  // Write audit event
+  // Record Audit Event
   try {
     await db.collection('auditEvents').add({
       actorId: 'system_wipe_script',
@@ -281,6 +313,7 @@ async function runWipe() {
       metadata: {
         collectionCounts,
         operationsCount,
+        previewsCount,
         storageCounts,
         displaysReset: displaysSnap.size,
       },

@@ -46,6 +46,8 @@ const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
 const crypto = __importStar(require("node:crypto"));
 const display_schema_1 = require("@aura-dims/display-schema");
+const publishingAdmin_1 = require("./publishingAdmin");
+const projectsAdmin_1 = require("./projectsAdmin");
 const db = admin.firestore();
 const REGION = 'asia-south1'; // India (Mumbai) regional target
 const CALLABLE_OPTS = { region: REGION, cors: true };
@@ -85,9 +87,9 @@ async function writeAuditLog(params) {
     }
 }
 /**
- * Validates that all referenced assets exist and are accessible to the target department.
+ * Validates that all referenced assets exist and are accessible to the target department/project.
  */
-async function validateReferencedAssets(assetIds, departmentId, caller) {
+async function validateReferencedAssets(assetIds, departmentId, caller, projectId) {
     if (assetIds.length === 0)
         return;
     const validIds = assetIds.filter((id) => id && typeof id === 'string' && id.trim() !== '');
@@ -99,8 +101,13 @@ async function validateReferencedAssets(assetIds, departmentId, caller) {
             throw new https_1.HttpsError('not-found', `Referenced media asset '${assetId}' does not exist in the Media Library.`);
         }
         const assetData = assetDoc.data();
-        if (caller.role !== 'admin' && assetData?.departmentId !== departmentId) {
-            throw new https_1.HttpsError('permission-denied', `Referenced media asset '${assetId}' belongs to another department and cannot be used in this design.`);
+        const canUse = (0, publishingAdmin_1.canUseAsset)(assetData, {
+            targetDepartmentId: departmentId,
+            targetProjectId: projectId,
+            caller,
+        });
+        if (!canUse.allowed) {
+            throw new https_1.HttpsError('permission-denied', canUse.reason || `Referenced media asset '${assetId}' cannot be used in this design.`);
         }
     }
 }
@@ -136,7 +143,7 @@ function createBlankDesignDocument(orientation) {
  */
 exports.createDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
-    const { title, description, orientation, departmentId, initialDocument } = request.data;
+    const { title, description, orientation, departmentId, projectId, initialDocument } = request.data;
     if (!title || typeof title !== 'string' || !title.trim()) {
         throw new https_1.HttpsError('invalid-argument', 'Design title is required.');
     }
@@ -156,6 +163,31 @@ exports.createDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
         }
         targetDeptId = caller.departmentId;
     }
+    // Validate target project
+    let targetProjectId = projectId;
+    if (targetProjectId) {
+        const pDoc = await db.collection('projects').doc(targetProjectId).get();
+        if (!pDoc.exists) {
+            throw new https_1.HttpsError('not-found', `Project '${targetProjectId}' not found.`);
+        }
+        const pData = pDoc.data();
+        if (pData.status === 'archived') {
+            throw new https_1.HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
+        }
+        if (pData.departmentId !== targetDeptId) {
+            throw new https_1.HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${targetDeptId}'.`);
+        }
+        if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === targetDeptId)) {
+            const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
+            if (!mDoc.exists) {
+                throw new https_1.HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
+            }
+        }
+    }
+    else {
+        targetProjectId = `proj_general_${targetDeptId}`;
+        await (0, projectsAdmin_1.ensureGeneralProject)(targetDeptId);
+    }
     // Validate initial document or generate blank
     let docToSave;
     if (initialDocument) {
@@ -170,7 +202,7 @@ exports.createDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     }
     // Validate referenced assets
     const referencedAssetIds = (0, display_schema_1.extractReferencedAssetIds)(docToSave);
-    await validateReferencedAssets(referencedAssetIds, targetDeptId, caller);
+    await validateReferencedAssets(referencedAssetIds, targetDeptId, caller, targetProjectId);
     const designId = `des-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
     const now = new Date().toISOString();
     const record = {
@@ -180,6 +212,7 @@ exports.createDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
         orientation,
         dimensions: docToSave.dimensions,
         departmentId: targetDeptId,
+        projectId: targetProjectId,
         ownerId: caller.uid,
         uploaderDisplayName: caller.displayName || caller.email,
         status: 'draft',
@@ -200,7 +233,7 @@ exports.createDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
         action: 'design.create',
         targetId: designId,
         targetType: 'design',
-        newState: { title: cleanTitle, orientation, departmentId: targetDeptId },
+        newState: { title: cleanTitle, orientation, departmentId: targetDeptId, projectId: targetProjectId },
     });
     return {
         design: {
@@ -234,7 +267,7 @@ exports.getDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
  */
 exports.updateDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
-    const { designId, title, description, expectedRevision, document, thumbnailSvg } = request.data;
+    const { designId, title, description, expectedRevision, document, thumbnailSvg, projectId } = request.data;
     if (!designId) {
         throw new https_1.HttpsError('invalid-argument', 'designId is required.');
     }
@@ -265,9 +298,29 @@ exports.updateDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
         if (current.revision !== expectedRevision) {
             throw new https_1.HttpsError('failed-precondition', `Concurrent edit conflict: current server revision is ${current.revision}, but your draft was based on revision ${expectedRevision}. Please reload latest or save as a copy.`);
         }
+        let targetProjectId = projectId || current.projectId || `proj_general_${current.departmentId}`;
+        if (projectId && projectId !== current.projectId) {
+            const pDoc = await db.collection('projects').doc(projectId).get();
+            if (!pDoc.exists) {
+                throw new https_1.HttpsError('not-found', `Project '${projectId}' not found.`);
+            }
+            const pData = pDoc.data();
+            if (pData.status === 'archived') {
+                throw new https_1.HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
+            }
+            if (pData.departmentId !== current.departmentId) {
+                throw new https_1.HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${current.departmentId}'.`);
+            }
+            if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === current.departmentId)) {
+                const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
+                if (!mDoc.exists) {
+                    throw new https_1.HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
+                }
+            }
+        }
         // Revalidate referenced assets
         const referencedAssetIds = (0, display_schema_1.extractReferencedAssetIds)(document);
-        await validateReferencedAssets(referencedAssetIds, current.departmentId, caller);
+        await validateReferencedAssets(referencedAssetIds, current.departmentId, caller, targetProjectId);
         const nextRevision = current.revision + 1;
         const now = new Date().toISOString();
         const updatedRecord = {
@@ -276,6 +329,7 @@ exports.updateDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
             description: description !== undefined ? description.trim().slice(0, display_schema_1.DESIGN_CONSTRAINTS.MAX_DESCRIPTION_LENGTH) : current.description,
             dimensions: document.dimensions,
             orientation: document.orientation,
+            projectId: targetProjectId,
             revision: nextRevision,
             slideCount: document.slides.length,
             referencedAssetIds,
@@ -309,9 +363,10 @@ exports.duplicateDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => 
     if (caller.role !== 'admin' && source.departmentId !== caller.departmentId) {
         throw new https_1.HttpsError('permission-denied', 'Cannot duplicate designs from another department.');
     }
+    const targetProjectId = source.projectId || `proj_general_${source.departmentId}`;
     // Revalidate referenced assets
     const assetIds = (0, display_schema_1.extractReferencedAssetIds)(source.document);
-    await validateReferencedAssets(assetIds, source.departmentId, caller);
+    await validateReferencedAssets(assetIds, source.departmentId, caller, targetProjectId);
     // Deep clone slides with new stable IDs
     const clonedSlides = source.document.slides.map((s) => ({
         ...s,
@@ -335,6 +390,7 @@ exports.duplicateDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => 
         orientation: source.orientation,
         dimensions: source.dimensions,
         departmentId: source.departmentId,
+        projectId: targetProjectId,
         ownerId: caller.uid,
         uploaderDisplayName: caller.displayName || caller.email,
         status: 'draft',

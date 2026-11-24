@@ -30,7 +30,6 @@ import type {
   UpdateDepartmentResponse,
   SetDepartmentStatusRequest,
   SetDepartmentStatusResponse,
-  ProjectRecord,
   ProjectMember,
   ProjectMemberRole,
 } from '@aura-dims/display-schema';
@@ -151,46 +150,8 @@ export const apiHealth = onRequest(
 // Project Enrollment & Department Membership Helpers
 // ==============================================================================
 
-/**
- * Ensures the default General project exists for a department, and enrolls the user as a member.
- */
-/**
- * Ensures the default General project exists for a given department.
- */
-export async function ensureGeneralProject(
-  departmentId: string,
-  departmentName?: string,
-  actorId = 'system'
-): Promise<ProjectRecord> {
-  const generalProjectId = `proj_general_${departmentId}`;
-  const projectRef = db.collection('projects').doc(generalProjectId);
-  const projectSnap = await projectRef.get();
-  const now = new Date().toISOString();
-
-  if (projectSnap.exists) {
-    return projectSnap.data() as ProjectRecord;
-  }
-
-  let name = departmentName;
-  if (!name) {
-    const deptDoc = await db.collection('departments').doc(departmentId).get();
-    name = deptDoc.exists ? deptDoc.data()?.name || departmentId : departmentId;
-  }
-
-  const generalProject: ProjectRecord = {
-    id: generalProjectId,
-    departmentId,
-    name: 'General',
-    description: `Default workspace for ${name}`,
-    status: 'active',
-    isGeneral: true,
-    createdBy: actorId,
-    createdAt: now,
-    updatedAt: now,
-  };
-  await projectRef.set(generalProject);
-  return generalProject;
-}
+export { ensureGeneralProject } from './projectsAdmin';
+import { ensureGeneralProject } from './projectsAdmin';
 
 /**
  * Automatically enrolls a user into their department's default General project.

@@ -4,18 +4,29 @@
  * Product: Aura Digital Information Management System (Aura DIMS)
  *
  * Idempotent script that:
- * 1. Scans all active departments in Firestore.
- * 2. Checks and reports any departments with multiple Department Heads (leaves for manual resolution).
- * 3. Creates default General projects (`proj_general_{deptId}`) for each department if not existing.
- * 4. Enrolls all active department users into the General project respecting the role invariant:
+ * 1. Requires explicit --project=<projectId> and echoes it back.
+ * 2. Refuses non-demo projects without --confirm-production.
+ * 3. Dry-run by default; requires --apply to commit.
+ * 4. Scans all active departments in Firestore.
+ * 5. Checks and reports any departments with multiple Department Heads (leaves for manual resolution).
+ * 6. Creates default General projects (`proj_general_{deptId}`) for each department if not existing.
+ * 7. Enrolls all active department users into the General project respecting the role invariant:
  *      - admin / department_head -> 'lead'
  *      - creator -> 'member'
  *      - viewer -> 'viewer'
- * 5. Does NOT backfill or modify any assets, designs, playlists, or schedules.
+ * 8. Does NOT re-enroll users who were intentionally removed from the General project (detected
+ *    via auditEvents with action 'project.member_remove' and metadata.projectId).
+ * 9. Does NOT backfill or modify any assets, designs, playlists, or schedules.
  *
  * Usage:
- *   Dry-run (default): node functions/lib/migrations/seedGeneralProjects.js
- *   Apply writes:      node functions/lib/migrations/seedGeneralProjects.js --apply
+ *   Dry-run (default):
+ *     node functions/lib/migrations/seedGeneralProjects.js --project=demo-aura-dims
+ *
+ *   Apply writes:
+ *     node functions/lib/migrations/seedGeneralProjects.js --project=demo-aura-dims --apply
+ *
+ *   Production execution:
+ *     node functions/lib/migrations/seedGeneralProjects.js --project=aura-dims-prod --apply --confirm-production
  */
 
 import * as admin from 'firebase-admin';
@@ -27,19 +38,62 @@ import type {
   ProjectMemberRole,
 } from '@aura-dims/display-schema';
 
-if (admin.apps.length === 0) {
-  admin.initializeApp();
+interface SeederOptions {
+  projectId: string;
+  isDryRun: boolean;
+  confirmProduction: boolean;
 }
 
-const db = admin.firestore();
-db.settings({ ignoreUndefinedProperties: true });
+function parseArgs(): SeederOptions {
+  const args = process.argv.slice(2);
+  let projectId = '';
+  let isDryRun = true;
+  let confirmProduction = false;
+
+  for (const arg of args) {
+    if (arg.startsWith('--project=')) {
+      projectId = arg.split('=')[1].trim();
+    } else if (arg === '--project') {
+      const idx = args.indexOf(arg);
+      if (args[idx + 1]) projectId = args[idx + 1].trim();
+    } else if (arg === '--apply') {
+      isDryRun = false;
+    } else if (arg === '--dry-run') {
+      isDryRun = true;
+    } else if (arg === '--confirm-production') {
+      confirmProduction = true;
+    }
+  }
+
+  // Fallback to GCLOUD_PROJECT if set in emulator environment
+  if (!projectId && process.env.GCLOUD_PROJECT) {
+    projectId = process.env.GCLOUD_PROJECT;
+  }
+
+  if (!projectId) {
+    console.error('❌ ERROR: Missing required --project parameter.');
+    console.error('Usage: node seedGeneralProjects.js --project=<projectId> [--apply] [--confirm-production]');
+    process.exit(1);
+  }
+
+  const isDemo = projectId.startsWith('demo-');
+  if (!isDemo && !confirmProduction && !isDryRun) {
+    console.error(`❌ CRITICAL SAFETY ERROR: Target project "${projectId}" is a LIVE/PRODUCTION environment.`);
+    console.error('You must pass --confirm-production alongside --apply to execute writes against non-demo projects.');
+    process.exit(1);
+  }
+
+  return { projectId, isDryRun, confirmProduction };
+}
 
 export interface SeederReport {
   timestamp: string;
+  projectId: string;
   isDryRun: boolean;
   departmentsScanned: number;
   generalProjectsToCreate: number;
   membersToEnroll: number;
+  intentionalRemovalsPreserved: number;
   multiHeadAnomalies: Array<{
     departmentId: string;
     departmentName: string;
@@ -48,28 +102,47 @@ export interface SeederReport {
   }>;
 }
 
-export async function runGeneralProjectsSeeder(options: { dryRun: boolean }): Promise<SeederReport> {
-  const { dryRun } = options;
+export async function runGeneralProjectsSeeder(options?: Partial<SeederOptions>): Promise<SeederReport> {
+  const parsed = options?.projectId ? { projectId: options.projectId, isDryRun: options.isDryRun ?? true, confirmProduction: options.confirmProduction ?? false } : parseArgs();
+  const { projectId, isDryRun, confirmProduction } = parsed;
   const now = new Date().toISOString();
+
+  if (projectId.startsWith('demo-')) {
+    process.env.GCLOUD_PROJECT = projectId;
+    process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
+    process.env.FIREBASE_AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
+    process.env.FIREBASE_STORAGE_EMULATOR_HOST = process.env.FIREBASE_STORAGE_EMULATOR_HOST || '127.0.0.1:9199';
+  }
+
+  if (admin.apps.length === 0) {
+    admin.initializeApp({ projectId });
+  }
+
+  const db = admin.firestore();
+  db.settings({ ignoreUndefinedProperties: true });
 
   console.log('==============================================================================');
   console.log(` Aura DIMS - General Projects & Department Membership Seeder`);
-  console.log(` Mode: ${dryRun ? 'DRY-RUN (No writes will be committed)' : 'APPLY (Writing to Firestore)'}`);
-  console.log(` Timestamp: ${now}`);
+  console.log(` Target Firebase Project:    ${projectId}`);
+  console.log(` Execution Mode:            ${isDryRun ? 'DRY-RUN (No writes will be committed)' : 'APPLY (Writing to Firestore)'}`);
+  console.log(` Production Confirmed:      ${confirmProduction ? 'YES' : 'NO'}`);
+  console.log(` Timestamp:                 ${now}`);
   console.log('==============================================================================\n');
 
   console.log('--- PRE-SEED BACKUP INSTRUCTIONS ---');
   console.log('Before running in production, ensure a complete Firestore export has been performed:');
-  console.log('  gcloud firestore export gs://[YOUR-BACKUP-BUCKET]/backups/pre-general-projects-seeder');
+  console.log(`  gcloud firestore export gs://[YOUR-BACKUP-BUCKET]/backups/pre-general-projects-seeder --project=${projectId}`);
   console.log('For local Firebase Emulator:');
   console.log('  pnpm run emulators:export\n');
 
   const report: SeederReport = {
     timestamp: now,
-    isDryRun: dryRun,
+    projectId,
+    isDryRun,
     departmentsScanned: 0,
     generalProjectsToCreate: 0,
     membersToEnroll: 0,
+    intentionalRemovalsPreserved: 0,
     multiHeadAnomalies: [],
   };
 
@@ -111,7 +184,26 @@ export async function runGeneralProjectsSeeder(options: { dryRun: boolean }): Pr
     }
   }
 
-  // 4. Plan General projects and members
+  // 4. Fetch intentional removal audit logs to avoid re-enrolling users removed on purpose
+  const intentionalRemovals = new Set<string>(); // Set of "generalProjectId:uid"
+  try {
+    const removalAudits = await db.collection('auditEvents')
+      .where('action', '==', 'project.member_remove')
+      .get();
+
+    for (const doc of removalAudits.docs) {
+      const data = doc.data();
+      const projId = data.metadata?.projectId;
+      const targetUid = data.targetId;
+      if (projId && targetUid) {
+        intentionalRemovals.add(`${projId}:${targetUid}`);
+      }
+    }
+  } catch (err) {
+    console.warn('[Notice] Could not inspect auditEvents for removals (continuing):', err);
+  }
+
+  // 5. Plan General projects and members
   const pendingProjects: ProjectRecord[] = [];
   const pendingMembers: ProjectMember[] = [];
 
@@ -140,6 +232,13 @@ export async function runGeneralProjectsSeeder(options: { dryRun: boolean }): Pr
     // Check members for this department
     const usersInDept = deptUsersMap.get(dept.id) || [];
     for (const u of usersInDept) {
+      const removalKey = `${generalProjectId}:${u.uid}`;
+      if (intentionalRemovals.has(removalKey)) {
+        report.intentionalRemovalsPreserved++;
+        console.log(` [Preserve Intentional Removal] User ${u.displayName || u.email} (${u.uid}) was removed on purpose from ${generalProjectId}; skipping re-enrollment.`);
+        continue;
+      }
+
       let memberRole: ProjectMemberRole = 'member';
       if (u.role === 'admin' || u.role === 'department_head') {
         memberRole = 'lead';
@@ -169,10 +268,11 @@ export async function runGeneralProjectsSeeder(options: { dryRun: boolean }): Pr
   report.generalProjectsToCreate = pendingProjects.length;
   report.membersToEnroll = pendingMembers.length;
 
-  console.log('--- SEEDER REVIEW REPORT ---');
+  console.log('\n--- SEEDER REVIEW REPORT ---');
   console.log(`Departments Scanned:              ${report.departmentsScanned}`);
   console.log(`General Projects to Create:        ${report.generalProjectsToCreate}`);
-  console.log(`Department Members to Enroll:      ${report.membersToEnroll}\n`);
+  console.log(`Department Members to Enroll:      ${report.membersToEnroll}`);
+  console.log(`Intentional Removals Preserved:    ${report.intentionalRemovalsPreserved}\n`);
 
   if (report.multiHeadAnomalies.length > 0) {
     console.warn('⚠️ MULTI-HEAD ANOMALIES DETECTED:');
@@ -187,7 +287,7 @@ export async function runGeneralProjectsSeeder(options: { dryRun: boolean }): Pr
     console.warn('');
   }
 
-  if (dryRun) {
+  if (isDryRun) {
     console.log('[Dry-Run Complete] No documents were modified. Pass --apply to commit these changes.\n');
     return report;
   }
@@ -231,11 +331,7 @@ export async function runGeneralProjectsSeeder(options: { dryRun: boolean }): Pr
 }
 
 if (require.main === module) {
-  const args = process.argv.slice(2);
-  const isApply = args.includes('--apply');
-  const isDryRun = !isApply;
-
-  runGeneralProjectsSeeder({ dryRun: isDryRun })
+  runGeneralProjectsSeeder()
     .then(() => process.exit(0))
     .catch((err) => {
       console.error('Fatal seeder error:', err);

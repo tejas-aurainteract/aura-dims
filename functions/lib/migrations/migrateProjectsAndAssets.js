@@ -15,7 +15,7 @@ if (require.main === module) {
     const isApply = args.includes('--apply');
     const isDryRun = !isApply;
     console.log('[Notice] migrateProjectsAndAssets has been retired. Forwarding to seedGeneralProjects...\n');
-    (0, seedGeneralProjects_2.runGeneralProjectsSeeder)({ dryRun: isDryRun })
+    (0, seedGeneralProjects_2.runGeneralProjectsSeeder)({ isDryRun })
         .then(() => process.exit(0))
         .catch((err) => {
         console.error(err);

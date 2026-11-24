@@ -45,6 +45,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.evaluateSchedulePreview = exports.setUserDirectPublishPermission = exports.rollbackPublication = exports.preparePublication = exports.getApproval = exports.listApprovals = exports.withdrawApproval = exports.reviewApproval = exports.submitForApproval = exports.setScheduleStatus = exports.listSchedules = exports.getSchedule = exports.updateSchedule = exports.createSchedule = exports.getPlaylistRevision = exports.createPlaylistRevision = exports.setPlaylistArchivedStatus = exports.listPlaylists = exports.getPlaylist = exports.updatePlaylist = exports.createPlaylist = exports.getDesignRevision = exports.listDesignRevisions = exports.createDesignRevision = void 0;
+exports.canUseAsset = canUseAsset;
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-admin/firestore");
@@ -77,6 +78,88 @@ async function assertAdminCaller(auth) {
         throw new https_1.HttpsError('permission-denied', 'Only System Administrators can execute this operation.');
     }
     return caller;
+}
+const projectsAdmin_1 = require("./projectsAdmin");
+/**
+ * Validates whether a media asset is permitted to be used within a given schedule/presentation context.
+ *
+ * Enforcement Rules:
+ * 1. Strict metadata presence (no legacy fallback):
+ *    Must have ownerDepartmentId, ownerProjectId, kind, visibility, accessScopes.
+ * 2. Status check:
+ *    Must be status === 'ready'; must not be archived/revoked.
+ * 3. Kind check:
+ *    Must be kind === 'displayable'. Kind === 'reference' can NEVER be in digital display manifests/playlists.
+ * 4. Department & Scope check:
+ *    Admins MUST NOT bypass the department check for publishing.
+ *    A pending/rejected global request does NOT block use within the asset's current scope.
+ *    - If asset has approved global visibility ('global' in accessScopes), permitted across all departments.
+ *    - Else, asset's accessScopes must include 'dept:{targetDepartmentId}' or 'proj:{targetProjectId}'.
+ *    - If outside accessScopes, rejected even for administrators.
+ */
+function canUseAsset(asset, context) {
+    // 1. Mandatory metadata check (strictly no legacy fallback)
+    if (!asset.ownerDepartmentId ||
+        !asset.ownerProjectId ||
+        !asset.accessScopes ||
+        !Array.isArray(asset.accessScopes) ||
+        !asset.kind ||
+        !asset.visibility) {
+        return {
+            allowed: false,
+            reason: `Asset '${asset.title || asset.id}' is missing required project/scope metadata (legacy assets without Phase 2 fields are not permitted).`,
+        };
+    }
+    // 2. Status check: must be ready and not archived
+    if (asset.status === 'archived' || asset.archivedAt) {
+        return {
+            allowed: false,
+            reason: `Asset '${asset.title || asset.id}' has been archived and cannot be published.`,
+        };
+    }
+    if (asset.status !== 'ready') {
+        return {
+            allowed: false,
+            reason: `Asset '${asset.title || asset.id}' has status '${asset.status}' (only assets with status 'ready' can be published).`,
+        };
+    }
+    // 3. Kind check: reference files can NEVER be added to digital displays
+    if (asset.kind === 'reference') {
+        return {
+            allowed: false,
+            reason: `Asset '${asset.title || asset.id}' has kind 'reference' (reference documents can never be added to presentations, playlists, or publication manifests).`,
+        };
+    }
+    // 4. Access Scopes and Scope Resolution
+    const hasGlobalScope = asset.accessScopes.includes('global');
+    if (hasGlobalScope) {
+        // Approved global visibility allows use across any department
+        return { allowed: true };
+    }
+    // Admins must NOT bypass the department check for publishing:
+    // Non-global assets must have explicit scope for the target department or project
+    const hasDeptScope = asset.accessScopes.includes(`dept:${context.targetDepartmentId}`);
+    const hasProjScope = context.targetProjectId ? asset.accessScopes.includes(`proj:${context.targetProjectId}`) : false;
+    if (!hasDeptScope && !hasProjScope) {
+        if (asset.ownerDepartmentId !== context.targetDepartmentId) {
+            return {
+                allowed: false,
+                reason: `Cross-department publication blocked: Asset '${asset.title || asset.id}' belongs to department '${asset.ownerDepartmentId}' and is not shared with or global to department '${context.targetDepartmentId}'.`,
+            };
+        }
+        return {
+            allowed: false,
+            reason: `Project boundary violation: Asset '${asset.title || asset.id}' is restricted to project '${asset.ownerProjectId}' and cannot be published outside its project scope.`,
+        };
+    }
+    // 5. Caller Authorization: Non-admins must have access to the target department
+    if (context.caller.role !== 'admin' && context.caller.departmentId !== context.targetDepartmentId) {
+        return {
+            allowed: false,
+            reason: `Caller is not authorized to publish content into department '${context.targetDepartmentId}'.`,
+        };
+    }
+    return { allowed: true };
 }
 function assertDepartmentAccess(caller, targetDepartmentId) {
     if (caller.role === 'admin')
@@ -236,8 +319,33 @@ exports.getDesignRevision = (0, https_1.onCall)(CALLABLE_OPTS, async (request) =
 // ==============================================================================
 exports.createPlaylist = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
-    const { title, description, departmentId, orientation, items } = request.data;
+    const { title, description, departmentId, orientation, items, projectId } = request.data;
     assertDepartmentAccess(caller, departmentId);
+    let targetProjectId = projectId;
+    if (targetProjectId && typeof targetProjectId === 'string' && targetProjectId.trim()) {
+        targetProjectId = targetProjectId.trim();
+        const pDoc = await db.collection('projects').doc(targetProjectId).get();
+        if (!pDoc.exists) {
+            throw new https_1.HttpsError('not-found', `Project '${targetProjectId}' not found.`);
+        }
+        const pData = pDoc.data();
+        if (pData.status !== 'active') {
+            throw new https_1.HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
+        }
+        if (pData.departmentId !== departmentId) {
+            throw new https_1.HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${departmentId}'.`);
+        }
+        if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === departmentId)) {
+            const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
+            if (!mDoc.exists) {
+                throw new https_1.HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
+            }
+        }
+    }
+    else {
+        targetProjectId = `proj_general_${departmentId}`;
+        await (0, projectsAdmin_1.ensureGeneralProject)(departmentId);
+    }
     const playlistItems = (items || []).map((it, idx) => {
         const item = {
             id: crypto.randomUUID(),
@@ -265,6 +373,7 @@ exports.createPlaylist = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
         title: title.trim(),
         description: (description || '').trim(),
         departmentId,
+        projectId: targetProjectId,
         orientation,
         items: playlistItems,
         totalDurationSeconds,
@@ -288,7 +397,7 @@ exports.createPlaylist = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
 });
 exports.updatePlaylist = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
-    const { playlistId, title, description, items, revision } = request.data;
+    const { playlistId, title, description, items, revision, projectId } = request.data;
     if (!playlistId) {
         throw new https_1.HttpsError('invalid-argument', 'Missing playlistId parameter.');
     }
@@ -302,6 +411,26 @@ exports.updatePlaylist = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     // Concurrency conflict check
     if (current.revision !== revision) {
         throw new https_1.HttpsError('failed-precondition', `Playlist concurrency conflict. Server revision is ${current.revision}, but your draft was based on revision ${revision}. Please reload latest version.`);
+    }
+    let targetProjectId = projectId || current.projectId || `proj_general_${current.departmentId}`;
+    if (projectId && projectId !== current.projectId) {
+        const pDoc = await db.collection('projects').doc(projectId).get();
+        if (!pDoc.exists) {
+            throw new https_1.HttpsError('not-found', `Project '${projectId}' not found.`);
+        }
+        const pData = pDoc.data();
+        if (pData.status === 'archived') {
+            throw new https_1.HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
+        }
+        if (pData.departmentId !== current.departmentId) {
+            throw new https_1.HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${current.departmentId}'.`);
+        }
+        if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === current.departmentId)) {
+            const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
+            if (!mDoc.exists) {
+                throw new https_1.HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
+            }
+        }
     }
     const playlistItems = (items || []).map((it, idx) => {
         const item = {
@@ -329,6 +458,7 @@ exports.updatePlaylist = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
         ...current,
         title: title.trim(),
         description: (description || '').trim(),
+        projectId: targetProjectId,
         items: playlistItems,
         totalDurationSeconds,
         revision: nextRevision,
@@ -608,8 +738,34 @@ async function validateAndResolveTargets(caller, targetDisplayIds, orientation, 
 }
 exports.createSchedule = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
-    const { title, departmentId, playlistRevisionId, playlistTitle, targetDisplayIds, orientation, scheduleRule, fallbackConfig, } = request.data;
+    const { title, departmentId, playlistRevisionId, playlistTitle, targetDisplayIds, orientation, scheduleRule, fallbackConfig, projectId, } = request.data;
     assertDepartmentAccess(caller, departmentId);
+    // Validate and resolve target project
+    let targetProjectId = projectId;
+    if (targetProjectId && typeof targetProjectId === 'string' && targetProjectId.trim()) {
+        targetProjectId = targetProjectId.trim();
+        const pDoc = await db.collection('projects').doc(targetProjectId).get();
+        if (!pDoc.exists) {
+            throw new https_1.HttpsError('not-found', `Project '${targetProjectId}' not found.`);
+        }
+        const pData = pDoc.data();
+        if (pData.status !== 'active') {
+            throw new https_1.HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
+        }
+        if (pData.departmentId !== departmentId) {
+            throw new https_1.HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${departmentId}'.`);
+        }
+        if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === departmentId)) {
+            const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
+            if (!mDoc.exists) {
+                throw new https_1.HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
+            }
+        }
+    }
+    else {
+        targetProjectId = `proj_general_${departmentId}`;
+        await (0, projectsAdmin_1.ensureGeneralProject)(departmentId);
+    }
     // Validate schedule rule
     const ruleVal = (0, display_schema_1.validateScheduleRule)(scheduleRule);
     if (!ruleVal.valid) {
@@ -627,6 +783,7 @@ exports.createSchedule = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
         id: schedRef.id,
         title: title.trim(),
         departmentId,
+        projectId: targetProjectId,
         playlistRevisionId,
         playlistTitle: playlistTitle.trim(),
         approvalId: null,
@@ -654,7 +811,7 @@ exports.createSchedule = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
 });
 exports.updateSchedule = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
-    const { scheduleId, title, playlistRevisionId, playlistTitle, targetDisplayIds, scheduleRule, fallbackConfig, } = request.data;
+    const { scheduleId, title, playlistRevisionId, playlistTitle, targetDisplayIds, scheduleRule, fallbackConfig, projectId, } = request.data;
     const ref = db.collection('schedules').doc(scheduleId);
     const doc = await ref.get();
     if (!doc.exists) {
@@ -662,6 +819,26 @@ exports.updateSchedule = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     }
     const current = doc.data();
     assertDepartmentAccess(caller, current.departmentId);
+    let targetProjectId = projectId || current.projectId || `proj_general_${current.departmentId}`;
+    if (projectId && projectId !== current.projectId) {
+        const pDoc = await db.collection('projects').doc(projectId).get();
+        if (!pDoc.exists) {
+            throw new https_1.HttpsError('not-found', `Project '${projectId}' not found.`);
+        }
+        const pData = pDoc.data();
+        if (pData.status === 'archived') {
+            throw new https_1.HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
+        }
+        if (pData.departmentId !== current.departmentId) {
+            throw new https_1.HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${current.departmentId}'.`);
+        }
+        if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === current.departmentId)) {
+            const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
+            if (!mDoc.exists) {
+                throw new https_1.HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
+            }
+        }
+    }
     const ruleVal = (0, display_schema_1.validateScheduleRule)(scheduleRule);
     if (!ruleVal.valid) {
         throw new https_1.HttpsError('invalid-argument', ruleVal.errors.join(' '));
@@ -688,6 +865,7 @@ exports.updateSchedule = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const updated = {
         ...current,
         title: title.trim(),
+        projectId: targetProjectId,
         playlistRevisionId,
         playlistTitle: playlistTitle.trim(),
         targetDisplayIds: displayIds,
@@ -1105,6 +1283,22 @@ exports.preparePublication = (0, https_1.onCall)(CALLABLE_OPTS, async (request) 
             slides: dr.document.slides,
         });
         dr.assetManifest.forEach((a) => allAssetsMap.set(a.assetId, a));
+    }
+    // Phase 2 Preflight Asset Governance: Validate every referenced asset with canUseAsset
+    for (const assetId of allAssetsMap.keys()) {
+        const assetSnap = await db.collection('assets').doc(assetId).get();
+        if (!assetSnap.exists) {
+            throw new https_1.HttpsError('failed-precondition', `Publication blocked: Referenced media asset '${assetId}' not found in Media Library.`);
+        }
+        const assetData = assetSnap.data();
+        const checkResult = canUseAsset(assetData, {
+            targetDepartmentId: schedule.departmentId,
+            targetProjectId: schedule.projectId,
+            caller,
+        });
+        if (!checkResult.allowed) {
+            throw new https_1.HttpsError('failed-precondition', `Publication preflight rejected: ${checkResult.reason}`);
+        }
     }
     // Fallback slide
     const neutralFallback = (0, display_schema_1.getBundledNeutralFallback)(schedule.orientation);

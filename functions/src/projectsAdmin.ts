@@ -49,6 +49,44 @@ import type {
 export const ALLOWED_PROJECT_CREATOR_ROLES: UserRole[] = ['admin', 'department_head'];
 
 /**
+ * Ensures the default General project exists for a given department.
+ */
+export async function ensureGeneralProject(
+  departmentId: string,
+  departmentName?: string,
+  actorId = 'system'
+): Promise<ProjectRecord> {
+  const generalProjectId = `proj_general_${departmentId}`;
+  const projectRef = db.collection('projects').doc(generalProjectId);
+  const projectSnap = await projectRef.get();
+  const now = new Date().toISOString();
+
+  if (projectSnap.exists) {
+    return projectSnap.data() as ProjectRecord;
+  }
+
+  let name = departmentName;
+  if (!name) {
+    const deptDoc = await db.collection('departments').doc(departmentId).get();
+    name = deptDoc.exists ? deptDoc.data()?.name || departmentId : departmentId;
+  }
+
+  const generalProject: ProjectRecord = {
+    id: generalProjectId,
+    departmentId,
+    name: 'General',
+    description: `Default workspace for ${name}`,
+    status: 'active',
+    isGeneral: true,
+    createdBy: actorId,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await projectRef.set(generalProject);
+  return generalProject;
+}
+
+/**
  * Validates that a project role does not exceed the target user's company role.
  * (e.g. A company 'viewer' can never be given 'member' or 'lead' in any project).
  */

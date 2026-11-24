@@ -807,6 +807,9 @@ export interface InitiateMediaUploadRequest {
   title?: string;
   description?: string;
   tags?: string[];
+  projectId?: string;
+  visibility?: AssetVisibility;
+  sharedWith?: AssetShareTarget[];
 }
 
 export interface InitiateMediaUploadResponse {
@@ -1053,6 +1056,7 @@ export interface CreateDesignRequest {
   description?: string;
   orientation: DisplayOrientation;
   departmentId?: string;
+  projectId?: string;
   initialDocument?: DesignDocument;
 }
 
@@ -1072,6 +1076,7 @@ export interface UpdateDesignRequest {
   designId: string;
   title?: string;
   description?: string;
+  projectId?: string;
   expectedRevision: number;
   document: DesignDocument;
   thumbnailSvg?: string;
@@ -2063,6 +2068,7 @@ export interface CreatePlaylistRequest {
   title: string;
   description: string;
   departmentId: string;
+  projectId?: string;
   orientation: DisplayOrientation;
   items: Array<{
     id?: string;
@@ -2084,6 +2090,7 @@ export interface UpdatePlaylistRequest {
   playlistId: string;
   title: string;
   description: string;
+  projectId?: string;
   items: Array<{
     id?: string;
     designId: string;
@@ -2149,6 +2156,7 @@ export interface GetPlaylistRevisionResponse {
 export interface CreateScheduleRequest {
   title: string;
   departmentId: string;
+  projectId?: string;
   playlistRevisionId: string;
   playlistTitle: string;
   targetDisplayIds: string[];
@@ -2164,6 +2172,7 @@ export interface CreateScheduleResponse {
 export interface UpdateScheduleRequest {
   scheduleId: string;
   title: string;
+  projectId?: string;
   playlistRevisionId: string;
   playlistTitle: string;
   targetDisplayIds: string[];

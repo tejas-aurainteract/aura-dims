@@ -289,6 +289,18 @@ export class SyncEngine {
 
     if (!desiredPubId) {
       this.logger.info('No desired publication assigned to this digital display.');
+      if (this.activePublicationId || fs.existsSync(this.activePointerPath)) {
+        this.logger.info('Clearing cached active publication as digital display has no desired publication assigned.');
+        try {
+          if (fs.existsSync(this.activePointerPath)) {
+            fs.unlinkSync(this.activePointerPath);
+          }
+        } catch (unlinkErr) {
+          this.logger.warn('Failed to remove active publication pointer file:', unlinkErr);
+        }
+        this.activePublicationId = null;
+        this.currentStage = 'idle';
+      }
       return false;
     }
 

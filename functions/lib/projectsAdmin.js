@@ -42,6 +42,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.moveAssetProject = exports.listProjectMembers = exports.updateProjectMemberRole = exports.removeProjectMember = exports.addProjectMember = exports.listProjects = exports.archiveProject = exports.updateProject = exports.createProject = exports.ALLOWED_PROJECT_CREATOR_ROLES = void 0;
+exports.ensureGeneralProject = ensureGeneralProject;
 exports.validateProjectRoleCeiling = validateProjectRoleCeiling;
 const https_1 = require("firebase-functions/v2/https");
 const crypto = __importStar(require("crypto"));
@@ -51,6 +52,36 @@ const common_js_1 = require("./common.js");
  * Can be tuned or extended by administrators.
  */
 exports.ALLOWED_PROJECT_CREATOR_ROLES = ['admin', 'department_head'];
+/**
+ * Ensures the default General project exists for a given department.
+ */
+async function ensureGeneralProject(departmentId, departmentName, actorId = 'system') {
+    const generalProjectId = `proj_general_${departmentId}`;
+    const projectRef = common_js_1.db.collection('projects').doc(generalProjectId);
+    const projectSnap = await projectRef.get();
+    const now = new Date().toISOString();
+    if (projectSnap.exists) {
+        return projectSnap.data();
+    }
+    let name = departmentName;
+    if (!name) {
+        const deptDoc = await common_js_1.db.collection('departments').doc(departmentId).get();
+        name = deptDoc.exists ? deptDoc.data()?.name || departmentId : departmentId;
+    }
+    const generalProject = {
+        id: generalProjectId,
+        departmentId,
+        name: 'General',
+        description: `Default workspace for ${name}`,
+        status: 'active',
+        isGeneral: true,
+        createdBy: actorId,
+        createdAt: now,
+        updatedAt: now,
+    };
+    await projectRef.set(generalProject);
+    return generalProject;
+}
 /**
  * Validates that a project role does not exceed the target user's company role.
  * (e.g. A company 'viewer' can never be given 'member' or 'lead' in any project).
