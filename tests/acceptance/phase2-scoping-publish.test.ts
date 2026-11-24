@@ -30,11 +30,14 @@ import { canUseAsset } from '../../functions/src/publishingAdmin';
 import { initiateMediaUpload } from '../../functions/src/mediaAdmin';
 import { createDesign } from '../../functions/src/designAdmin';
 import { createProject } from '../../functions/src/projectsAdmin';
+import { createPlaylist, createSchedule } from '../../functions/src/publishingAdmin';
 import type {
   UserProfile,
   MediaAsset,
   InitiateMediaUploadRequest,
   CreateDesignRequest,
+  CreatePlaylistRequest,
+  CreateScheduleRequest,
 } from '@aura-dims/display-schema';
 
 function checkPortOpen(host: string, port: number, timeoutMs = 800): Promise<boolean> {
@@ -562,6 +565,121 @@ describe('Aura DIMS - Phase 2 Scoped Asset Resolution & Publish Validation Suite
           { uid: creatorUid }
         )
       ).rejects.toThrow(/reference/i);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 4. Admin Explicit projectId Invariant
+  // --------------------------------------------------------------------------
+  describe('Admin Explicit projectId Invariant', () => {
+    it('rejects initiateMediaUpload when admin does not pass projectId', async () => {
+      if (!isEmulatorRunning) return;
+
+      await expect(
+        callFn(
+          initiateMediaUpload,
+          {
+            fileName: 'admin-upload.png',
+            fileSizeBytes: 2048,
+            declaredMimeType: 'image/png',
+            sha256: '55556666777788889999aaaabbbbccccddddeeeeffff00001111222233334444',
+            visibility: 'project',
+          } as InitiateMediaUploadRequest,
+          { uid: adminUid } // admin with departmentId: null
+        )
+      ).rejects.toThrow(/Administrators must explicitly provide a projectId/i);
+    });
+
+    it('rejects createDesign when admin does not pass projectId', async () => {
+      if (!isEmulatorRunning) return;
+
+      await expect(
+        callFn(
+          createDesign,
+          {
+            title: 'Admin Design',
+            orientation: 'landscape',
+          } as CreateDesignRequest,
+          { uid: adminUid }
+        )
+      ).rejects.toThrow(/Administrators must explicitly provide a projectId/i);
+    });
+
+    it('rejects createPlaylist when admin does not pass projectId', async () => {
+      if (!isEmulatorRunning) return;
+
+      await expect(
+        callFn(
+          createPlaylist,
+          {
+            title: 'Admin Playlist',
+            orientation: 'landscape',
+            items: [],
+          } as CreatePlaylistRequest,
+          { uid: adminUid }
+        )
+      ).rejects.toThrow(/Administrators must explicitly provide a projectId/i);
+    });
+
+    it('rejects createSchedule when admin does not pass projectId', async () => {
+      if (!isEmulatorRunning) return;
+
+      await expect(
+        callFn(
+          createSchedule,
+          {
+            title: 'Admin Schedule',
+            playlistRevisionId: 'rev-1',
+            playlistTitle: 'Rev 1',
+            targetDisplayIds: [],
+            orientation: 'landscape',
+            scheduleRule: {
+              startDate: '2026-11-24',
+              endDate: '2026-11-25',
+              startTime: '09:00',
+              endTime: '18:00',
+              daysOfWeek: [1, 2, 3, 4, 5],
+              priority: 5,
+            },
+          } as CreateScheduleRequest,
+          { uid: adminUid }
+        )
+      ).rejects.toThrow(/Administrators must explicitly provide a projectId/i);
+    });
+
+    it('succeeds for admin when projectId is explicitly passed and resolves project department', async () => {
+      if (!isEmulatorRunning) return;
+
+      const uploadRes = await callFn(
+        initiateMediaUpload,
+        {
+          fileName: 'admin-project-valid.png',
+          fileSizeBytes: 2048,
+          declaredMimeType: 'image/png',
+          sha256: '6666777788889999aaaabbbbccccddddeeeeffff000011112222333344445555',
+          projectId: projectAlphaId,
+          visibility: 'project',
+        } as InitiateMediaUploadRequest,
+        { uid: adminUid }
+      );
+
+      const assetDoc = await db.collection('assets').doc(uploadRes.assetId).get();
+      const assetData = assetDoc.data() as MediaAsset;
+      expect(assetData.ownerProjectId).toBe(projectAlphaId);
+      expect(assetData.ownerDepartmentId).toBe(deptAlpha);
+      expect(assetData.departmentId).toBe(deptAlpha);
+
+      const designRes = await callFn(
+        createDesign,
+        {
+          title: 'Admin Valid Design',
+          orientation: 'landscape',
+          projectId: projectAlphaId,
+        } as CreateDesignRequest,
+        { uid: adminUid }
+      );
+      expect(designRes.design.projectId).toBe(projectAlphaId);
+      expect(designRes.design.departmentId).toBe(deptAlpha);
     });
   });
 });

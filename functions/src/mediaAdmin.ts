@@ -255,38 +255,17 @@ export const initiateMediaUpload = onCall<InitiateMediaUploadRequest, Promise<In
       throw new HttpsError('invalid-argument', 'A declared MIME type is required.');
     }
 
-    // Resolve target department
-    let targetDeptId = caller.departmentId;
+    // Resolve target department & target project
+    let targetDeptId: string;
+    let targetProjectId: string;
+
     if (caller.role === 'admin') {
-      if (departmentId) {
-        targetDeptId = departmentId;
-      } else if (!targetDeptId) {
+      if (!projectId || typeof projectId !== 'string' || !projectId.trim()) {
         throw new HttpsError(
           'invalid-argument',
-          'System Administrator must designate a target department for the uploaded asset.'
+          'Administrators must explicitly provide a projectId for the uploaded asset.'
         );
       }
-    } else {
-      if (!targetDeptId) {
-        throw new HttpsError('failed-precondition', 'User is not assigned to an active department.');
-      }
-      if (departmentId && departmentId !== targetDeptId) {
-        throw new HttpsError(
-          'permission-denied',
-          'Users cannot initiate uploads into other departments.'
-        );
-      }
-    }
-
-    // Validate department exists and is active
-    const deptDoc = await db.collection('departments').doc(targetDeptId).get();
-    if (!deptDoc.exists || deptDoc.data()?.status !== 'active') {
-      throw new HttpsError('failed-precondition', 'The selected department does not exist or has been deactivated.');
-    }
-
-    // Validate target project
-    let targetProjectId: string;
-    if (projectId && typeof projectId === 'string' && projectId.trim()) {
       const pId = projectId.trim();
       const pDoc = await db.collection('projects').doc(pId).get();
       if (!pDoc.exists) {
@@ -296,21 +275,53 @@ export const initiateMediaUpload = onCall<InitiateMediaUploadRequest, Promise<In
       if (pData.status !== 'active') {
         throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived and cannot receive new assets.`);
       }
-      if (pData.departmentId !== targetDeptId) {
-        throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${targetDeptId}'.`);
-      }
-
-      // Check caller authorization to upload into project
-      if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === targetDeptId)) {
-        const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
-        if (!mDoc.exists) {
-          throw new HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
-        }
+      targetDeptId = pData.departmentId;
+      if (departmentId && departmentId !== targetDeptId) {
+        throw new HttpsError('invalid-argument', `Project '${pData.name}' belongs to department '${targetDeptId}', not '${departmentId}'.`);
       }
       targetProjectId = pId;
     } else {
-      targetProjectId = `proj_general_${targetDeptId}`;
-      await ensureGeneralProject(targetDeptId);
+      if (!caller.departmentId) {
+        throw new HttpsError('failed-precondition', 'User is not assigned to an active department.');
+      }
+      targetDeptId = caller.departmentId;
+      if (departmentId && departmentId !== targetDeptId) {
+        throw new HttpsError(
+          'permission-denied',
+          'Users cannot initiate uploads into other departments.'
+        );
+      }
+
+      if (projectId && typeof projectId === 'string' && projectId.trim()) {
+        const pId = projectId.trim();
+        const pDoc = await db.collection('projects').doc(pId).get();
+        if (!pDoc.exists) {
+          throw new HttpsError('not-found', `Target project '${pId}' not found.`);
+        }
+        const pData = pDoc.data() as ProjectRecord;
+        if (pData.status !== 'active') {
+          throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived and cannot receive new assets.`);
+        }
+        if (pData.departmentId !== targetDeptId) {
+          throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${targetDeptId}'.`);
+        }
+        if (caller.role !== 'department_head') {
+          const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
+          if (!mDoc.exists) {
+            throw new HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
+          }
+        }
+        targetProjectId = pId;
+      } else {
+        targetProjectId = `proj_general_${targetDeptId}`;
+        await ensureGeneralProject(targetDeptId);
+      }
+    }
+
+    // Validate department exists and is active
+    const deptDoc = await db.collection('departments').doc(targetDeptId).get();
+    if (!deptDoc.exists || deptDoc.data()?.status !== 'active') {
+      throw new HttpsError('failed-precondition', 'The selected department does not exist or has been deactivated.');
     }
 
     // Validate visibility & global approval state

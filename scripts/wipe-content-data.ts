@@ -113,6 +113,24 @@ const TARGET_COLLECTIONS = [
   'publications',
 ] as const;
 
+const KEEP_COLLECTIONS = new Set([
+  'users',
+  'departments',
+  'displays',
+  'displayGroups',
+  'sites',
+  'projects',
+  'auditEvents',
+  'displaySecrets',
+  'displayAssignments',
+  'plannedInstallations',
+  'commissioning',
+  'templates',
+  'systemMetadata',
+  'rateLimits',
+  'pairingCodes',
+]);
+
 const TARGET_STORAGE_PREFIXES = [
   'media/',
   'staging/',
@@ -120,6 +138,7 @@ const TARGET_STORAGE_PREFIXES = [
   'publications/',
   'packages/',
   'previews/',
+  'renders/',
 ] as const;
 
 async function runWipe() {
@@ -157,8 +176,66 @@ async function runWipe() {
   const storageBucket = getStorage(app).bucket(
     process.env.FIREBASE_STORAGE_EMULATOR_HOST
       ? `${projectId}.appspot.com`
-      : undefined
+      : 'aura-dims.firebasestorage.app'
   );
+
+  console.log('Validating all Firestore collections and digital display subcollections...\n');
+
+  // Strict listCollections validation
+  const rootCols = await db.listCollections();
+  const unknownCols: string[] = [];
+  const knownWipe = new Set<string>(TARGET_COLLECTIONS);
+
+  for (const col of rootCols) {
+    if (!knownWipe.has(col.id) && !KEEP_COLLECTIONS.has(col.id)) {
+      unknownCols.push(col.id);
+    }
+  }
+
+  // Check per-display subcollections
+  const displaysSnap = await db.collection('displays').get();
+  const unknownSubcols: string[] = [];
+  const knownDisplaySubcols = new Set(['operations', 'previews']);
+  for (const dispDoc of displaysSnap.docs) {
+    const subcols = await dispDoc.ref.listCollections();
+    for (const sub of subcols) {
+      if (!knownDisplaySubcols.has(sub.id)) {
+        unknownSubcols.push(`displays/${dispDoc.id}/${sub.id}`);
+      }
+    }
+  }
+
+  // Check storage prefixes/files
+  const unknownStoragePrefixes: string[] = [];
+  const knownStoragePrefixes = new Set<string>(TARGET_STORAGE_PREFIXES);
+  try {
+    const [allFiles] = await storageBucket.getFiles({ maxResults: 1000 });
+    for (const file of allFiles) {
+      const parts = file.name.split('/');
+      const rootPrefix = parts.length > 1 ? parts[0] + '/' : file.name;
+      if (!knownStoragePrefixes.has(rootPrefix) && !unknownStoragePrefixes.includes(rootPrefix)) {
+        unknownStoragePrefixes.push(rootPrefix);
+      }
+    }
+  } catch (storageErr) {
+    console.warn('[Notice] Could not scan storage root (may be empty or default bucket unset):', (storageErr as any)?.message);
+  }
+
+  console.log('--- FIRESTORE COLLECTIONS AUDIT ---');
+  console.log(`Discovered Root Collections (${rootCols.length}):`, rootCols.map((c) => c.id).join(', '));
+  console.log(`Target Content Collections (Wipe):`, TARGET_COLLECTIONS.join(', '));
+  console.log(`Preserved Hierarchy Collections (Keep):`, Array.from(KEEP_COLLECTIONS).join(', '));
+
+  if (unknownCols.length > 0 || unknownSubcols.length > 0 || unknownStoragePrefixes.length > 0) {
+    console.error('\n❌ CRITICAL SAFETY STOP: Discovered unknown collection(s) or storage prefix(es) in neither KEEP nor WIPE list:');
+    if (unknownCols.length > 0) console.error('  Unknown Root Collections:', unknownCols);
+    if (unknownSubcols.length > 0) console.error('  Unknown Digital Display Subcollections:', unknownSubcols);
+    if (unknownStoragePrefixes.length > 0) console.error('  Unknown Storage Prefixes:', unknownStoragePrefixes);
+    console.error('\nRefusing to proceed. Aborting wipe execution.');
+    process.exit(1);
+  }
+
+  console.log('✓ All collections and subcollections strictly verified against keep and wipe registries.\n');
 
   console.log('Scanning Firestore content collections...\n');
 
@@ -170,7 +247,6 @@ async function runWipe() {
   }
 
   // 2. Scan per-display subcollections (operations & previews)
-  const displaysSnap = await db.collection('displays').get();
   let operationsCount = 0;
   let previewsCount = 0;
   for (const dispDoc of displaysSnap.docs) {

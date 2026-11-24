@@ -456,31 +456,62 @@ export const createPlaylist = onCall(
     const caller = await getAuthenticatedCaller(request.auth);
     const { title, description, departmentId, orientation, items, projectId } = request.data as CreatePlaylistRequest;
 
-    assertDepartmentAccess(caller, departmentId);
+    let targetDeptId = departmentId;
+    let targetProjectId: string;
 
-    let targetProjectId = projectId;
-    if (targetProjectId && typeof targetProjectId === 'string' && targetProjectId.trim()) {
-      targetProjectId = targetProjectId.trim();
-      const pDoc = await db.collection('projects').doc(targetProjectId).get();
+    if (caller.role === 'admin') {
+      if (!projectId || typeof projectId !== 'string' || !projectId.trim()) {
+        throw new HttpsError(
+          'invalid-argument',
+          'Administrators must explicitly provide a projectId for the playlist.'
+        );
+      }
+      const pId = projectId.trim();
+      const pDoc = await db.collection('projects').doc(pId).get();
       if (!pDoc.exists) {
-        throw new HttpsError('not-found', `Project '${targetProjectId}' not found.`);
+        throw new HttpsError('not-found', `Project '${pId}' not found.`);
       }
       const pData = pDoc.data() as ProjectRecord;
       if (pData.status !== 'active') {
         throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
       }
-      if (pData.departmentId !== departmentId) {
-        throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${departmentId}'.`);
+      targetDeptId = pData.departmentId;
+      if (departmentId && departmentId !== targetDeptId) {
+        throw new HttpsError('invalid-argument', `Project '${pData.name}' belongs to department '${targetDeptId}', not '${departmentId}'.`);
       }
-      if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === departmentId)) {
-        const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
-        if (!mDoc.exists) {
-          throw new HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
-        }
-      }
+      targetProjectId = pId;
     } else {
-      targetProjectId = `proj_general_${departmentId}`;
-      await ensureGeneralProject(departmentId);
+      if (!caller.departmentId) {
+        throw new HttpsError('failed-precondition', 'User must have an assigned department.');
+      }
+      targetDeptId = caller.departmentId;
+      if (departmentId && departmentId !== targetDeptId) {
+        throw new HttpsError('permission-denied', 'Users cannot create playlists in other departments.');
+      }
+      if (projectId && typeof projectId === 'string' && projectId.trim()) {
+        const pId = projectId.trim();
+        const pDoc = await db.collection('projects').doc(pId).get();
+        if (!pDoc.exists) {
+          throw new HttpsError('not-found', `Project '${pId}' not found.`);
+        }
+        const pData = pDoc.data() as ProjectRecord;
+        if (pData.status !== 'active') {
+          throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
+        }
+        if (pData.departmentId !== targetDeptId) {
+          throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${targetDeptId}'.`);
+        }
+        if (caller.role !== 'department_head') {
+          const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
+          if (!mDoc.exists) {
+            throw new HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
+          }
+        }
+        targetProjectId = pId;
+      } else {
+        targetProjectId = `proj_general_${targetDeptId}`;
+        await ensureGeneralProject(targetDeptId);
+      }
     }
 
     const playlistItems: PlaylistItem[] = (items || []).map((it, idx) => {
@@ -1000,32 +1031,62 @@ export const createSchedule = onCall(
       projectId,
     } = request.data as CreateScheduleRequest;
 
-    assertDepartmentAccess(caller, departmentId);
+    let targetDeptId = departmentId;
+    let targetProjectId: string;
 
-    // Validate and resolve target project
-    let targetProjectId = projectId;
-    if (targetProjectId && typeof targetProjectId === 'string' && targetProjectId.trim()) {
-      targetProjectId = targetProjectId.trim();
-      const pDoc = await db.collection('projects').doc(targetProjectId).get();
+    if (caller.role === 'admin') {
+      if (!projectId || typeof projectId !== 'string' || !projectId.trim()) {
+        throw new HttpsError(
+          'invalid-argument',
+          'Administrators must explicitly provide a projectId for the schedule.'
+        );
+      }
+      const pId = projectId.trim();
+      const pDoc = await db.collection('projects').doc(pId).get();
       if (!pDoc.exists) {
-        throw new HttpsError('not-found', `Project '${targetProjectId}' not found.`);
+        throw new HttpsError('not-found', `Project '${pId}' not found.`);
       }
       const pData = pDoc.data() as ProjectRecord;
       if (pData.status !== 'active') {
         throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
       }
-      if (pData.departmentId !== departmentId) {
-        throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${departmentId}'.`);
+      targetDeptId = pData.departmentId;
+      if (departmentId && departmentId !== targetDeptId) {
+        throw new HttpsError('invalid-argument', `Project '${pData.name}' belongs to department '${targetDeptId}', not '${departmentId}'.`);
       }
-      if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === departmentId)) {
-        const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
-        if (!mDoc.exists) {
-          throw new HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
-        }
-      }
+      targetProjectId = pId;
     } else {
-      targetProjectId = `proj_general_${departmentId}`;
-      await ensureGeneralProject(departmentId);
+      if (!caller.departmentId) {
+        throw new HttpsError('failed-precondition', 'User must have an assigned department.');
+      }
+      targetDeptId = caller.departmentId;
+      if (departmentId && departmentId !== targetDeptId) {
+        throw new HttpsError('permission-denied', 'Users cannot create schedules in other departments.');
+      }
+      if (projectId && typeof projectId === 'string' && projectId.trim()) {
+        const pId = projectId.trim();
+        const pDoc = await db.collection('projects').doc(pId).get();
+        if (!pDoc.exists) {
+          throw new HttpsError('not-found', `Project '${pId}' not found.`);
+        }
+        const pData = pDoc.data() as ProjectRecord;
+        if (pData.status !== 'active') {
+          throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
+        }
+        if (pData.departmentId !== targetDeptId) {
+          throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${targetDeptId}'.`);
+        }
+        if (caller.role !== 'department_head') {
+          const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
+          if (!mDoc.exists) {
+            throw new HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
+          }
+        }
+        targetProjectId = pId;
+      } else {
+        targetProjectId = `proj_general_${targetDeptId}`;
+        await ensureGeneralProject(targetDeptId);
+      }
     }
 
     // Validate schedule rule

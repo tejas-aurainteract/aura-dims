@@ -152,41 +152,61 @@ exports.createDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     if (orientation !== 'landscape' && orientation !== 'portrait') {
         throw new https_1.HttpsError('invalid-argument', "Orientation must be 'landscape' or 'portrait'.");
     }
-    // Determine target department
+    // Resolve target department & target project
     let targetDeptId;
+    let targetProjectId;
     if (caller.role === 'admin') {
-        targetDeptId = departmentId || caller.departmentId || 'dept-general';
+        if (!projectId || typeof projectId !== 'string' || !projectId.trim()) {
+            throw new https_1.HttpsError('invalid-argument', 'Administrators must explicitly provide a projectId for the design.');
+        }
+        const pId = projectId.trim();
+        const pDoc = await db.collection('projects').doc(pId).get();
+        if (!pDoc.exists) {
+            throw new https_1.HttpsError('not-found', `Project '${pId}' not found.`);
+        }
+        const pData = pDoc.data();
+        if (pData.status === 'archived') {
+            throw new https_1.HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
+        }
+        targetDeptId = pData.departmentId;
+        if (departmentId && departmentId !== targetDeptId) {
+            throw new https_1.HttpsError('invalid-argument', `Project '${pData.name}' belongs to department '${targetDeptId}', not '${departmentId}'.`);
+        }
+        targetProjectId = pId;
     }
     else {
         if (!caller.departmentId) {
             throw new https_1.HttpsError('failed-precondition', 'Department Head must have an assigned department.');
         }
         targetDeptId = caller.departmentId;
-    }
-    // Validate target project
-    let targetProjectId = projectId;
-    if (targetProjectId) {
-        const pDoc = await db.collection('projects').doc(targetProjectId).get();
-        if (!pDoc.exists) {
-            throw new https_1.HttpsError('not-found', `Project '${targetProjectId}' not found.`);
+        if (departmentId && departmentId !== targetDeptId) {
+            throw new https_1.HttpsError('permission-denied', 'Users cannot create designs in other departments.');
         }
-        const pData = pDoc.data();
-        if (pData.status === 'archived') {
-            throw new https_1.HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
-        }
-        if (pData.departmentId !== targetDeptId) {
-            throw new https_1.HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${targetDeptId}'.`);
-        }
-        if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === targetDeptId)) {
-            const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
-            if (!mDoc.exists) {
-                throw new https_1.HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
+        if (projectId && typeof projectId === 'string' && projectId.trim()) {
+            const pId = projectId.trim();
+            const pDoc = await db.collection('projects').doc(pId).get();
+            if (!pDoc.exists) {
+                throw new https_1.HttpsError('not-found', `Project '${pId}' not found.`);
             }
+            const pData = pDoc.data();
+            if (pData.status === 'archived') {
+                throw new https_1.HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
+            }
+            if (pData.departmentId !== targetDeptId) {
+                throw new https_1.HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${targetDeptId}'.`);
+            }
+            if (caller.role !== 'department_head') {
+                const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
+                if (!mDoc.exists) {
+                    throw new https_1.HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
+                }
+            }
+            targetProjectId = pId;
         }
-    }
-    else {
-        targetProjectId = `proj_general_${targetDeptId}`;
-        await (0, projectsAdmin_1.ensureGeneralProject)(targetDeptId);
+        else {
+            targetProjectId = `proj_general_${targetDeptId}`;
+            await (0, projectsAdmin_1.ensureGeneralProject)(targetDeptId);
+        }
     }
     // Validate initial document or generate blank
     let docToSave;

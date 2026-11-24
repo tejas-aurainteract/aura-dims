@@ -192,40 +192,64 @@ export const createDesign = onCall<CreateDesignRequest, Promise<CreateDesignResp
       throw new HttpsError('invalid-argument', "Orientation must be 'landscape' or 'portrait'.");
     }
 
-    // Determine target department
+    // Resolve target department & target project
     let targetDeptId: string;
-    if (caller.role === 'admin') {
-      targetDeptId = departmentId || caller.departmentId || 'dept-general';
-    } else {
-      if (!caller.departmentId) {
-        throw new HttpsError('failed-precondition', 'Department Head must have an assigned department.');
-      }
-      targetDeptId = caller.departmentId;
-    }
+    let targetProjectId: string;
 
-    // Validate target project
-    let targetProjectId = projectId;
-    if (targetProjectId) {
-      const pDoc = await db.collection('projects').doc(targetProjectId).get();
+    if (caller.role === 'admin') {
+      if (!projectId || typeof projectId !== 'string' || !projectId.trim()) {
+        throw new HttpsError(
+          'invalid-argument',
+          'Administrators must explicitly provide a projectId for the design.'
+        );
+      }
+      const pId = projectId.trim();
+      const pDoc = await db.collection('projects').doc(pId).get();
       if (!pDoc.exists) {
-        throw new HttpsError('not-found', `Project '${targetProjectId}' not found.`);
+        throw new HttpsError('not-found', `Project '${pId}' not found.`);
       }
       const pData = pDoc.data() as ProjectRecord;
       if (pData.status === 'archived') {
         throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
       }
-      if (pData.departmentId !== targetDeptId) {
-        throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${targetDeptId}'.`);
+      targetDeptId = pData.departmentId;
+      if (departmentId && departmentId !== targetDeptId) {
+        throw new HttpsError('invalid-argument', `Project '${pData.name}' belongs to department '${targetDeptId}', not '${departmentId}'.`);
       }
-      if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === targetDeptId)) {
-        const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
-        if (!mDoc.exists) {
-          throw new HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
-        }
-      }
+      targetProjectId = pId;
     } else {
-      targetProjectId = `proj_general_${targetDeptId}`;
-      await ensureGeneralProject(targetDeptId);
+      if (!caller.departmentId) {
+        throw new HttpsError('failed-precondition', 'Department Head must have an assigned department.');
+      }
+      targetDeptId = caller.departmentId;
+      if (departmentId && departmentId !== targetDeptId) {
+        throw new HttpsError('permission-denied', 'Users cannot create designs in other departments.');
+      }
+
+      if (projectId && typeof projectId === 'string' && projectId.trim()) {
+        const pId = projectId.trim();
+        const pDoc = await db.collection('projects').doc(pId).get();
+        if (!pDoc.exists) {
+          throw new HttpsError('not-found', `Project '${pId}' not found.`);
+        }
+        const pData = pDoc.data() as ProjectRecord;
+        if (pData.status === 'archived') {
+          throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
+        }
+        if (pData.departmentId !== targetDeptId) {
+          throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${targetDeptId}'.`);
+        }
+        if (caller.role !== 'department_head') {
+          const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
+          if (!mDoc.exists) {
+            throw new HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
+          }
+        }
+        targetProjectId = pId;
+      } else {
+        targetProjectId = `proj_general_${targetDeptId}`;
+        await ensureGeneralProject(targetDeptId);
+      }
     }
 
     // Validate initial document or generate blank
