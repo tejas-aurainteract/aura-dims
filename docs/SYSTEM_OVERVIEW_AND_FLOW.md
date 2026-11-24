@@ -1,259 +1,293 @@
-# Aura DIMS — Complete System Overview, Architecture & Asset Flow Guide
+# Aura DIMS — Complete System Overview, Architecture & Implementation Guide
 
 **Company:** Aurainteract Private Limited  
 **Product:** Aura DIMS (Aura Digital Information Management System)  
 **System Purpose:** Enterprise Digital Signage & Content Management Platform  
 **Target Environment:** Cloud-orchestrated CMS distributing deterministic playback manifests to autonomous, store-and-forward physical digital displays.
 
----
-
-## 1. Executive Summary & Core Philosophy
-
-**Aura DIMS** is an enterprise-grade digital signage management platform. It enables organizations to create, organize, schedule, approve, and distribute multimedia content to fleets of remote physical digital displays across distributed corporate sites, transit hubs, retail locations, and campuses.
-
-### Foundational Principles:
-1. **Terminology Requirement:** Always use the term **"digital display"** in all user-facing copy, logs, documentation, code comments, and UI components. Never use bare words like "screen", "monitor", or "TV".
-2. **Autonomous Offline Playback:** Physical digital display hardware players (e.g., Raspberry Pi, Android, Linux devices) **never depend on live internet pings or Cloud Functions to transition slides**. They operate autonomously using local hardware clocks calibrated to `Asia/Kolkata`.
-3. **Atomic Store-and-Forward:** A digital display will never play an incomplete or partially downloaded playlist. All media assets are verified via SHA-256 checksums before a new publication manifest is activated.
-4. **Privileged Backend Boundary:** Frontend client web SDKs perform only authorized draft mutations. All sensitive and privileged operations (role provisioning, digital display enrollment, editorial approval, publication manifest compilation, rollbacks) are strictly executed via Firebase Cloud Functions (v2) using the Firebase Admin SDK.
-5. **Strict Local Emulator Support:** Local development runs against the Firebase Emulator Suite using project ID `demo-aura-dims`. Production deploys to Firebase Project `aura-dims` with frontend hosting mirrored on Vercel.
+> [!NOTE]
+> This document describes the **exact, currently implemented architecture, flows, and capabilities** in this codebase. It contains no speculative or proposed features.
 
 ---
 
-## 2. Monorepo Structure
+## 1. System Philosophy & Ground Rules
+
+1. **Strict Terminology Requirement:**
+   - Always use the term **"digital display"** in all user-facing copy, logs, documentation, and UI components. Never use bare words like "screen", "monitor", or "TV".
+2. **Autonomous Offline Playback:**
+   - Client digital display players operate autonomously using local hardware clocks calibrated to `Asia/Kolkata` (`UTC+05:30`).
+   - Slide transitions and schedule window evaluations **never depend on live cloud pings or Cloud Functions**.
+   - Downloaded assets are cryptographically verified via **SHA-256** before a publication manifest is atomically activated.
+3. **Privileged Operations Boundary:**
+   - The React web frontend SDK performs only authenticated reads and draft mutations within department bounds.
+   - Privileged operations (role assignment, digital display enrollment, editorial review, publication manifest compilation, fleet maintenance commands) **must execute strictly through backend Cloud Functions** using the Firebase Admin SDK.
+4. **Strict Local Emulator Support:**
+   - All local development and testing run against the Firebase Emulator Suite using the demo project ID `demo-aura-dims`.
+   - Production runs on Firebase project `aura-dims` with web frontend hosting on Firebase Hosting and Vercel.
+
+---
+
+## 2. Monorepo Architecture
 
 ```
 aura-dims/
 ├── apps/
-│   └── web/                   # Vite + React 19 + TypeScript + Tailwind CSS UI
+│   └── web/                   # Vite + React 19 + TypeScript + Tailwind CSS Frontend
 │       ├── src/
-│       │   ├── components/    # Reusable UI widgets & business feature modals
-│       │   │   ├── Approvals/ # Review & governance workflows
-│       │   │   ├── Displays/  # Digital display fleet monitoring & commissioning
-│       │   │   ├── Editor/    # Visual multi-layer slide canvas editor
-│       │   │   ├── Media/     # Media library, uploader, format converter
-│       │   │   ├── Playlists/ # Sequential playlist constructor & durations
-│       │   │   ├── Rollout/   # Real-time manifest distribution telemetry
-│       │   │   └── Schedules/ # Calendar rule builder & timeline collision simulator
-│       │   ├── contexts/      # AuthContext, ProjectContext
-│       │   ├── lib/           # Firebase client SDK, Cloud Function API client, rasterizer
-│       │   └── pages/         # Top-level route pages (Displays, Content, Schedules, etc.)
+│       │   ├── components/    # Domain-specific UI modules & modals
+│       │   │   ├── Approvals/ # Review & approval governance hub
+│       │   │   ├── Displays/  # Digital display fleet cards, maintenance & Wi-Fi modals
+│       │   │   ├── Editor/    # Multi-layer canvas slide editor & asset picker
+│       │   │   ├── Media/     # Media library, uploader & preview
+│       │   │   ├── Playlists/ # Sequential playlist sequencing & duration editor
+│       │   │   ├── Rollout/   # Manifest distribution telemetry & bulk assignment
+│       │   │   └── Schedules/ # Broadcast scheduling & timeline conflict simulator
+│       │   ├── contexts/      # AuthContext (user profile, claims, roles)
+│       │   ├── lib/           # Firebase client SDK, Cloud Functions callable API wrapper, slide rasterizer
+│       │   └── pages/         # Top-level views (Displays, Content, Schedules, Approvals, Users, Diagnostics)
 │
 ├── functions/                 # Firebase Cloud Functions (v2) in TypeScript (Node 24)
 │   ├── src/
-│   │   ├── index.ts           # Root exports for all callable & trigger functions
-│   │   ├── publishingAdmin.ts # Publishing compiler, scheduling, approval & user management
-│   │   └── deviceGateway.ts   # Device registration, heartbeat, store-and-forward manifests
-│   └── aura-dims-display-schema-0.1.0.tgz # Packaged shared schema for cloud builds
+│   │   ├── index.ts           # Root exports for all callable & scheduled functions
+│   │   ├── publishingAdmin.ts # Publishing compiler, approvals, scheduling, media, users & departments
+│   │   └── deviceGateway.ts   # Device registration, pairing, heartbeats, manifests, fleet operations
+│   └── aura-dims-display-schema-0.1.0.tgz # Packaged domain schema used in cloud builds
 │
 ├── packages/
-│   └── display-schema/        # Single Source of Truth TypeScript interfaces & domain schemas
-│       └── src/index.ts       # DigitalDisplay, MediaAsset, SlideDesign, Playlist, Schedule, Manifest
+│   └── display-schema/        # Single source of truth TypeScript domain interfaces & types
+│       └── src/index.ts       # DigitalDisplay, MediaAsset, SlideDesign, Playlist, Schedule, Manifest types
 │
-├── player/                    # Client digital display player runtime (Electron / Chromium / Linux)
+├── player/                    # Client digital display player runtime
 ├── firebase/
 │   └── emulators/data/        # Persistent emulator export directory (Auth, Firestore, Storage)
-├── docs/                      # Technical specs, architecture runbooks, hardware guides
-├── firestore.rules            # Deny-by-default Firestore access control rules
-├── storage.rules              # Secure Storage access control rules
+├── firestore.rules            # Deny-by-default Firestore security rules
+├── storage.rules              # Deny-by-default Storage access rules
 └── firebase.json              # Firebase service definitions & emulator ports
 ```
 
 ---
 
-## 3. End-to-End System Workflow
+## 3. Authentication & Authorization (RBAC)
 
-The lifecycle of content moving from a creator's desktop to a physical digital display follows a deterministic 6-stage pipeline:
+### 3.1. Authentication Architecture
+- Authentication is handled by **Firebase Authentication** (Email & Password).
+- Custom User Claims (`role`, `departmentId`, `canDirectPublish`) are stored directly on the Firebase Auth JWT token.
+- When an administrator provisions or updates a user via `provisionUser` or `updateUser`, the Cloud Function updates both the Firestore `users/{uid}` document and calls `admin.auth().setCustomUserClaims(uid, claims)`.
+- Client applications access the decoded token and profile via `AuthContext.tsx`.
 
-```
-┌─────────────┐      ┌──────────────┐      ┌──────────────┐
-│   Stage 1   │ ───► │   Stage 2    │ ───► │   Stage 3    │
-│ Media Asset │      │ Slide Design │      │   Playlist   │
-│ Ingestion   │      │ Composition  │      │ Sequencing   │
-└─────────────┘      └──────────────┘      └──────────────┘
-                                                  │
-                                                  ▼
-┌─────────────┐      ┌──────────────┐      ┌──────────────┐
-│   Stage 6   │ ◄─── │   Stage 5    │ ◄─── │   Stage 4    │
-│  Hardware   │      │ Publication  │      │  Scheduling  │
-│  Playback   │      │ Compilation  │      │ & Governance │
-└─────────────┘      └──────────────┘      └──────────────┘
-```
+### 3.2. Role-Based Access Control (RBAC)
 
-### Stage 1: Media Asset Ingestion
-- Users upload images (PNG, JPEG, WebP) or videos (MP4, WebM) through `UploadMediaModal`.
-- Files are hashed (SHA-256) and uploaded to Firebase Storage under `tenants/{dept}/media/{assetId}`.
-- Metadata (dimensions, duration, file size, MIME type, orientation) is recorded in Firestore `media_assets`.
-
-### Stage 2: Slide Design Composition (Canvas Editor)
-- Users create multi-layered visual slides using the built-in Canvas Editor (`DesignEditorPage`).
-- Supported layers: Images, Videos, Shapes, Rich Typography, QR codes, Clock/Weather widgets.
-- Each slide design targets a strict physical orientation: `Landscape (1920x1080)` or `Portrait (1080x1920)`.
-- When saved, the slide structure is stored as JSON in Firestore `designs`, and the client rasterizer renders high-resolution static PNG previews.
-
-### Stage 3: Playlist Sequencing
-- Creators assemble multiple slides and raw media assets into sequential or timed loops in `PlaylistBuilderModal`.
-- Each item is assigned an explicit duration (e.g. 10s for static slides, full duration for video clips).
-- The playlist has an immutable revision ID (`playlistRevisionId`) created upon finalization to ensure historical fidelity.
-
-### Stage 4: Scheduling & Editorial Governance
-- **Broadcast Schedules:** Define *When* and *Where* a playlist plays:
-  - **Temporal Rule:** Start Date, End Date, Time Window (e.g., `08:00 - 18:00 Asia/Kolkata`), Recurrence Days (e.g., Mon–Fri), and Broadcast Priority (1 to 10).
-  - **Spatial Rule:** Targeted fleet of digital displays.
-  - **Collision Engine:** Preflights schedules to detect overlapping priority conflicts on the same digital display.
-- **Approval Pipeline (Two-Tier Governance):**
-  - Standard Content Creators cannot publish directly. Their schedules enter the `pending_review` state.
-  - Department Heads or Admins review the submission in the **Approvals & Governance** hub to `approve` or `reject` with notes.
-  - Admins and approved users with `canDirectPublish: true` can bypass review and trigger publication directly.
-
-### Stage 5: Publication Manifest Compilation
-- When a schedule is triggered for publication, Cloud Function `preparePublication` compiles an immutable **Publication Package**:
-  1. Resolves all slides, videos, and layouts in the playlist.
-  2. Resolves all asset download URLs and their SHA-256 hashes.
-  3. Formulates a single JSON document conforming to the `PublicationManifest` schema.
-  4. Stores the manifest in Cloud Storage under `publications/{publicationId}/manifest.json`.
-  5. Atomically sets `desiredPublicationId: publicationId` on all targeted `displays` documents in Firestore.
-
-### Stage 6: Store-and-Forward Autonomous Playback
-- The physical digital display player polls/listens for changes to its `desiredPublicationId`.
-- Upon detecting a new publication ID:
-  1. The player downloads `manifest.json`.
-  2. It iterates through all required assets and checks its local on-disk cache.
-  3. Missing assets are downloaded to local storage and verified against their `sha256` checksums.
-  4. Once 100% of assets are verified, the player atomically flips playback to the new manifest.
-  5. If the network drops or is permanently disconnected, the player continues cycling through the verified local assets without interruption.
-
----
-
-## 4. Deep-Dive: How Assets are Handled
-
-Assets are the visual backbone of digital signage. Aura DIMS implements strict guarantees to eliminate broken images, buffering spinners, or mismatched aspect ratios on physical displays.
-
-### 4.1. Ingestion & Storage Architecture
-- **Raw Media Upload:** Uploaded to Google Cloud Storage with strict content-type headers.
-- **Pathing convention:**
-  - Media Assets: `media/{departmentId}/{assetId}_{filename}`
-  - Slide Raster Renders: `thumbnails/designs/{designId}.png`
-  - Manifest Packages: `publications/{publicationId}/manifest.json`
-
-### 4.2. Asset Metadata Schema (`MediaAsset`)
-Every asset is indexed in Firestore with:
-```typescript
-export interface MediaAsset {
-  id: string;
-  name: string;
-  originalFileName: string;
-  departmentId: string;
-  projectId?: string;             // Project grouping
-  mediaType: 'image' | 'video' | 'document' | 'audio';
-  mimeType: string;
-  fileSizeBytes: number;
-  storagePath: string;            // Cloud Storage path
-  downloadUrl: string;            // Signed / public CDN URL
-  checksumSha256: string;         // Cryptographic integrity hash
-  dimensions?: { width: number; height: number };
-  durationSeconds?: number;       // For videos
-  orientation: 'landscape' | 'portrait' | 'square';
-  status: 'ready' | 'processing' | 'archived';
-  createdAt: string;
-  updatedAt: string;
-}
-```
-
-### 4.3. Cryptographic Verification (SHA-256)
-- Digital displays located in public venues (airports, corporate lobbies) must never display corrupted or tampered media.
-- During publication manifest generation, the Cloud Function computes the SHA-256 hash of each media asset and embeds it into the manifest JSON:
-  ```json
-  "assets": [
-    {
-      "assetId": "asset_xyz",
-      "url": "https://storage.googleapis.com/.../video.mp4",
-      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "fileSizeBytes": 15482910
-    }
-  ]
-  ```
-- Before the local player plays `video.mp4`, it recalculates the SHA-256 hash on local disk. If the hash does not match, the asset is discarded and redownloaded; the player remains on its previous active publication or corporate neutral fallback until resolved.
-
-### 4.4. Slide Canvas Rasterization
-- When a user constructs a complex slide (with multiple text boxes, badges, logos, shapes), Aura DIMS uses a client-side off-screen canvas rasterizer (`slideRasterizer.ts`).
-- It produces a lossless high-resolution raster image that serves as:
-  1. An instant visual thumbnail in the CMS UI.
-  2. A fallback static frame for low-power digital display player hardware that cannot render live DOM layers at 60 FPS.
-
----
-
-## 5. Projects Architecture (Asset & Content Segregation)
-
-To prevent clutter in organizations with multiple departments, campaigns, and clients, Aura DIMS uses a **Project Workspace** model (similar to Figma and Canva):
-
-```
-                       Content Hub (/content)
-                                 │
-     ┌───────────────────────────┼───────────────────────────┐
-     ▼                           ▼                           ▼
-[ General / Shared Hub ]   [ Project A: T3 Launch ]    [ Project B: HR Onboarding ]
-     │                           │                           │
-  - Brand Logos               - 12 Campaign Images        - 6 HR Infographics
-  - Standard Disclaimers      - 3 Landscape Slides        - 2 Training Slides
-  - Neutral Backgrounds       - 1 Grand Opening Loop      - 1 Weekly Orientation Loop
-```
-
-### How Projects Segregate Assets:
-1. **Root Hub (`/content`):** Displays all accessible Project cards with asset counts and department tags, plus a button to **Create New Project**.
-2. **Scoped Workspace (`/content/projects/:projectId`):** Clicking a project opens its scoped view containing only that project's:
-   - **Canvas Designs**
-   - **Playlists**
-   - **Media Assets**
-3. **Cross-Project Shared Brand Hub:** Company-wide assets (official logos, corporate colors, regulatory disclaimers) live in the pinned **"General / Corporate Shared Hub"**. When working inside any project, users can access these shared assets without creating duplicate uploads.
-
----
-
-## 6. Digital Display Hardware & Fleet Management
-
-Physical digital displays run an autonomous runtime that interfaces with the cloud via the **Device Gateway**:
-
-### Enrollment & Provisioning:
-1. **Claiming Code / QR Pairing:** A newly booted digital display displays a 6-character short code and QR code.
-2. **Admin Claiming:** An authorized operator enters the code in the Web UI to link the device to a Site and Department.
-3. **Hardware Orientation & Resolution:** Digital displays are explicitly designated as `Landscape (16:9, 1920x1080)` or `Portrait (9:16, 1080x1920)`. The scheduler ensures portrait schedules only target portrait digital displays.
-
-### Heartbeat & Telemetry:
-- Digital displays report periodic telemetry via Cloud Function `reportDeviceHeartbeat`:
-  - Current CPU temperature & load
-  - Available storage (e.g. `48.1 GB free / 58.8 GB`)
-  - Currently presenting publication ID and slide
-  - Network connection status & IP address
-- Displays that fail to report within 5 minutes are marked `offline` in the dashboard.
-
-### Emergency Fallback:
-- Every digital display bundles an immutable **Corporate Neutral Fallback** loop stored in local read-only memory.
-- If a schedule expires, is withdrawn, or has no valid publication assigned, the player displays this corporate neutral fallback instead of a blank screen or desktop error.
-
----
-
-## 7. Role-Based Access Control (RBAC) & Governance
-
-Aura DIMS strictly enforces four permission tiers:
-
-| Role | Scope | Permissions |
+| Role | Scope | Permissions & Capabilities |
 | :--- | :--- | :--- |
-| **System Admin (`admin`)** | Global (All departments) | Full platform control: assign roles, commission digital displays, publish manifests, override schedules, configure tenants. |
-| **Department Head (`department_head`)** | Department-scoped | Approves or rejects schedules submitted by department creators, manages department projects, triggers direct publications. |
-| **Content Creator (`creator`)** | Department-scoped | Uploads media, designs slides, creates playlists, and submits broadcast schedules for review. Cannot publish directly unless granted `canDirectPublish`. |
-| **Digital Display Player (`display_device`)** | Device-specific token | Read-only access to its assigned publication manifest and media asset download URLs; reports operational heartbeats. |
+| **System Admin (`admin`)** | Global (All Departments) | • Manage all users, departments, and roles.<br>• View, enroll, commission, and command all digital displays.<br>• Create, edit, and publish content across any department.<br>• Direct publish bypass (no approval required).<br>• Access system diagnostics and audit logs. |
+| **Department Head (`department_head`)** | Department Scoped (`departmentId`) | • Full access to assets, designs, playlists, and schedules in their department.<br>• Review, approve, or reject broadcast schedules submitted by creators.<br>• Direct publish content to digital displays assigned to their department.<br>• View and manage department-assigned digital displays. |
+| **Content Creator (`creator`)** | Department Scoped (`departmentId`) | • Upload media assets and create slide designs within their department.<br>• Build and sequence playlists.<br>• Create draft schedules and submit them for review.<br>• Cannot publish directly unless explicitly granted `canDirectPublish: true`. |
+| **Digital Display Device (`display_device`)** | Individual Device Scoped | • Authenticates via device credentials generated during pairing (`deviceSignIn`).<br>• Fetches its active publication manifest and downloads media assets.<br>• Reports periodic operational heartbeats and execution telemetry. |
+
+### 3.3. Privilege Boundary Enforcement
+- **Backend Enforcement:** Cloud Functions use strict caller asserting helpers:
+  - `assertAdminCaller(auth)`: Rejects any caller whose `role !== 'admin'`.
+  - `assertDepartmentAccess(caller, targetDepartmentId)`: Verifies caller is either an `admin` or belongs to the target `departmentId`.
+- **Database Enforcement (`firestore.rules`):**
+  - Deny-by-default.
+  - Read access to collections (`media_assets`, `designs`, `playlists`, `schedules`, `displays`) requires authentication and department matching.
+  - Privileged mutations to `displays`, `publications`, and `approvals` cannot be performed via client SDK; they are handled exclusively by Admin Cloud Functions.
 
 ---
 
-## 8. Summary Table of Key Concepts for AI Assistance
+## 4. Current Content & Asset Segregation Model
 
-When reasoning about or modifying code in this repository, always align with these concepts:
+### Is Project-Level Segregation Implemented?
+**No.** Project-level segregation is currently not implemented in the codebase.
 
-| Concept | Rule / Definition |
-| :--- | :--- |
-| **Terminology** | Use **"digital display"** at all times. Do not use screen/monitor/TV. |
-| **Timezone** | All schedules and presentation windows calculate in `Asia/Kolkata` (`UTC+05:30`). |
-| **Privilege Gate** | Mutations to digital displays, publications, and approvals belong in `functions/src/publishingAdmin.ts` via Admin SDK, not client Firestore. |
-| **Local Dev** | Run `pnpm run emulators:start` with project ID `demo-aura-dims`. |
-| **Asset Delivery** | Store-and-forward with SHA-256 verification. Players never stream live over the network during presentation. |
-| **Shared Schema** | Any modification to data models must be made in `packages/display-schema/src/index.ts` and rebuilt. |
+### How Content & Assets are Segregated Today:
+All assets and content are segregated strictly by **Department (`departmentId`)**:
+1. **Department Isolation:**
+   - Every `MediaAsset`, `SlideDesign`, `Playlist`, `ScheduleRecord`, and `DigitalDisplay` has a required `departmentId` property.
+   - A non-admin user (Department Head or Creator) only sees and interacts with content matching their assigned `departmentId`.
+   - In Firestore queries, `api.listMediaAssets`, `api.listDesigns`, `api.listPlaylists`, and `api.listSchedules` pass the caller's `departmentId` to scope returned records.
+2. **Display Assignment Scoping:**
+   - Digital displays are assigned to a specific Department and Site.
+   - When a creator creates a schedule, only digital displays assigned to their department are available for targeting.
+
+---
+
+## 5. Assets Management
+
+Assets represent images, videos, and rasterized slides distributed across the digital signage network.
+
+### 5.1. Asset Ingestion Flow
+1. **Upload Initiation:**
+   - The user selects a file (PNG, JPEG, WebP, MP4, WebM) in `UploadMediaModal`.
+   - The web app invokes Cloud Function `initiateMediaUpload`, specifying the filename, MIME type, file size, and `departmentId`.
+   - The Cloud Function validates permissions, ensures the file type is supported, generates an asset ID, and returns a signed direct-upload URL.
+2. **Direct Cloud Storage Upload:**
+   - The browser uploads the binary directly to Firebase Cloud Storage under `media/{departmentId}/{assetId}_{filename}`.
+3. **Upload Finalization & Hashing:**
+   - The client calls `finalizeMediaUpload`.
+   - The Cloud Function verifies the uploaded object in Cloud Storage, extracts media dimensions/duration, computes its **SHA-256 cryptographic checksum**, and creates the `MediaAsset` record in Firestore under `media_assets/{assetId}` with status `'ready'`.
+
+### 5.2. Supported Media Types & Orientations
+- **Images:** PNG, JPEG, WebP, SVG. Automatically categorized as `landscape`, `portrait`, or `square` based on pixel aspect ratio.
+- **Videos:** MP4, WebM (H.264 / AAC recommended for hardware player hardware acceleration).
+- **Documents:** PDF (converted to slide pages).
+
+### 5.3. Slide Canvas Rasterization
+- When a user builds a rich multi-layer slide in the Canvas Editor, `slideRasterizer.ts` renders the design off-screen to produce a high-resolution PNG render.
+- This render is uploaded as a thumbnail and serves as a static fallback image for low-power digital display hardware.
+
+---
+
+## 6. Slide Designs & Media Playlists
+
+The content authoring pipeline allows users to move from standalone media to rich slides and structured playlists.
+
+### 6.1. Visual Canvas Editor (`DesignEditorPage`)
+- A drag-and-drop slide composition canvas with pixel-exact dimensions:
+  - **Landscape:** 1920 × 1080 (16:9)
+  - **Portrait:** 1080 × 1920 (9:16)
+- **Supported Layer Types:**
+  - `image`: Uploaded images from the Media Library.
+  - `video`: Video clips with playback loop parameters.
+  - `text`: Typography with custom fonts, colors, alignment, and formatting.
+  - `shape`: Rectangles, circles, dividers, cards.
+  - `widget`: Dynamic widgets (digital clock, date, weather, QR codes).
+- Designs are saved in the `designs` collection as structured JSON layers.
+
+### 6.2. Playlist Construction (`PlaylistBuilderModal`)
+- An ordered collection of items sequenced for continuous playback:
+  - Can mix **Canvas Slide Designs** and **Raw Media Assets**.
+  - Explicit per-item duration (e.g. 10 seconds for a static slide, full video duration for clips).
+  - Configurable slide transitions (fade, slide, cut).
+- **Immutable Revision Generation:**
+  - When a playlist is saved, an immutable playlist revision document is created in Firestore (`playlist_revisions/{revId}`).
+  - Schedules reference the revision ID rather than the mutable playlist draft, ensuring that future edits to a playlist do not unexpectedly alter an active broadcast.
+
+---
+
+## 7. Broadcast Scheduling & Approval Governance
+
+### 7.1. Broadcast Schedules
+A schedule defines the rules for presenting a playlist revision on targeted digital displays:
+- **Temporal Parameters (Calibrated to `Asia/Kolkata`):**
+  - Start Date & End Date (e.g. `2026-11-23` to `2026-12-23`).
+  - Daily Active Window (e.g. `08:00 AM` to `06:00 PM`).
+  - Recurrence Pattern: Weekly Recurring (specific days: Mon–Fri) or One-Time Window.
+  - Overnight schedule support (e.g., 20:00 to 06:00 next day).
+  - Broadcast Priority (1 = Normal Background, 5 = Standard Scheduled, 9–10 = High Priority / Emergency Takeover).
+- **Spatial Parameters:** List of targeted `targetDisplayIds`. Must match the playlist's orientation (Landscape vs Portrait).
+- **Collision Detection:** The web UI runs real-time conflict preflights (`api.evaluateSchedulePreview`) to alert operators if another schedule with equal or higher priority overlaps the same digital displays during the same time window.
+
+### 7.2. Two-Tier Approval Pipeline
+1. **Submission:**
+   - Content Creators create schedules in `'draft'` status.
+   - Clicking **"Submit for Review"** invokes Cloud Function `submitForApproval`, setting status to `'pending_review'` and creating an `approvals` record.
+2. **Review & Decision:**
+   - In the **Approvals & Governance** page (`/approvals`), Department Heads and Admins inspect pending requests, view playlist previews, and inspect conflict reports.
+   - Decision choices:
+     - **Approve:** Invokes `reviewApproval(decision: 'approved')`. The schedule transitions to `'approved'`.
+     - **Reject:** Invokes `reviewApproval(decision: 'rejected', comments: '...')`. The schedule returns to `'rejected'`.
+3. **Direct Publishing Bypass:**
+   - Administrators and users with `canDirectPublish: true` can bypass review and publish directly from draft or approved states.
+
+---
+
+## 8. Publication Compilation & Hardware Delivery
+
+### 8.1. Publication Manifest Compilation
+When an approved schedule is published via **"Publish Package"** (`preparePublication`):
+1. The Cloud Function fetches the schedule and its immutable playlist revision.
+2. It resolves all media assets and slide designs referenced in the playlist.
+3. It packages the metadata, schedule rules, and assets into an immutable `PublicationManifest` JSON document:
+   ```json
+   {
+     "manifestVersion": "1.0",
+     "publicationId": "pub_abc123",
+     "scheduleId": "sched_456",
+     "orientation": "landscape",
+     "timezone": "Asia/Kolkata",
+     "scheduleRule": {
+       "startDate": "2026-11-23",
+       "endDate": "2026-12-23",
+       "startTime": "08:00",
+       "endTime": "18:00",
+       "daysOfWeek": [1, 2, 3, 4, 5],
+       "priority": 5
+     },
+     "assets": [
+       {
+         "assetId": "media_001",
+         "url": "https://storage.googleapis.com/.../promo.mp4",
+         "sha256": "3a7bd3e2360a3d29eea436cdfb27d37feeacab603545",
+         "fileSizeBytes": 12450892
+       }
+     ],
+     "playlist": {
+       "items": [
+         { "type": "video", "assetId": "media_001", "durationSeconds": 15 }
+       ]
+     }
+   }
+   ```
+4. The manifest is written to Cloud Storage at `publications/{pubId}/manifest.json`.
+5. A Firestore `publications/{pubId}` record is created with status `'prepared'`.
+6. The Cloud Function atomically updates all targeted `displays/{displayId}` documents:
+   - `desiredPublicationId = pubId`
+   - `publishedScheduleId = schedule.id`
+   - `publishedScheduleTitle = schedule.title`
+   - `publishedScheduleWindow = "08:00 - 18:00"`
+
+### 8.2. Showing Content on Hardware (Store-and-Forward Playback)
+1. **Device Manifest Discovery:**
+   - Physical digital display hardware (Raspberry Pi, Linux player, Android device) listens to its `displays/{displayId}` Firestore document or queries `getDevicePublicationManifest`.
+2. **Download & Cache Phase:**
+   - Upon seeing a new `desiredPublicationId`, the device downloads `manifest.json`.
+   - The device checks its local on-disk storage (`/var/aura/cache/assets/`).
+   - For every asset in `manifest.assets`:
+     - If the file is not on disk, it downloads it from `asset.url`.
+     - It computes the local file's SHA-256 hash.
+     - If the hash matches `asset.sha256`, the file is marked verified.
+3. **Atomic Cutover:**
+   - Only when **100% of assets are downloaded and verified**, the player atomically cuts over playback to the new playlist.
+   - If a download fails or an asset is corrupted, the player keeps running its current content and reports an error via `reportDeviceDelivery(status: 'failed')`.
+4. **Autonomous Offline Playback:**
+   - The player evaluates current time against `manifest.scheduleRule` using its local hardware clock in `Asia/Kolkata`.
+   - It transitions slides locally using hardware acceleration.
+   - If the network goes down, the display continues cycling through the schedule uninterrupted.
+5. **Corporate Neutral Fallback:**
+   - If a schedule's date window ends, or no publication is assigned, the player displays a locally bundled **Corporate Neutral Fallback** loop (never a black screen or desktop error).
+
+---
+
+## 9. Digital Display Fleet Management
+
+The **Digital Displays** page (`/displays`) provides real-time fleet administration:
+
+### 9.1. Digital Display Onboarding & Commissioning
+1. **Pairing Mode:** A newly installed player boots up in pairing mode, showing a 6-character short code and QR code on the physical digital display.
+2. **Claiming:** An administrator in the web UI clicks **"Pair Digital Display"**, enters the short code, selects the Site, Department, and physical Orientation (`Landscape` or `Portrait`).
+3. **Commissioning Checklist:**
+   - The dashboard provides a step-by-step checklist (`getCommissioningChecklist`, `updateCommissioningCheck`, `finalizeCommissioning`):
+     - Wi-Fi/Ethernet connectivity test.
+     - Physical orientation alignment check.
+     - Test slide render verification.
+     - Ambient sensor check.
+   - Once all checks pass, the status changes from `'commissioning'` to `'active'`.
+
+### 9.2. Telemetry & Heartbeat Monitoring
+Physical digital displays report health status every 60 seconds via `reportDeviceHeartbeat`:
+- **Online / Offline Status:** Digital displays reporting within 5 minutes are green (`online`); otherwise amber/red (`offline`).
+- **Hardware Telemetry:** CPU temperature, CPU load, and free disk storage (e.g. `48.1 GB free / 58.8 GB`).
+- **Active Presentation State:** Current publication ID, currently playing slide, and playback status (`Active Presentation`, `Idle / Standby`).
+- **Rollout Progress Modal (`PublicationRolloutModal`):**
+  - Allows operators to monitor a publication's deployment across the fleet.
+  - Shows which digital displays have received the manifest, finished downloading, and reached active playback.
+  - Provides a **Retry Target** button to re-trigger distribution for any display that had network drops.
+
+### 9.3. Remote Device Maintenance & Operations
+Administrators can issue remote commands to digital displays via `requestDisplayOperation`:
+- **Remote Screenshot Preview:** Digital display captures its active framebuffer, uploads it to Cloud Storage (`uploadDevicePreview`), and displays it in the dashboard.
+- **Wi-Fi Credential Provisioning:** Remote update of SSID and security keys.
+- **Reboot / Reload Runtime:** Triggers a clean hardware reboot or Chromium runtime restart.
+- **Maintenance Mode:** Temporarily pauses scheduled broadcasts to run diagnostics.
+- **Bulk Import & Assignment:** CSV-based bulk digital display provisioning and bulk department re-assignment modals.
