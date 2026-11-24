@@ -38,7 +38,11 @@ import { UploadMediaModal } from './UploadMediaModal';
 import { MediaDetailModal } from './MediaDetailModal';
 import type { MediaAsset, Department } from '@aura-dims/display-schema';
 
-export const MediaLibraryView: React.FC = () => {
+export interface MediaLibraryViewProps {
+  projectId?: string;
+}
+
+export const MediaLibraryView: React.FC<MediaLibraryViewProps> = ({ projectId }) => {
   const { userProfile } = useAuth();
 
   // View mode
@@ -105,6 +109,7 @@ export const MediaLibraryView: React.FC = () => {
           pageSize,
           cursor: cursorToUse,
           includeArchived: includeArchived || selectedStatus === 'archived',
+          projectId,
         });
 
         setAssets(res.assets || []);
@@ -131,7 +136,7 @@ export const MediaLibraryView: React.FC = () => {
         setIsLoading(false);
       }
     },
-    [userProfile?.role, userProfile?.departmentId, selectedDeptId, selectedType, selectedStatus, searchQuery, pageSize, includeArchived]
+    [userProfile?.role, userProfile?.departmentId, selectedDeptId, selectedType, selectedStatus, searchQuery, pageSize, includeArchived, projectId]
   );
 
   // Trigger fetch when filters change

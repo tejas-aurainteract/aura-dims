@@ -40,9 +40,10 @@ import { DesignPreviewModal } from '@/components/Editor/DesignPreviewModal';
 
 export interface DesignsViewProps {
   onOpenCreateChoice?: () => void;
+  projectId?: string;
 }
 
-export const DesignsView: React.FC<DesignsViewProps> = ({ onOpenCreateChoice }) => {
+export const DesignsView: React.FC<DesignsViewProps> = ({ onOpenCreateChoice, projectId }) => {
   const navigate = useNavigate();
 
   // State
@@ -72,6 +73,7 @@ export const DesignsView: React.FC<DesignsViewProps> = ({ onOpenCreateChoice }) 
         orientation: orientationFilter === 'all' ? undefined : orientationFilter,
         status: statusFilter === 'all' ? undefined : (statusFilter as DesignStatus),
         pageSize: 40,
+        projectId,
       });
       setDesigns(res.designs);
     } catch (err: any) {
@@ -80,7 +82,7 @@ export const DesignsView: React.FC<DesignsViewProps> = ({ onOpenCreateChoice }) 
     } finally {
       setLoading(false);
     }
-  }, [search, orientationFilter, statusFilter]);
+  }, [search, orientationFilter, statusFilter, projectId]);
 
   useEffect(() => {
     const timer = setTimeout(() => {

@@ -35,7 +35,11 @@ import { CreateScheduleModal } from './CreateScheduleModal';
 import { DisplayScheduleSimulatorModal } from './DisplayScheduleSimulatorModal';
 import { PublicationRolloutModal } from '@/components/Rollout/PublicationRolloutModal';
 
-export const SchedulesListView: React.FC = () => {
+export interface SchedulesListViewProps {
+  projectId?: string;
+}
+
+export const SchedulesListView: React.FC<SchedulesListViewProps> = ({ projectId }) => {
   const { userProfile } = useAuth();
   const isAdmin = userProfile?.role === 'admin';
   const canDirectPublish = isAdmin || !!userProfile?.canDirectPublish;
@@ -64,6 +68,7 @@ export const SchedulesListView: React.FC = () => {
       const res = await api.listSchedules({
         departmentId: isAdmin ? undefined : userProfile?.departmentId || undefined,
         status: statusFilter === 'all' ? undefined : statusFilter,
+        projectId,
       });
       setSchedules(res.schedules || []);
     } catch (err: any) {
@@ -87,7 +92,7 @@ export const SchedulesListView: React.FC = () => {
 
   useEffect(() => {
     fetchSchedules();
-  }, [userProfile?.departmentId, isAdmin, statusFilter]);
+  }, [userProfile?.departmentId, isAdmin, statusFilter, projectId]);
 
   const handleSubmitForApproval = async (schedule: ScheduleRecord) => {
     setActionLoadingId(schedule.id);

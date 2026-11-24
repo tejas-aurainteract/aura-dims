@@ -50,7 +50,7 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (
         request.auth.uid == userId ||
         isAdmin() ||
-        (isDepartmentHead() && resource.data.departmentId != null && resource.data.departmentId == getCallerDepartmentId())
+        (resource.data.departmentId != null && resource.data.departmentId == getCallerDepartmentId())
       );
       allow write: if false;
     }
@@ -107,6 +107,21 @@ service cloud.firestore {
         (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId())
       );
       allow write: if false;
+    }
+
+    // Projects Collection: /projects/{projectId}
+    match /projects/{projectId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId()) ||
+        (resource.data.departmentId == getCallerDepartmentId())
+      );
+      allow write: if false;
+
+      match /members/{memberId} {
+        allow read: if isAuthenticated();
+        allow write: if false;
+      }
     }
 
     // Design Revisions Collection: /designRevisions/{revisionId}

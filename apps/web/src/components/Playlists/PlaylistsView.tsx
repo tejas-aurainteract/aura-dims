@@ -27,11 +27,12 @@ import type { PlaylistRecord, DisplayOrientation } from '@aura-dims/display-sche
 import { CreatePlaylistModal } from './CreatePlaylistModal';
 import { PlaylistPreviewModal } from './PlaylistPreviewModal';
 
-interface PlaylistsViewProps {
+export interface PlaylistsViewProps {
   departmentId?: string;
+  projectId?: string;
 }
 
-export const PlaylistsView: React.FC<PlaylistsViewProps> = ({ departmentId }) => {
+export const PlaylistsView: React.FC<PlaylistsViewProps> = ({ departmentId, projectId }) => {
   const { userProfile } = useAuth();
   const [playlists, setPlaylists] = useState<PlaylistRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,6 +58,7 @@ export const PlaylistsView: React.FC<PlaylistsViewProps> = ({ departmentId }) =>
         departmentId: userProfile?.role === 'admin' ? departmentId : activeDepartmentId,
         orientation: orientationFilter === 'all' ? undefined : orientationFilter,
         includeArchived: showArchived,
+        projectId,
       });
       setPlaylists(res.playlists);
     } catch (err: any) {
@@ -69,7 +71,7 @@ export const PlaylistsView: React.FC<PlaylistsViewProps> = ({ departmentId }) =>
 
   useEffect(() => {
     fetchPlaylists();
-  }, [userProfile?.departmentId, departmentId, orientationFilter, showArchived]);
+  }, [userProfile?.departmentId, departmentId, orientationFilter, showArchived, projectId]);
 
   const handleArchiveToggle = async (playlist: PlaylistRecord) => {
     try {
