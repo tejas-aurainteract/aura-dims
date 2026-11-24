@@ -10,7 +10,7 @@
 import { ref, uploadBytesResumable, type UploadTask } from 'firebase/storage';
 import { storage } from './firebase';
 import { api } from './api';
-import { MEDIA_CONSTRAINTS, type MediaAsset } from '@aura-dims/display-schema';
+import { MEDIA_CONSTRAINTS, type MediaAsset, type AssetVisibility, type AssetShareTarget } from '@aura-dims/display-schema';
 
 export type UploadStep = 'idle' | 'initiating' | 'uploading' | 'validating' | 'ready' | 'error';
 
@@ -25,6 +25,9 @@ export interface UploadProgressEvent {
 export interface UploadMediaOptions {
   file: File;
   departmentId?: string;
+  projectId?: string;
+  visibility?: AssetVisibility;
+  sharedWith?: Array<string | AssetShareTarget>;
   title?: string;
   description?: string;
   tags?: string[];
@@ -76,7 +79,7 @@ export function validateMediaFileClient(file: File): { valid: boolean; error?: s
 }
 
 export function startMediaUpload(options: UploadMediaOptions): ActiveUploadHandle {
-  const { file, departmentId, title, description, tags, onProgress } = options;
+  const { file, departmentId, projectId, visibility, sharedWith, title, description, tags, onProgress } = options;
 
   let uploadTask: UploadTask | null = null;
   let isCancelled = false;
@@ -111,11 +114,27 @@ export function startMediaUpload(options: UploadMediaOptions): ActiveUploadHandl
       message: 'Allocating secure staging path...',
     });
 
+    const normalizedSharedWith: AssetShareTarget[] | undefined = sharedWith?.map((target) => {
+      if (typeof target === 'string') {
+        if (target.startsWith('dept:')) {
+          return { type: 'department', id: target.slice(5) };
+        }
+        if (target.startsWith('proj:')) {
+          return { type: 'project', id: target.slice(5) };
+        }
+        return { type: 'department', id: target };
+      }
+      return target;
+    });
+
     const initResult = await api.initiateMediaUpload({
       fileName: file.name,
       fileSizeBytes: file.size,
       declaredMimeType: file.type,
       departmentId,
+      projectId,
+      visibility,
+      sharedWith: normalizedSharedWith,
       title,
       description,
       tags,

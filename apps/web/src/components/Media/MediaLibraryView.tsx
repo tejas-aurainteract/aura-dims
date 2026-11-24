@@ -522,6 +522,7 @@ export const MediaLibraryView: React.FC<MediaLibraryViewProps> = ({ projectId })
         onClose={() => setIsUploadOpen(false)}
         departments={departments}
         selectedDepartmentId={selectedDeptId !== 'all' ? selectedDeptId : undefined}
+        preselectedProjectId={projectId}
         onUploadSuccess={(newAsset) => {
           setAssets((prev) => [newAsset, ...prev]);
         }}
