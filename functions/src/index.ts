@@ -154,34 +154,56 @@ export const apiHealth = onRequest(
 /**
  * Ensures the default General project exists for a department, and enrolls the user as a member.
  */
+/**
+ * Ensures the default General project exists for a given department.
+ */
+export async function ensureGeneralProject(
+  departmentId: string,
+  departmentName?: string,
+  actorId = 'system'
+): Promise<ProjectRecord> {
+  const generalProjectId = `proj_general_${departmentId}`;
+  const projectRef = db.collection('projects').doc(generalProjectId);
+  const projectSnap = await projectRef.get();
+  const now = new Date().toISOString();
+
+  if (projectSnap.exists) {
+    return projectSnap.data() as ProjectRecord;
+  }
+
+  let name = departmentName;
+  if (!name) {
+    const deptDoc = await db.collection('departments').doc(departmentId).get();
+    name = deptDoc.exists ? deptDoc.data()?.name || departmentId : departmentId;
+  }
+
+  const generalProject: ProjectRecord = {
+    id: generalProjectId,
+    departmentId,
+    name: 'General',
+    description: `Default workspace for ${name}`,
+    status: 'active',
+    isGeneral: true,
+    createdBy: actorId,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await projectRef.set(generalProject);
+  return generalProject;
+}
+
+/**
+ * Automatically enrolls a user into their department's default General project.
+ */
 async function enrollUserInGeneralProject(
   uid: string,
   departmentId: string,
   userProfile: { email?: string; displayName?: string; role: UserRole },
   actorId: string
 ): Promise<void> {
+  await ensureGeneralProject(departmentId, undefined, actorId);
   const generalProjectId = `proj_general_${departmentId}`;
-  const projectRef = db.collection('projects').doc(generalProjectId);
-  const projectSnap = await projectRef.get();
   const now = new Date().toISOString();
-
-  if (!projectSnap.exists) {
-    const deptDoc = await db.collection('departments').doc(departmentId).get();
-    const deptName = deptDoc.exists ? deptDoc.data()?.name || departmentId : departmentId;
-
-    const generalProject: ProjectRecord = {
-      id: generalProjectId,
-      departmentId,
-      name: 'General',
-      description: `Default workspace for ${deptName}`,
-      status: 'active',
-      isGeneral: true,
-      createdBy: 'system',
-      createdAt: now,
-      updatedAt: now,
-    };
-    await projectRef.set(generalProject);
-  }
 
   let memberRole: ProjectMemberRole = 'member';
   if (userProfile.role === 'admin' || userProfile.role === 'department_head') {
@@ -190,7 +212,7 @@ async function enrollUserInGeneralProject(
     memberRole = 'viewer';
   }
 
-  const memberRef = projectRef.collection('members').doc(uid);
+  const memberRef = db.collection('projects').doc(generalProjectId).collection('members').doc(uid);
   const memberData: ProjectMember = {
     uid,
     projectId: generalProjectId,
@@ -840,6 +862,9 @@ export const createDepartment = onCall<CreateDepartmentRequest, Promise<CreateDe
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
+
+    // Automatically create default General project for the new department
+    await ensureGeneralProject(deptRef.id, cleanName, caller.uid);
 
     await writeAuditLog({
       actorId: caller.uid,

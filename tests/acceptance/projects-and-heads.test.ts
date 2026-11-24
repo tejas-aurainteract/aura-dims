@@ -33,6 +33,7 @@ import {
   provisionUser,
   updateUser,
   setUserActiveStatus,
+  createDepartment,
 } from '../../functions/src/index';
 import {
   createProject,
@@ -488,6 +489,29 @@ describe('Aura DIMS - Projects Hierarchy & One-Head Enforcement Suite', () => {
     const cMemberDoc = await db.collection('projects').doc(generalProjId).collection('members').doc(cRes.uid).get();
     expect(cMemberDoc.exists).toBe(true);
     expect(cMemberDoc.data()?.role).toBe('member');
+  });
+
+  // ============================================================================
+  // Test 5b: Department Creation Generates General Project
+  // ============================================================================
+  it('automatically creates the General project upon department creation', async () => {
+    if (!isEmulatorRunning) return;
+
+    const testCode = `DP_${Date.now().toString().slice(-4)}`;
+    const deptRes = await callFn(
+      createDepartment,
+      { name: 'Automated Logistics', code: testCode },
+      { uid: adminUid }
+    );
+
+    const createdDeptId = deptRes.department.id;
+    const expectedProjId = `proj_general_${createdDeptId}`;
+    const projSnap = await db.collection('projects').doc(expectedProjId).get();
+
+    expect(projSnap.exists).toBe(true);
+    expect(projSnap.data()?.name).toBe('General');
+    expect(projSnap.data()?.departmentId).toBe(createdDeptId);
+    expect(projSnap.data()?.isGeneral).toBe(true);
   });
 
   // ============================================================================

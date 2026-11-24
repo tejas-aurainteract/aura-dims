@@ -35,27 +35,18 @@ async function dumpDoc(collectionName, docId) {
 }
 
 async function run() {
-  console.log('\n>>> Inspecting Sample Documents BEFORE Migration:');
+  console.log('\n>>> Inspecting Sample Documents BEFORE Seeder:');
   const sampleReadyBefore = await dumpDoc('assets', 'asset-img-ready');
   console.log('Sample Ready Asset (before):', JSON.stringify(sampleReadyBefore, null, 2));
-
-  const sampleFailedBefore = await dumpDoc('assets', 'asset-img-failed');
-  console.log('Sample Failed Asset (before):', JSON.stringify(sampleFailedBefore, null, 2));
-
-  const sampleArchivedBefore = await dumpDoc('assets', 'asset-img-archived');
-  console.log('Sample Archived Asset (before):', JSON.stringify(sampleArchivedBefore, null, 2));
-
-  const sampleDesignBefore = await dumpDoc('designs', 'design-ops-1');
-  console.log('Sample Design (before):', JSON.stringify(sampleDesignBefore, null, 2));
 
   const generalProjectBefore = await dumpDoc('projects', 'proj_general_operations-facilities');
   console.log('General Project for operations-facilities (before):', generalProjectBefore ? 'EXISTS' : 'DOES NOT EXIST');
 
-  // 2. Run --dry-run
+  // 2. Run General Projects Seeder --dry-run
   console.log('\n================================================================');
-  console.log('>>> STEP 2: Running Migration with --dry-run');
+  console.log('>>> STEP 2: Running General Projects Seeder (Dry-Run)');
   console.log('================================================================\n');
-  const dryRunRes = spawnSync('node', ['functions/lib/migrations/migrateProjectsAndAssets.js', '--dry-run'], {
+  const dryRunRes = spawnSync('node', ['functions/lib/migrations/seedGeneralProjects.js'], {
     stdio: 'inherit',
     shell: true,
     env: process.env,
@@ -65,11 +56,11 @@ async function run() {
     process.exit(dryRunRes.status || 1);
   }
 
-  // 3. Run --apply (First pass)
+  // 3. Run General Projects Seeder --apply (First pass)
   console.log('\n================================================================');
-  console.log('>>> STEP 3: Running Migration with --apply (First Pass)');
+  console.log('>>> STEP 3: Running General Projects Seeder with --apply (First Pass)');
   console.log('================================================================\n');
-  const apply1Res = spawnSync('node', ['functions/lib/migrations/migrateProjectsAndAssets.js', '--apply'], {
+  const apply1Res = spawnSync('node', ['functions/lib/migrations/seedGeneralProjects.js', '--apply'], {
     stdio: 'inherit',
     shell: true,
     env: process.env,
@@ -79,20 +70,8 @@ async function run() {
     process.exit(apply1Res.status || 1);
   }
 
-  // Inspect documents AFTER first migration pass
-  console.log('\n>>> Inspecting Sample Documents AFTER Migration (Pass 1):');
-  const sampleReadyAfter = await dumpDoc('assets', 'asset-img-ready');
-  console.log('Sample Ready Asset (after):', JSON.stringify(sampleReadyAfter, null, 2));
-
-  const sampleFailedAfter = await dumpDoc('assets', 'asset-img-failed');
-  console.log('Sample Failed Asset (after):', JSON.stringify(sampleFailedAfter, null, 2));
-
-  const sampleArchivedAfter = await dumpDoc('assets', 'asset-img-archived');
-  console.log('Sample Archived Asset (after):', JSON.stringify(sampleArchivedAfter, null, 2));
-
-  const sampleDesignAfter = await dumpDoc('designs', 'design-ops-1');
-  console.log('Sample Design (after):', JSON.stringify(sampleDesignAfter, null, 2));
-
+  // Inspect documents AFTER first seeder pass
+  console.log('\n>>> Inspecting Sample Documents AFTER Seeder (Pass 1):');
   const generalProjectAfter = await dumpDoc('projects', 'proj_general_operations-facilities');
   console.log('General Project for operations-facilities (after):', JSON.stringify(generalProjectAfter, null, 2));
 
@@ -102,11 +81,15 @@ async function run() {
     console.log(` - Member ${doc.id}: ${JSON.stringify(doc.data())}`);
   });
 
-  // 4. Run --apply (Second pass - Idempotency proof)
+  // Assets are untouched by design (no backfill)
+  const sampleReadyAfter = await dumpDoc('assets', 'asset-img-ready');
+  console.log('Sample Asset remained untouched (no backfill):', sampleReadyAfter?.ownerProjectId ? 'MODIFIED' : 'UNTOUCHED');
+
+  // 4. Run General Projects Seeder --apply (Second pass - Idempotency proof)
   console.log('\n================================================================');
-  console.log('>>> STEP 4: Running Migration with --apply (Second Pass - Idempotency Proof)');
+  console.log('>>> STEP 4: Running General Projects Seeder with --apply (Second Pass - Idempotency Proof)');
   console.log('================================================================\n');
-  const apply2Res = spawnSync('node', ['functions/lib/migrations/migrateProjectsAndAssets.js', '--apply'], {
+  const apply2Res = spawnSync('node', ['functions/lib/migrations/seedGeneralProjects.js', '--apply'], {
     stdio: 'inherit',
     shell: true,
     env: process.env,
@@ -116,9 +99,23 @@ async function run() {
     process.exit(apply2Res.status || 1);
   }
 
-  // 5. Run Vitest Acceptance Tests
+  // 5. Test Wipe Script Dry-Run
   console.log('\n================================================================');
-  console.log('>>> STEP 5: Running Vitest Acceptance Tests');
+  console.log('>>> STEP 5: Testing Content Wipe Script in Dry-Run Mode');
+  console.log('================================================================\n');
+  const wipeDryRunRes = spawnSync('node', ['--experimental-strip-types', 'scripts/wipe-content-data.ts', '--project=demo-aura-dims'], {
+    stdio: 'inherit',
+    shell: true,
+    env: process.env,
+  });
+  if (wipeDryRunRes.status !== 0) {
+    console.error('Wipe dry-run failed!');
+    process.exit(wipeDryRunRes.status || 1);
+  }
+
+  // 6. Run Vitest Acceptance Tests
+  console.log('\n================================================================');
+  console.log('>>> STEP 6: Running Vitest Acceptance Tests');
   console.log('================================================================\n');
   const vitestCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
   const vitestRes = spawnSync(vitestCmd, ['vitest', 'run', 'tests/acceptance/projects-and-heads.test.ts'], {

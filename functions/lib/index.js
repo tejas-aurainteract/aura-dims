@@ -44,6 +44,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.rollbackPublication = exports.preparePublication = exports.getApproval = exports.listApprovals = exports.withdrawApproval = exports.reviewApproval = exports.submitForApproval = exports.setScheduleStatus = exports.listSchedules = exports.getSchedule = exports.updateSchedule = exports.createSchedule = exports.getPlaylistRevision = exports.createPlaylistRevision = exports.setPlaylistArchivedStatus = exports.listPlaylists = exports.getPlaylist = exports.updatePlaylist = exports.createPlaylist = exports.getDesignRevision = exports.listDesignRevisions = exports.createDesignRevision = exports.seedStarterTemplates = exports.setTemplateArchivedStatus = exports.instantiateTemplate = exports.createTemplate = exports.listTemplates = exports.convertDesignOrientation = exports.listDesigns = exports.setDesignArchivedStatus = exports.duplicateDesign = exports.updateDesign = exports.getDesign = exports.createDesign = exports.cleanupExpiredUploads = exports.listMediaAssets = exports.setMediaArchivedStatus = exports.updateMediaMetadata = exports.getMediaPreviewUrl = exports.finalizeMediaUpload = exports.initiateMediaUpload = exports.setDepartmentStatus = exports.updateDepartment = exports.createDepartment = exports.triggerPasswordReset = exports.setUserActiveStatus = exports.updateUser = exports.provisionUser = exports.apiHealth = exports.healthCheck = void 0;
 exports.updateProject = exports.createProject = exports.reportDeviceShutdown = exports.discardDisplayPreview = exports.getDisplayPreviewUrl = exports.uploadDevicePreview = exports.expireStaleOperationsScheduled = exports.retryDisplayOperation = exports.cancelDisplayOperation = exports.reportDeviceOperation = exports.renewOperationLease = exports.claimDeviceOperation = exports.listDisplayOperations = exports.requestDisplayOperation = exports.retryPublicationTarget = exports.getPublicationRolloutProgress = exports.convertPlannedToRegistered = exports.updatePlannedInstallation = exports.createPlannedInstallation = exports.listPlannedInstallations = exports.finalizeCommissioning = exports.updateCommissioningCheck = exports.getCommissioningChecklist = exports.executeBulkAssignDisplays = exports.preflightBulkAssignDisplays = exports.executeBulkDisplayImport = exports.preflightBulkDisplayImport = exports.getDisplay = exports.listDisplays = exports.reportDeviceHeartbeat = exports.reportDeviceDelivery = exports.getDevicePublicationManifest = exports.getDevicePublication = exports.deviceSignIn = exports.redeemPairingCode = exports.listUserAssignments = exports.unassignDisplayUser = exports.assignDisplayUser = exports.generateDisplayPairingCode = exports.resetEnrollment = exports.setDisplayLifecycle = exports.updateDisplay = exports.registerDisplay = exports.setDisplayGroupStatus = exports.updateDisplayGroup = exports.createDisplayGroup = exports.updateSite = exports.createSite = exports.evaluateSchedulePreview = exports.setUserDirectPublishPermission = void 0;
 exports.ALLOWED_PROJECT_CREATOR_ROLES = exports.moveAssetProject = exports.listProjectMembers = exports.updateProjectMemberRole = exports.removeProjectMember = exports.addProjectMember = exports.listProjects = exports.archiveProject = void 0;
+exports.ensureGeneralProject = ensureGeneralProject;
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-admin/firestore");
@@ -138,27 +139,43 @@ exports.apiHealth = (0, https_1.onRequest)({ cors: true, region: REGION }, (req,
 /**
  * Ensures the default General project exists for a department, and enrolls the user as a member.
  */
-async function enrollUserInGeneralProject(uid, departmentId, userProfile, actorId) {
+/**
+ * Ensures the default General project exists for a given department.
+ */
+async function ensureGeneralProject(departmentId, departmentName, actorId = 'system') {
     const generalProjectId = `proj_general_${departmentId}`;
     const projectRef = db.collection('projects').doc(generalProjectId);
     const projectSnap = await projectRef.get();
     const now = new Date().toISOString();
-    if (!projectSnap.exists) {
-        const deptDoc = await db.collection('departments').doc(departmentId).get();
-        const deptName = deptDoc.exists ? deptDoc.data()?.name || departmentId : departmentId;
-        const generalProject = {
-            id: generalProjectId,
-            departmentId,
-            name: 'General',
-            description: `Default workspace for ${deptName}`,
-            status: 'active',
-            isGeneral: true,
-            createdBy: 'system',
-            createdAt: now,
-            updatedAt: now,
-        };
-        await projectRef.set(generalProject);
+    if (projectSnap.exists) {
+        return projectSnap.data();
     }
+    let name = departmentName;
+    if (!name) {
+        const deptDoc = await db.collection('departments').doc(departmentId).get();
+        name = deptDoc.exists ? deptDoc.data()?.name || departmentId : departmentId;
+    }
+    const generalProject = {
+        id: generalProjectId,
+        departmentId,
+        name: 'General',
+        description: `Default workspace for ${name}`,
+        status: 'active',
+        isGeneral: true,
+        createdBy: actorId,
+        createdAt: now,
+        updatedAt: now,
+    };
+    await projectRef.set(generalProject);
+    return generalProject;
+}
+/**
+ * Automatically enrolls a user into their department's default General project.
+ */
+async function enrollUserInGeneralProject(uid, departmentId, userProfile, actorId) {
+    await ensureGeneralProject(departmentId, undefined, actorId);
+    const generalProjectId = `proj_general_${departmentId}`;
+    const now = new Date().toISOString();
     let memberRole = 'member';
     if (userProfile.role === 'admin' || userProfile.role === 'department_head') {
         memberRole = 'lead';
@@ -166,7 +183,7 @@ async function enrollUserInGeneralProject(uid, departmentId, userProfile, actorI
     else if (userProfile.role === 'viewer') {
         memberRole = 'viewer';
     }
-    const memberRef = projectRef.collection('members').doc(uid);
+    const memberRef = db.collection('projects').doc(generalProjectId).collection('members').doc(uid);
     const memberData = {
         uid,
         projectId: generalProjectId,
@@ -708,6 +725,8 @@ exports.createDepartment = (0, https_1.onCall)({ cors: true, region: REGION }, a
         createdAt: firestore_1.FieldValue.serverTimestamp(),
         updatedAt: firestore_1.FieldValue.serverTimestamp(),
     });
+    // Automatically create default General project for the new department
+    await ensureGeneralProject(deptRef.id, cleanName, caller.uid);
     await writeAuditLog({
         actorId: caller.uid,
         action: 'department.create',
