@@ -65,10 +65,12 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
         const res = await api.listDesigns({
           departmentId: userProfile?.role === 'admin' ? undefined : departmentId,
           orientation,
+          status: 'draft',
         });
-        setAvailableDesigns(res.designs);
-        if (res.designs.length > 0 && res.designs[0]) {
-          setSelectedDesignId(res.designs[0].id);
+        const activeDesigns = (res.designs || []).filter((d) => d.status !== 'archived');
+        setAvailableDesigns(activeDesigns);
+        if (activeDesigns.length > 0 && activeDesigns[0]) {
+          setSelectedDesignId(activeDesigns[0].id);
         } else {
           setSelectedDesignId('');
         }

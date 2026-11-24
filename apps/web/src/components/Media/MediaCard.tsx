@@ -4,21 +4,37 @@
  * Product: Aura Digital Information Management System (Aura DIMS)
  *
  * Renders an accessible media card with lazy thumbnail retrieval,
- * resolution badge, video duration, department scope, and processing state.
+ * visibility and approval badges, video duration, department scope, and processing state.
  */
 
 import React, { useState, useEffect } from 'react';
-import { FileImage, FileVideo, Clock, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
+import {
+  FileImage,
+  FileVideo,
+  Clock,
+  ShieldCheck,
+  AlertCircle,
+  Loader2,
+  Lock,
+  Globe,
+  Share2,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import type { MediaAsset } from '@aura-dims/display-schema';
 
 interface MediaCardProps {
   asset: MediaAsset;
   departmentName: string;
+  isReadOnly?: boolean;
   onClick: () => void;
 }
 
-export const MediaCard: React.FC<MediaCardProps> = ({ asset, departmentName, onClick }) => {
+export const MediaCard: React.FC<MediaCardProps> = ({
+  asset,
+  departmentName,
+  isReadOnly = false,
+  onClick,
+}) => {
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
   const [loadingThumb, setLoadingThumb] = useState(false);
 
@@ -67,6 +83,9 @@ export const MediaCard: React.FC<MediaCardProps> = ({ asset, departmentName, onC
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
+
+  const isGlobalPending = asset.globalApprovalState === 'pending';
+  const isGlobalApproved = asset.visibility === 'global' && asset.globalApprovalState === 'approved';
 
   return (
     <div
@@ -134,6 +153,43 @@ export const MediaCard: React.FC<MediaCardProps> = ({ asset, departmentName, onC
             </span>
           </div>
         )}
+
+        {/* Top Right Badges: Scoping, Approval & Read-Only Lock */}
+        <div className="absolute top-2 right-2 flex items-center gap-1">
+          {isReadOnly && (
+            <span
+              title="Read-only shared asset"
+              className="p-1 rounded-md bg-black/60 text-amber-300 shadow-xs backdrop-blur-xs"
+            >
+              <Lock className="h-3 w-3" />
+            </span>
+          )}
+
+          {isGlobalPending ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/90 text-white shadow-xs backdrop-blur-xs">
+              <Globe className="h-2.5 w-2.5" />
+              <span>Global Pending</span>
+            </span>
+          ) : isGlobalApproved ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-600/90 text-white shadow-xs backdrop-blur-xs">
+              <Globe className="h-2.5 w-2.5" />
+              <span>Global</span>
+            </span>
+          ) : asset.visibility === 'shared' ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-600/90 text-white shadow-xs backdrop-blur-xs">
+              <Share2 className="h-2.5 w-2.5" />
+              <span>Shared</span>
+            </span>
+          ) : asset.visibility === 'department' ? (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-teal-600/90 text-white shadow-xs backdrop-blur-xs">
+              Dept
+            </span>
+          ) : (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-slate-800/80 text-slate-200 shadow-xs backdrop-blur-xs">
+              Project
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Card Info */}
@@ -179,4 +235,3 @@ export const MediaCard: React.FC<MediaCardProps> = ({ asset, departmentName, onC
     </div>
   );
 };
-

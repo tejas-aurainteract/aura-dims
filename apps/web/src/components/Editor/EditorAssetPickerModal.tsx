@@ -60,16 +60,20 @@ export const EditorAssetPickerModal: React.FC<EditorAssetPickerModalProps> = ({
         mediaType,
         status: 'ready',
         search: search.trim() || undefined,
-        pageSize: 24,
+        pageSize: 40,
         includeArchived: false,
       });
 
-      setAssets(res.assets);
+      // Filter: ready and displayable only (exclude kind === 'reference')
+      const displayable = (res.assets || []).filter(
+        (a) => a.status === 'ready' && (a as any).kind !== 'reference'
+      );
+      setAssets(displayable);
 
       // Resolve thumbnail URLs for retrieved assets
       const thumbMap = new Map<string, string>();
       await Promise.all(
-        res.assets.map(async (a) => {
+        displayable.map(async (a) => {
           const url = await resolveAssetUrl(a.id, 'thumbnail');
           if (url) thumbMap.set(a.id, url);
         })

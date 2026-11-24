@@ -5,7 +5,7 @@
  *
  * Provides private authenticated preview (image / HTML5 video player),
  * metadata editing (title, description, tags), technical specifications (SHA-256, dimensions),
- * and departmental archiving/restoration.
+ * project reassignment (move asset), and departmental archiving/restoration.
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -22,10 +22,17 @@ import {
   AlertCircle,
   Tag as TagIcon,
   ShieldCheck,
+  FolderKanban,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { api } from '@/lib/api';
-import { MEDIA_CONSTRAINTS, type MediaAsset, type Department } from '@aura-dims/display-schema';
+import { api, getApiErrorMessage } from '@/lib/api';
+import {
+  MEDIA_CONSTRAINTS,
+  type MediaAsset,
+  type Department,
+  type ProjectRecord,
+} from '@aura-dims/display-schema';
 
 interface MediaDetailModalProps {
   asset: MediaAsset | null;
@@ -62,6 +69,16 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const [copiedChecksum, setCopiedChecksum] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Move Asset Project States
+  const [isMoveOpen, setIsMoveOpen] = useState(false);
+  const [moveProjects, setMoveProjects] = useState<ProjectRecord[]>([]);
+  const [targetProjectId, setTargetProjectId] = useState<string>('');
+  const [targetDeptId, setTargetDeptId] = useState<string>('');
+  const [isMoving, setIsMoving] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
+
+  const isAdmin = userProfile?.role === 'admin';
+
   // Initialize editable fields on asset change
   useEffect(() => {
     if (asset) {
@@ -71,8 +88,32 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       setStatusMessage(null);
       setPreviewUrl(null);
       setPreviewError(null);
+      setIsMoveOpen(false);
+      setTargetDeptId(asset.departmentId);
+      setTargetProjectId(asset.projectId || (asset as any).ownerProjectId || '');
     }
   }, [asset]);
+
+  // Load projects for move dialog
+  useEffect(() => {
+    async function loadProjects() {
+      if (!isMoveOpen || !asset) return;
+      try {
+        const deptToQuery = isAdmin ? targetDeptId : asset.departmentId;
+        const res = await api.listProjects({
+          departmentId: deptToQuery,
+          status: 'active',
+        });
+        setMoveProjects(res.projects || []);
+        if (res.projects && res.projects.length > 0 && !targetProjectId && res.projects[0]) {
+          setTargetProjectId(res.projects[0].id);
+        }
+      } catch (err) {
+        console.warn('[Aura DIMS] Could not fetch projects for move:', err);
+      }
+    }
+    loadProjects();
+  }, [isMoveOpen, asset, targetDeptId, isAdmin, targetProjectId]);
 
   // Fetch temporary private signed preview URL
   useEffect(() => {
@@ -80,8 +121,6 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
 
     async function loadPreview() {
       if (!asset || !isOpen) return;
-
-      // Only attempt preview if asset has a storage path
       if (!asset.storagePath && !asset.thumbnailPath) return;
 
       setLoadingPreview(true);
@@ -107,16 +146,10 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       }
     }
 
-    if (isOpen && asset) {
-      loadPreview();
-    }
+    loadPreview();
 
     return () => {
       isCancelled = true;
-      if (videoRef.current) {
-        videoRef.current.pause();
-        videoRef.current.src = '';
-      }
     };
   }, [asset, isOpen]);
 
@@ -204,7 +237,45 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     }
   };
 
-  const canEdit = userProfile?.role === 'admin' || userProfile?.departmentId === asset.departmentId;
+  // Move Asset Project Handler
+  const handleMoveAsset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetProjectId) {
+      setMoveError('Please select a destination project.');
+      return;
+    }
+
+    setIsMoving(true);
+    setMoveError(null);
+
+    try {
+      const res = await api.moveAssetProject({
+        assetId: asset.id,
+        targetProjectId,
+        targetDepartmentId: isAdmin && targetDeptId !== asset.departmentId ? targetDeptId : undefined,
+      });
+
+      const updatedAsset: MediaAsset = {
+        ...asset,
+        projectId: res.ownerProjectId,
+        ownerProjectId: res.ownerProjectId,
+        departmentId: targetDeptId || asset.departmentId,
+      };
+
+      onAssetUpdated(updatedAsset);
+      setIsMoveOpen(false);
+      setStatusMessage({
+        type: 'success',
+        text: `Asset successfully moved to project "${res.ownerProjectId}".`,
+      });
+    } catch (err: any) {
+      setMoveError(getApiErrorMessage(err, 'Failed to move asset.'));
+    } finally {
+      setIsMoving(false);
+    }
+  };
+
+  const canEdit = isAdmin || userProfile?.departmentId === asset.departmentId;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -219,9 +290,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               <h2 className="text-base font-bold text-slate-900 truncate max-w-md">
                 {asset.title || asset.name}
               </h2>
-              <p className="text-xs text-slate-500">
-                {departmentName} • {asset.fileName}
-              </p>
+              <p className="text-xs text-slate-500 font-mono">ID: {asset.id}</p>
             </div>
           </div>
           <button
@@ -235,7 +304,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
 
         {/* Content Body */}
         <div className="p-6 overflow-y-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left Column: Media Preview */}
+          {/* Left Column: Media Preview & Technical Specs */}
           <div className="lg:col-span-7 flex flex-col space-y-4">
             <div className="w-full aspect-video rounded-xl bg-slate-950 flex items-center justify-center overflow-hidden border border-slate-800 relative">
               {loadingPreview ? (
@@ -286,6 +355,132 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   <span className="capitalize">{asset.status.replace('_', ' ')}</span>
                 </span>
               </div>
+            </div>
+
+            {/* Scoping & Project Ownership Panel */}
+            <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                  <FolderKanban className="h-3.5 w-3.5 text-teal-600" />
+                  <span>Project & Visibility Scoping</span>
+                </h3>
+                {canEdit && asset.status !== 'archived' && (
+                  <button
+                    type="button"
+                    onClick={() => setIsMoveOpen(!isMoveOpen)}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 hover:text-teal-900"
+                  >
+                    <ArrowRightLeft className="h-3 w-3" />
+                    <span>{isMoveOpen ? 'Close move form' : 'Move to another project'}</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <span className="text-slate-400 block text-[11px]">Owner Project</span>
+                  <span className="font-semibold text-slate-800 font-mono text-[11px]">
+                    {asset.projectId || (asset as any).ownerProjectId || 'General'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[11px]">Visibility</span>
+                  <span className="font-semibold text-slate-800 capitalize">
+                    {asset.visibility || 'project'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[11px]">Department</span>
+                  <span className="font-semibold text-slate-800">{departmentName}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[11px]">Global Status</span>
+                  <span className="font-semibold text-slate-800 capitalize">
+                    {asset.globalApprovalState || 'none'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Move Asset Sub-form */}
+              {isMoveOpen && (
+                <form
+                  onSubmit={handleMoveAsset}
+                  className="mt-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3"
+                >
+                  <p className="text-[11px] text-slate-600">
+                    Moving this asset updates its project ownership without moving files in Storage.
+                    {isAdmin
+                      ? ' Administrators can transfer assets across departments.'
+                      : ' Only projects in this department can be selected.'}
+                  </p>
+
+                  {moveError && (
+                    <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-start gap-1.5">
+                      <AlertCircle className="h-4 w-4 shrink-0 text-rose-600 mt-0.5" />
+                      <span>{moveError}</span>
+                    </div>
+                  )}
+
+                  {isAdmin && (
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Target Department
+                      </label>
+                      <select
+                        value={targetDeptId}
+                        onChange={(e) => {
+                          setTargetDeptId(e.target.value);
+                          setTargetProjectId('');
+                        }}
+                        className="w-full text-xs rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 focus:outline-teal-500"
+                      >
+                        {departments.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.name} ({d.code})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Destination Project <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={targetProjectId}
+                      required
+                      onChange={(e) => setTargetProjectId(e.target.value)}
+                      className="w-full text-xs rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 focus:outline-teal-500"
+                    >
+                      <option value="">Select project...</option>
+                      {moveProjects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} {p.isGeneral ? '(General)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsMoveOpen(false)}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isMoving || !targetProjectId}
+                      className="inline-flex items-center gap-1 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50"
+                    >
+                      {isMoving && <Loader2 className="h-3 w-3 animate-spin" />}
+                      <span>Execute Move</span>
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
 
             {/* Technical Specifications Panel */}
@@ -422,7 +617,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   maxLength={MEDIA_CONSTRAINTS.MAX_TITLE_LENGTH}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-500 disabled:bg-slate-100"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs text-slate-900 focus:outline-teal-500 disabled:bg-slate-100"
                 />
               </div>
 
@@ -438,8 +633,8 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   maxLength={MEDIA_CONSTRAINTS.MAX_DESCRIPTION_LENGTH}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Context for playlist editors..."
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-500 disabled:bg-slate-100 resize-none"
+                  placeholder="No description provided..."
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs text-slate-900 focus:outline-teal-500 disabled:bg-slate-100 resize-none"
                 />
               </div>
 
@@ -460,7 +655,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                         }
                       }}
                       placeholder="Add tag..."
-                      className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-500 disabled:bg-slate-100"
+                      className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 focus:outline-teal-500 disabled:bg-slate-100"
                     />
                     <button
                       type="button"
