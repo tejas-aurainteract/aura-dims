@@ -27,10 +27,10 @@ process.env.FIREBASE_STORAGE_EMULATOR_HOST = '127.0.0.1:9199';
 
 import { db } from '../../functions/src/common';
 import { canUseAsset } from '../../functions/src/publishingAdmin';
-import { initiateMediaUpload } from '../../functions/src/mediaAdmin';
-import { createDesign } from '../../functions/src/designAdmin';
+import { initiateMediaUpload, listMediaAssets } from '../../functions/src/mediaAdmin';
+import { createDesign, listDesigns } from '../../functions/src/designAdmin';
 import { createProject } from '../../functions/src/projectsAdmin';
-import { createPlaylist, createSchedule } from '../../functions/src/publishingAdmin';
+import { createPlaylist, createSchedule, listPlaylists, listSchedules } from '../../functions/src/publishingAdmin';
 import type {
   UserProfile,
   MediaAsset,
@@ -38,6 +38,10 @@ import type {
   CreateDesignRequest,
   CreatePlaylistRequest,
   CreateScheduleRequest,
+  ListMediaAssetsRequest,
+  ListDesignsRequest,
+  ListPlaylistsRequest,
+  ListSchedulesRequest,
 } from '@aura-dims/display-schema';
 
 function checkPortOpen(host: string, port: number, timeoutMs = 800): Promise<boolean> {
@@ -680,6 +684,89 @@ describe('Aura DIMS - Phase 2 Scoped Asset Resolution & Publish Validation Suite
       );
       expect(designRes.design.projectId).toBe(projectAlphaId);
       expect(designRes.design.departmentId).toBe(deptAlpha);
+    });
+  });
+
+  describe('Phase 3: Scoped Listing Tests', () => {
+    it('filters media assets by projectId and scope correctly', async () => {
+      if (!isEmulatorRunning) return;
+
+      // Seed an asset in projectAlpha
+      const assetAId = `test-scoped-a-${Date.now()}`;
+      await db.collection('assets').doc(assetAId).set({
+        id: assetAId,
+        title: 'Project A Asset',
+        fileName: 'project-a.png',
+        mediaType: 'image',
+        mimeType: 'image/png',
+        status: 'ready',
+        departmentId: deptAlpha,
+        projectId: projectAlphaId,
+        ownerProjectId: projectAlphaId,
+        ownerDepartmentId: deptAlpha,
+        visibility: 'project',
+        accessScopes: [`proj:${projectAlphaId}`],
+        storagePath: `media/${deptAlpha}/${assetAId}/original.png`,
+        checksumSha256: 'a1b2c3d4e5f6',
+        fileSizeBytes: 1024,
+        ownerId: creatorUid,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Seed a global asset
+      const assetGlobalId = `test-scoped-global-${Date.now()}`;
+      await db.collection('assets').doc(assetGlobalId).set({
+        id: assetGlobalId,
+        title: 'Global Library Asset',
+        fileName: 'global.png',
+        mediaType: 'image',
+        mimeType: 'image/png',
+        status: 'ready',
+        departmentId: deptAlpha,
+        projectId: projectAlphaId,
+        ownerProjectId: projectAlphaId,
+        ownerDepartmentId: deptAlpha,
+        visibility: 'global',
+        accessScopes: [`proj:${projectAlphaId}`, 'global'],
+        storagePath: `media/${deptAlpha}/${assetGlobalId}/original.png`,
+        checksumSha256: 'a1b2c3d4e5f7',
+        fileSizeBytes: 1024,
+        ownerId: adminUid,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      // 1. List with scope=project
+      const projectList = await callFn(
+        listMediaAssets,
+        {
+          projectId: projectAlphaId,
+          scope: 'project',
+        } as ListMediaAssetsRequest,
+        { uid: creatorUid }
+      );
+      expect(projectList.assets.some((a: MediaAsset) => a.id === assetAId)).toBe(true);
+
+      // 2. List with scope=global
+      const globalList = await callFn(
+        listMediaAssets,
+        {
+          scope: 'global',
+        } as ListMediaAssetsRequest,
+        { uid: creatorUid }
+      );
+      expect(globalList.assets.some((a: MediaAsset) => a.id === assetGlobalId)).toBe(true);
+
+      // 3. List designs filtered by projectId
+      const designList = await callFn(
+        listDesigns,
+        {
+          projectId: projectAlphaId,
+        } as ListDesignsRequest,
+        { uid: creatorUid }
+      );
+      expect(designList.designs.every((d: any) => d.projectId === projectAlphaId)).toBe(true);
     });
   });
 });

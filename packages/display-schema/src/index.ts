@@ -415,6 +415,7 @@ export interface MediaAsset {
   archivedAt: string | null;
 
   // Projects & Visibility Extensions
+  projectId?: string;
   ownerDepartmentId?: string;
   ownerProjectId?: string;
   kind?: AssetKind;
@@ -860,6 +861,8 @@ export interface SetMediaArchivedResponse {
 
 export interface ListMediaAssetsRequest {
   departmentId?: string;
+  projectId?: string;
+  scope?: 'project' | 'department' | 'shared' | 'global';
   mediaType?: 'all' | 'image' | 'video';
   status?: 'all' | 'ready' | 'validating' | 'failed' | 'archived';
   search?: string;
@@ -1106,6 +1109,7 @@ export interface SetDesignArchivedResponse {
 
 export interface ListDesignsRequest {
   departmentId?: string;
+  projectId?: string;
   orientation?: DisplayOrientation | 'all';
   status?: DesignStatus | 'all';
   search?: string;
@@ -2118,6 +2122,7 @@ export interface GetPlaylistResponse {
 
 export interface ListPlaylistsRequest {
   departmentId?: string;
+  projectId?: string;
   orientation?: DisplayOrientation;
   includeArchived?: boolean;
   limit?: number;
@@ -2194,6 +2199,7 @@ export interface GetScheduleResponse {
 
 export interface ListSchedulesRequest {
   departmentId?: string;
+  projectId?: string;
   displayId?: string;
   status?: ScheduleStatus;
   limit?: number;

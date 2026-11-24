@@ -694,12 +694,16 @@ export const listPlaylists = onCall(
   async (request): Promise<ListPlaylistsResponse> => {
     try {
       const caller = await getAuthenticatedCaller(request.auth);
-      const { departmentId, orientation, includeArchived, limit: queryLimit } = (request.data || {}) as ListPlaylistsRequest;
+      const { departmentId, projectId, orientation, includeArchived, limit: queryLimit } = (request.data || {}) as ListPlaylistsRequest;
 
       let query: admin.firestore.Query = db.collection('playlists');
 
-      if (caller.role === 'department_head') {
+      if (projectId) {
+        query = query.where('projectId', '==', projectId);
+      } else if (caller.role === 'department_head') {
         query = query.where('departmentId', '==', caller.departmentId);
+      } else if (caller.role !== 'admin') {
+        query = query.where('departmentId', '==', caller.departmentId || '__none__');
       } else if (departmentId) {
         query = query.where('departmentId', '==', departmentId);
       }
@@ -1277,12 +1281,16 @@ export const listSchedules = onCall(
   async (request): Promise<ListSchedulesResponse> => {
     try {
       const caller = await getAuthenticatedCaller(request.auth);
-      const { departmentId, displayId, status, limit: queryLimit } = (request.data || {}) as ListSchedulesRequest;
+      const { departmentId, projectId, displayId, status, limit: queryLimit } = (request.data || {}) as ListSchedulesRequest;
 
       let query: admin.firestore.Query = db.collection('schedules');
 
-      if (caller.role === 'department_head') {
+      if (projectId) {
+        query = query.where('projectId', '==', projectId);
+      } else if (caller.role === 'department_head') {
         query = query.where('departmentId', '==', caller.departmentId);
+      } else if (caller.role !== 'admin') {
+        query = query.where('departmentId', '==', caller.departmentId || '__none__');
       } else if (departmentId) {
         query = query.where('departmentId', '==', departmentId);
       }

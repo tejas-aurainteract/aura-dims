@@ -519,10 +519,16 @@ exports.getPlaylist = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
 exports.listPlaylists = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     try {
         const caller = await getAuthenticatedCaller(request.auth);
-        const { departmentId, orientation, includeArchived, limit: queryLimit } = (request.data || {});
+        const { departmentId, projectId, orientation, includeArchived, limit: queryLimit } = (request.data || {});
         let query = db.collection('playlists');
-        if (caller.role === 'department_head') {
+        if (projectId) {
+            query = query.where('projectId', '==', projectId);
+        }
+        else if (caller.role === 'department_head') {
             query = query.where('departmentId', '==', caller.departmentId);
+        }
+        else if (caller.role !== 'admin') {
+            query = query.where('departmentId', '==', caller.departmentId || '__none__');
         }
         else if (departmentId) {
             query = query.where('departmentId', '==', departmentId);
@@ -959,10 +965,16 @@ exports.getSchedule = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
 exports.listSchedules = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     try {
         const caller = await getAuthenticatedCaller(request.auth);
-        const { departmentId, displayId, status, limit: queryLimit } = (request.data || {});
+        const { departmentId, projectId, displayId, status, limit: queryLimit } = (request.data || {});
         let query = db.collection('schedules');
-        if (caller.role === 'department_head') {
+        if (projectId) {
+            query = query.where('projectId', '==', projectId);
+        }
+        else if (caller.role === 'department_head') {
             query = query.where('departmentId', '==', caller.departmentId);
+        }
+        else if (caller.role !== 'admin') {
+            query = query.where('departmentId', '==', caller.departmentId || '__none__');
         }
         else if (departmentId) {
             query = query.where('departmentId', '==', departmentId);

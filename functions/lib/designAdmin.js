@@ -476,10 +476,13 @@ exports.setDesignArchivedStatus = (0, https_1.onCall)(CALLABLE_OPTS, async (requ
  */
 exports.listDesigns = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
-    const { departmentId, orientation, status, search, pageSize = 12, cursor } = request.data;
+    const { departmentId, projectId, orientation, status, search, pageSize = 12, cursor } = request.data;
     let query = db.collection('designs');
     // Scoping
-    if (caller.role !== 'admin') {
+    if (projectId) {
+        query = query.where('projectId', '==', projectId);
+    }
+    else if (caller.role !== 'admin') {
         query = query.where('departmentId', '==', caller.departmentId || '__none__');
     }
     else if (departmentId && departmentId !== 'all') {

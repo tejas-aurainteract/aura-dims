@@ -821,16 +821,74 @@ exports.setMediaArchivedStatus = (0, https_1.onCall)(CALLABLE_OPTS, async (reque
 // ==============================================================================
 exports.listMediaAssets = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
     const caller = await getAuthenticatedCaller(request.auth);
-    const { departmentId, mediaType, status, search, pageSize = 24, cursor, includeArchived = false } = request.data || {};
+    const { departmentId, projectId, scope, mediaType, status, search, pageSize = 24, cursor, includeArchived = false, } = request.data || {};
     let query = db.collection('assets');
     // Scoped filtering
-    if (caller.role === 'admin') {
-        if (departmentId && departmentId !== 'all') {
-            query = query.where('departmentId', '==', departmentId);
+    if (scope === 'project' || (projectId && !scope)) {
+        if (!projectId) {
+            throw new https_1.HttpsError('invalid-argument', 'projectId is required for project scope query.');
+        }
+        if (caller.role !== 'admin') {
+            const pDoc = await db.collection('projects').doc(projectId).get();
+            if (!pDoc.exists) {
+                throw new https_1.HttpsError('not-found', `Project '${projectId}' not found.`);
+            }
+            const pData = pDoc.data();
+            if (caller.role === 'department_head') {
+                if (pData.departmentId !== caller.departmentId) {
+                    throw new https_1.HttpsError('permission-denied', 'Cannot access projects outside your department.');
+                }
+            }
+            else {
+                const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
+                if (!mDoc.exists && pData.departmentId !== caller.departmentId) {
+                    throw new https_1.HttpsError('permission-denied', 'You are not a member of this project.');
+                }
+            }
+        }
+        query = query.where('projectId', '==', projectId);
+    }
+    else if (scope === 'department') {
+        const targetDeptId = caller.role === 'admin' && departmentId && departmentId !== 'all'
+            ? departmentId
+            : caller.departmentId;
+        if (!targetDeptId) {
+            throw new https_1.HttpsError('invalid-argument', 'Target departmentId is required.');
+        }
+        if (caller.role === 'admin' || (caller.role === 'department_head' && caller.departmentId === targetDeptId)) {
+            query = query.where('departmentId', '==', targetDeptId);
+        }
+        else {
+            query = query.where('departmentId', '==', targetDeptId).where('accessScopes', 'array-contains', `dept:${targetDeptId}`);
         }
     }
+    else if (scope === 'shared') {
+        if (projectId) {
+            query = query.where('accessScopes', 'array-contains', `proj:${projectId}`);
+        }
+        else if (caller.departmentId) {
+            query = query.where('accessScopes', 'array-contains', `dept:${caller.departmentId}`);
+        }
+        else if (departmentId && departmentId !== 'all') {
+            query = query.where('accessScopes', 'array-contains', `dept:${departmentId}`);
+        }
+        else {
+            throw new https_1.HttpsError('invalid-argument', 'A target projectId or departmentId is required to query shared assets.');
+        }
+    }
+    else if (scope === 'global') {
+        query = query.where('accessScopes', 'array-contains', 'global');
+    }
     else {
-        query = query.where('departmentId', '==', caller.departmentId);
+        // Default fallback / backward compatibility
+        if (caller.role === 'admin') {
+            if (departmentId && departmentId !== 'all') {
+                query = query.where('departmentId', '==', departmentId);
+            }
+        }
+        else {
+            query = query.where('departmentId', '==', caller.departmentId);
+        }
     }
     if (mediaType && mediaType !== 'all') {
         query = query.where('mediaType', '==', mediaType);
@@ -838,8 +896,7 @@ exports.listMediaAssets = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => 
     if (status && status !== 'all') {
         query = query.where('status', '==', status);
     }
-    else if (!includeArchived) {
-        // Exclude archived by default
+    else if (!includeArchived && (!scope || scope === 'project')) {
         query = query.where('status', 'in', ['ready', 'validating', 'failed', 'awaiting_upload']);
     }
     const boundedLimit = Math.min(Math.max(Number(pageSize) || 24, 1), 50);
@@ -871,6 +928,19 @@ exports.listMediaAssets = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => 
         resultDocs = hasNext ? docs.slice(0, boundedLimit) : docs;
     }
     let assets = resultDocs.map((d) => d.data());
+    // Filter out self-owned assets in 'shared' tab
+    if (scope === 'shared') {
+        if (projectId) {
+            assets = assets.filter((a) => a.projectId !== projectId);
+        }
+        else if (caller.departmentId) {
+            assets = assets.filter((a) => a.departmentId !== caller.departmentId);
+        }
+    }
+    // Ensure non-archived if not explicitly included
+    if (!includeArchived && (status === 'all' || !status)) {
+        assets = assets.filter((a) => a.status !== 'archived');
+    }
     // Optional text search filter (by title or fileName)
     if (search && typeof search === 'string' && search.trim()) {
         const term = search.trim().toLowerCase();
