@@ -30,6 +30,9 @@ import type {
   UpdateDepartmentResponse,
   SetDepartmentStatusRequest,
   SetDepartmentStatusResponse,
+  ProjectRecord,
+  ProjectMember,
+  ProjectMemberRole,
 } from '@aura-dims/display-schema';
 
 // Initialize Firebase Admin SDK once
@@ -145,6 +148,88 @@ export const apiHealth = onRequest(
 );
 
 // ==============================================================================
+// Project Enrollment & Department Membership Helpers
+// ==============================================================================
+
+/**
+ * Ensures the default General project exists for a department, and enrolls the user as a member.
+ */
+async function enrollUserInGeneralProject(
+  uid: string,
+  departmentId: string,
+  userProfile: { email?: string; displayName?: string; role: UserRole },
+  actorId: string
+): Promise<void> {
+  const generalProjectId = `proj_general_${departmentId}`;
+  const projectRef = db.collection('projects').doc(generalProjectId);
+  const projectSnap = await projectRef.get();
+  const now = new Date().toISOString();
+
+  if (!projectSnap.exists) {
+    const deptDoc = await db.collection('departments').doc(departmentId).get();
+    const deptName = deptDoc.exists ? deptDoc.data()?.name || departmentId : departmentId;
+
+    const generalProject: ProjectRecord = {
+      id: generalProjectId,
+      departmentId,
+      name: 'General',
+      description: `Default workspace for ${deptName}`,
+      status: 'active',
+      isGeneral: true,
+      createdBy: 'system',
+      createdAt: now,
+      updatedAt: now,
+    };
+    await projectRef.set(generalProject);
+  }
+
+  let memberRole: ProjectMemberRole = 'member';
+  if (userProfile.role === 'admin' || userProfile.role === 'department_head') {
+    memberRole = 'lead';
+  } else if (userProfile.role === 'viewer') {
+    memberRole = 'viewer';
+  }
+
+  const memberRef = projectRef.collection('members').doc(uid);
+  const memberData: ProjectMember = {
+    uid,
+    projectId: generalProjectId,
+    role: memberRole,
+    addedBy: actorId,
+    addedAt: now,
+    updatedAt: now,
+    userEmail: userProfile.email,
+    userDisplayName: userProfile.displayName,
+    userCompanyRole: userProfile.role,
+  };
+  await memberRef.set(memberData, { merge: true });
+}
+
+/**
+ * Removes user memberships from all projects in a specific department (or all projects).
+ */
+async function removeUserFromDepartmentProjects(uid: string, departmentId?: string | null): Promise<void> {
+  try {
+    const memberSnaps = await db.collectionGroup('members').where('uid', '==', uid).get();
+    for (const doc of memberSnaps.docs) {
+      const pRef = doc.ref.parent.parent;
+      if (pRef) {
+        if (!departmentId) {
+          await doc.ref.delete();
+        } else {
+          const pDoc = await pRef.get();
+          if (pDoc.exists && pDoc.data()?.departmentId === departmentId) {
+            await doc.ref.delete();
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[removeUserFromDepartmentProjects] Failed to cleanup project memberships:', err);
+  }
+}
+
+// ==============================================================================
 // Admin User Provisioning and Lifecycle Operations
 // ==============================================================================
 
@@ -156,7 +241,7 @@ export const provisionUser = onCall<ProvisionUserRequest, Promise<ProvisionUserR
   { cors: true, region: REGION },
   async (request) => {
     const caller = await assertAdminCaller(request.auth);
-    const { email, displayName, role, departmentId, temporaryPassword } = request.data;
+    const { email, displayName, role, departmentId, temporaryPassword, replaceExistingHead } = request.data;
 
     // Validation
     if (!email || !email.includes('@')) {
@@ -165,17 +250,17 @@ export const provisionUser = onCall<ProvisionUserRequest, Promise<ProvisionUserR
     if (!displayName || !displayName.trim()) {
       throw new HttpsError('invalid-argument', 'Display name is required.');
     }
-    if (role !== 'admin' && role !== 'department_head') {
-      throw new HttpsError('invalid-argument', 'Role must be either "admin" or "department_head".');
+    if (role !== 'admin' && role !== 'department_head' && role !== 'creator' && role !== 'viewer') {
+      throw new HttpsError('invalid-argument', 'Role must be "admin", "department_head", "creator", or "viewer".');
     }
 
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = displayName.trim();
 
-    // Department Head must be assigned to an active department
-    if (role === 'department_head') {
+    // Department Head, Creator, and Viewer must be assigned to an active department
+    if (role !== 'admin') {
       if (!departmentId) {
-        throw new HttpsError('invalid-argument', 'A Department Head must be assigned to a department.');
+        throw new HttpsError('invalid-argument', `Role "${role}" must be assigned to a department.`);
       }
       const deptDoc = await db.collection('departments').doc(departmentId).get();
       if (!deptDoc.exists || (deptDoc.data() as Department).status !== 'active') {
@@ -218,10 +303,37 @@ export const provisionUser = onCall<ProvisionUserRequest, Promise<ProvisionUserR
 
     const targetUid = authUser.uid;
     const finalDepartmentId = role === 'department_head' ? (departmentId || null) : null;
+    let demotedHeadProfile: UserProfile | null = null;
 
     try {
       // Transactionally record user and increment activeAdminCount if admin
       await db.runTransaction(async (transaction) => {
+        // Enforce: One head per department (reject unless replaceExistingHead is true)
+        if (role === 'department_head' && finalDepartmentId) {
+          const headsSnap = await transaction.get(
+            db.collection('users')
+              .where('departmentId', '==', finalDepartmentId)
+              .where('role', '==', 'department_head')
+              .where('status', '==', 'active')
+          );
+
+          const existingHeadDoc = headsSnap.docs.find((d) => d.id !== targetUid);
+          if (existingHeadDoc) {
+            const existingHead = existingHeadDoc.data() as UserProfile;
+            if (!replaceExistingHead) {
+              throw new HttpsError(
+                'already-exists',
+                `Department already has an active Department Head (${existingHead.displayName || existingHead.email}). Set replaceExistingHead=true to demote the current head to creator.`
+              );
+            }
+            demotedHeadProfile = existingHead;
+            transaction.update(existingHeadDoc.ref, {
+              role: 'creator',
+              updatedAt: FieldValue.serverTimestamp(),
+            });
+          }
+        }
+
         const countsRef = db.collection('systemMetadata').doc('counts');
         const countsDoc = await transaction.get(countsRef);
 
@@ -262,12 +374,42 @@ export const provisionUser = onCall<ProvisionUserRequest, Promise<ProvisionUserR
         });
       });
 
+      // If an existing head was demoted, update their claims, revoke tokens and log audit
+      if (demotedHeadProfile) {
+        const dh = demotedHeadProfile as UserProfile;
+        await admin.auth().setCustomUserClaims(dh.uid, {
+          role: 'creator',
+          departmentId: dh.departmentId,
+          active: true,
+        });
+        await admin.auth().revokeRefreshTokens(dh.uid);
+        await writeAuditLog({
+          actorId: caller.uid,
+          action: 'user.head_demoted',
+          targetId: dh.uid,
+          targetType: 'user',
+          previousState: { role: 'department_head' },
+          newState: { role: 'creator' },
+          metadata: { departmentId: finalDepartmentId, replacedByUid: targetUid },
+        });
+      }
+
       // Set custom claims for security rules and tokens
       await admin.auth().setCustomUserClaims(targetUid, {
         role,
         departmentId: finalDepartmentId,
         active: true,
       });
+
+      // Auto-enroll user in their department's default General project
+      if (finalDepartmentId) {
+        await enrollUserInGeneralProject(
+          targetUid,
+          finalDepartmentId,
+          { email: cleanEmail, displayName: cleanName, role },
+          caller.uid
+        );
+      }
 
       // Generate password setup link
       let setupLink: string | undefined;
@@ -323,7 +465,7 @@ export const updateUser = onCall<UpdateUserRequest, Promise<UpdateUserResponse>>
   { cors: true, region: REGION },
   async (request) => {
     const caller = await assertAdminCaller(request.auth);
-    const { uid, displayName, role, departmentId } = request.data;
+    const { uid, displayName, role, departmentId, replaceExistingHead } = request.data;
 
     if (!uid) {
       throw new HttpsError('invalid-argument', 'Target user UID is required.');
@@ -333,6 +475,9 @@ export const updateUser = onCall<UpdateUserRequest, Promise<UpdateUserResponse>>
     const countsRef = db.collection('systemMetadata').doc('counts');
 
     let updatedProfile: UserProfile | null = null;
+    let demotedHeadProfile: UserProfile | null = null;
+    let oldDeptId: string | null = null;
+    let roleChanged = false;
 
     await db.runTransaction(async (transaction) => {
       const userDoc = await transaction.get(userRef);
@@ -341,6 +486,7 @@ export const updateUser = onCall<UpdateUserRequest, Promise<UpdateUserResponse>>
       }
 
       const current = userDoc.data() as UserProfile;
+      oldDeptId = current.departmentId;
       const targetRole: UserRole = role || current.role;
       const targetName: string = displayName !== undefined ? displayName.trim() : current.displayName;
       let targetDept: string | null = departmentId !== undefined ? departmentId : current.departmentId;
@@ -349,6 +495,34 @@ export const updateUser = onCall<UpdateUserRequest, Promise<UpdateUserResponse>>
         targetDept = null;
       } else if (targetRole === 'department_head' && !targetDept) {
         throw new HttpsError('invalid-argument', 'A Department Head must have an assigned department.');
+      }
+
+      roleChanged = current.role !== targetRole || current.departmentId !== targetDept;
+
+      // Enforce: One head per department (reject unless replaceExistingHead is true)
+      if (targetRole === 'department_head' && targetDept) {
+        const headsSnap = await transaction.get(
+          db.collection('users')
+            .where('departmentId', '==', targetDept)
+            .where('role', '==', 'department_head')
+            .where('status', '==', 'active')
+        );
+
+        const existingHeadDoc = headsSnap.docs.find((d) => d.id !== uid);
+        if (existingHeadDoc) {
+          const existingHead = existingHeadDoc.data() as UserProfile;
+          if (!replaceExistingHead) {
+            throw new HttpsError(
+              'already-exists',
+              `Department already has an active Department Head (${existingHead.displayName || existingHead.email}). Set replaceExistingHead=true to demote the current head to creator.`
+            );
+          }
+          demotedHeadProfile = existingHead;
+          transaction.update(existingHeadDoc.ref, {
+            role: 'creator',
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
       }
 
       // Check last-admin invariant if role is being demoted
@@ -394,6 +568,26 @@ export const updateUser = onCall<UpdateUserRequest, Promise<UpdateUserResponse>>
 
     const finalProfile = updatedProfile as UserProfile;
 
+    // If an existing head was demoted, update their claims, revoke tokens and log audit
+    if (demotedHeadProfile) {
+      const dh = demotedHeadProfile as UserProfile;
+      await admin.auth().setCustomUserClaims(dh.uid, {
+        role: 'creator',
+        departmentId: dh.departmentId,
+        active: true,
+      });
+      await admin.auth().revokeRefreshTokens(dh.uid);
+      await writeAuditLog({
+        actorId: caller.uid,
+        action: 'user.head_demoted',
+        targetId: dh.uid,
+        targetType: 'user',
+        previousState: { role: 'department_head' },
+        newState: { role: 'creator' },
+        metadata: { departmentId: finalProfile.departmentId, replacedByUid: uid },
+      });
+    }
+
     // Update Firebase Auth claims and displayName
     await admin.auth().updateUser(uid, {
       displayName: finalProfile.displayName,
@@ -403,6 +597,24 @@ export const updateUser = onCall<UpdateUserRequest, Promise<UpdateUserResponse>>
       departmentId: finalProfile.departmentId,
       active: finalProfile.status === 'active',
     });
+
+    // After any role change, revoke refresh tokens
+    if (roleChanged) {
+      await admin.auth().revokeRefreshTokens(uid);
+    }
+
+    // Department change: cleanup old project memberships and enroll in new General project
+    if (oldDeptId && oldDeptId !== finalProfile.departmentId) {
+      await removeUserFromDepartmentProjects(uid, oldDeptId);
+    }
+    if (finalProfile.departmentId) {
+      await enrollUserInGeneralProject(
+        uid,
+        finalProfile.departmentId,
+        { email: finalProfile.email, displayName: finalProfile.displayName, role: finalProfile.role },
+        caller.uid
+      );
+    }
 
     // Record Audit Event
     await writeAuditLog({
@@ -487,6 +699,7 @@ export const setUserActiveStatus = onCall<SetUserStatusRequest, Promise<SetUserS
     if (status === 'inactive') {
       await admin.auth().updateUser(uid, { disabled: true });
       await admin.auth().revokeRefreshTokens(uid);
+      await removeUserFromDepartmentProjects(uid);
     } else {
       await admin.auth().updateUser(uid, { disabled: false });
     }
@@ -838,4 +1051,21 @@ export {
   discardDisplayPreview,
   reportDeviceShutdown,
 } from './deviceOperations';
+
+// ==============================================================================
+// Project Workspace & Member Administration
+// ==============================================================================
+export {
+  createProject,
+  updateProject,
+  archiveProject,
+  listProjects,
+  addProjectMember,
+  removeProjectMember,
+  updateProjectMemberRole,
+  listProjectMembers,
+  moveAssetProject,
+  ALLOWED_PROJECT_CREATOR_ROLES,
+} from './projectsAdmin';
+
 

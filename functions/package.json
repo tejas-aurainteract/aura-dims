@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "echo \"@aura-dims/functions lint ok\"",
     "serve": "firebase emulators:start --only functions",
-    "shell": "firebase functions:shell"
+    "shell": "firebase functions:shell",
+    "migrate:projects:dry-run": "node lib/migrations/migrateProjectsAndAssets.js --dry-run",
+    "migrate:projects:apply": "node lib/migrations/migrateProjectsAndAssets.js --apply"
   },
   "engines": {
     "node": "24"

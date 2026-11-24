@@ -29,7 +29,7 @@ export type DisplayConnectivity = 'never_connected' | 'online' | 'offline';
 
 export type ContentLanguage = 'en' | 'gu' | 'hi'; // English, Gujarati, Hindi
 
-export type UserRole = 'admin' | 'department_head';
+export type UserRole = 'admin' | 'department_head' | 'creator' | 'viewer';
 
 export type UserStatus = 'active' | 'inactive';
 
@@ -371,6 +371,15 @@ export const MEDIA_CONSTRAINTS = {
   MAX_TAG_LENGTH: 30,
 } as const;
 
+export type AssetKind = 'displayable' | 'reference';
+export type AssetVisibility = 'project' | 'department' | 'shared' | 'global';
+export type AssetGlobalApprovalState = 'none' | 'pending' | 'approved' | 'rejected';
+
+export interface AssetShareTarget {
+  type: 'department' | 'project';
+  id: string;
+}
+
 export interface MediaAsset {
   id: string;
   title: string;
@@ -404,6 +413,16 @@ export interface MediaAsset {
   updatedAt: string;
   validatedAt: string | null;
   archivedAt: string | null;
+
+  // Projects & Visibility Extensions
+  ownerDepartmentId?: string;
+  ownerProjectId?: string;
+  kind?: AssetKind;
+  visibility?: AssetVisibility;
+  sharedWith?: AssetShareTarget[];
+  accessScopes?: string[];
+  globalApprovalState?: AssetGlobalApprovalState;
+  version?: number;
 }
 
 export interface PublicationItem {
@@ -447,7 +466,9 @@ export type AuditTargetType =
   | 'playlist'
   | 'publication'
   | 'display_operation'
-  | 'display_preview';
+  | 'display_preview'
+  | 'project'
+  | 'project_member';
 
 export interface AuditEvent {
   id: string;
@@ -492,6 +513,7 @@ export interface ProvisionUserRequest {
   role: UserRole;
   departmentId?: string | null;
   temporaryPassword?: string;
+  replaceExistingHead?: boolean;
 }
 
 export interface ProvisionUserResponse {
@@ -509,6 +531,7 @@ export interface UpdateUserRequest {
   displayName?: string;
   role?: UserRole;
   departmentId?: string | null;
+  replaceExistingHead?: boolean;
 }
 
 export interface UpdateUserResponse {
@@ -987,6 +1010,7 @@ export interface DesignRecord {
   orientation: DisplayOrientation;
   dimensions: Resolution;
   departmentId: string;
+  projectId?: string | null;
   ownerId: string;
   uploaderDisplayName?: string;
   status: DesignStatus;
@@ -1377,6 +1401,7 @@ export interface PlaylistRecord {
   title: string;
   description: string;
   departmentId: string;
+  projectId?: string | null;
   orientation: DisplayOrientation;
   items: PlaylistItem[];
   totalDurationSeconds: number;
@@ -1499,6 +1524,7 @@ export interface ScheduleRecord {
   title: string;
   departmentId: string;
   departmentName?: string | null;
+  projectId?: string | null;
   playlistRevisionId: string;
   playlistTitle: string;
   approvalId: string | null;
@@ -3197,6 +3223,129 @@ export interface PendingEnrollmentView {
   codeHint: string; // e.g. "••••9P"
   wifiSsid?: string | null;
 }
+
+// ==============================================================================
+// Projects & Workspace Hierarchy
+// ==============================================================================
+
+export type ProjectStatus = 'active' | 'archived';
+export type ProjectMemberRole = 'lead' | 'member' | 'viewer';
+
+export interface ProjectRecord {
+  id: string; // e.g. "proj_general_{deptId}" or "proj_{uuid}"
+  departmentId: string;
+  name: string;
+  description: string;
+  status: ProjectStatus;
+  isGeneral?: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string | null;
+  archivedBy?: string | null;
+}
+
+export interface ProjectMember {
+  uid: string;
+  projectId: string;
+  role: ProjectMemberRole;
+  addedBy: string;
+  addedAt: string;
+  updatedAt: string;
+  userEmail?: string;
+  userDisplayName?: string;
+  userCompanyRole?: UserRole;
+}
+
+export interface CreateProjectRequest {
+  departmentId?: string;
+  name: string;
+  description?: string;
+}
+
+export interface CreateProjectResponse {
+  project: ProjectRecord;
+}
+
+export interface UpdateProjectRequest {
+  projectId: string;
+  name?: string;
+  description?: string;
+}
+
+export interface UpdateProjectResponse {
+  project: ProjectRecord;
+}
+
+export interface ArchiveProjectRequest {
+  projectId: string;
+}
+
+export interface ArchiveProjectResponse {
+  projectId: string;
+  status: 'archived';
+}
+
+export interface ListProjectsRequest {
+  departmentId?: string;
+  status?: ProjectStatus | 'all';
+}
+
+export interface ListProjectsResponse {
+  projects: Array<ProjectRecord & { memberCount?: number; assetCount?: number }>;
+}
+
+export interface AddProjectMemberRequest {
+  projectId: string;
+  targetUid: string;
+  role: ProjectMemberRole;
+}
+
+export interface AddProjectMemberResponse {
+  member: ProjectMember;
+}
+
+export interface RemoveProjectMemberRequest {
+  projectId: string;
+  targetUid: string;
+}
+
+export interface RemoveProjectMemberResponse {
+  projectId: string;
+  targetUid: string;
+}
+
+export interface UpdateProjectMemberRoleRequest {
+  projectId: string;
+  targetUid: string;
+  role: ProjectMemberRole;
+}
+
+export interface UpdateProjectMemberRoleResponse {
+  member: ProjectMember;
+}
+
+export interface ListProjectMembersRequest {
+  projectId: string;
+}
+
+export interface ListProjectMembersResponse {
+  members: ProjectMember[];
+}
+
+export interface MoveAssetProjectRequest {
+  assetId: string;
+  targetProjectId: string;
+  targetDepartmentId?: string;
+}
+
+export interface MoveAssetProjectResponse {
+  assetId: string;
+  previousProjectId?: string;
+  ownerProjectId: string;
+  ownerDepartmentId: string;
+}
+
 
 
 
