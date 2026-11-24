@@ -21,6 +21,8 @@ import { AccessDeniedPage } from '@/pages/AccessDeniedPage';
 // Business Pages
 import { DashboardPage } from '@/pages/DashboardPage';
 import { DisplaysPage } from '@/pages/DisplaysPage';
+import { ProjectsPage } from '@/pages/ProjectsPage';
+import { ProjectDetailPage } from '@/pages/ProjectDetailPage';
 import { ContentPage } from '@/pages/ContentPage';
 import { DesignEditorPage } from '@/pages/DesignEditorPage';
 import { SchedulesPage } from '@/pages/SchedulesPage';
@@ -63,6 +65,8 @@ export const App: React.FC = () => {
             {/* Primary Business Navigation */}
             <Route index element={<DashboardPage />} />
             <Route path="displays" element={<DisplaysPage />} />
+            <Route path="projects" element={<ProjectsPage />} />
+            <Route path="projects/:projectId" element={<ProjectDetailPage />} />
             <Route path="content" element={<ContentPage />} />
             <Route path="schedules" element={<SchedulesPage />} />
             <Route path="approvals" element={<ApprovalsPage />} />

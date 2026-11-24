@@ -162,6 +162,24 @@ import type {
   GetDisplayPreviewUrlResponse,
   DiscardDisplayPreviewRequest,
   DiscardDisplayPreviewResponse,
+  CreateProjectRequest,
+  CreateProjectResponse,
+  UpdateProjectRequest,
+  UpdateProjectResponse,
+  ArchiveProjectRequest,
+  ArchiveProjectResponse,
+  ListProjectsRequest,
+  ListProjectsResponse,
+  AddProjectMemberRequest,
+  AddProjectMemberResponse,
+  RemoveProjectMemberRequest,
+  RemoveProjectMemberResponse,
+  UpdateProjectMemberRoleRequest,
+  UpdateProjectMemberRoleResponse,
+  ListProjectMembersRequest,
+  ListProjectMembersResponse,
+  MoveAssetProjectRequest,
+  MoveAssetProjectResponse,
 } from '@aura-dims/display-schema';
 
 export const api = {
@@ -643,6 +661,61 @@ export const api = {
 
   discardDisplayPreview: async (req: DiscardDisplayPreviewRequest): Promise<DiscardDisplayPreviewResponse> => {
     const fn = httpsCallable<DiscardDisplayPreviewRequest, DiscardDisplayPreviewResponse>(functions, 'discardDisplayPreview');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  // Project Management Operations
+  createProject: async (req: CreateProjectRequest): Promise<CreateProjectResponse> => {
+    const fn = httpsCallable<CreateProjectRequest, CreateProjectResponse>(functions, 'createProject');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  updateProject: async (req: UpdateProjectRequest): Promise<UpdateProjectResponse> => {
+    const fn = httpsCallable<UpdateProjectRequest, UpdateProjectResponse>(functions, 'updateProject');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  archiveProject: async (req: ArchiveProjectRequest): Promise<ArchiveProjectResponse> => {
+    const fn = httpsCallable<ArchiveProjectRequest, ArchiveProjectResponse>(functions, 'archiveProject');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  listProjects: async (req: ListProjectsRequest): Promise<ListProjectsResponse> => {
+    const fn = httpsCallable<ListProjectsRequest, ListProjectsResponse>(functions, 'listProjects');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  addProjectMember: async (req: AddProjectMemberRequest): Promise<AddProjectMemberResponse> => {
+    const fn = httpsCallable<AddProjectMemberRequest, AddProjectMemberResponse>(functions, 'addProjectMember');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  removeProjectMember: async (req: RemoveProjectMemberRequest): Promise<RemoveProjectMemberResponse> => {
+    const fn = httpsCallable<RemoveProjectMemberRequest, RemoveProjectMemberResponse>(functions, 'removeProjectMember');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  updateProjectMemberRole: async (req: UpdateProjectMemberRoleRequest): Promise<UpdateProjectMemberRoleResponse> => {
+    const fn = httpsCallable<UpdateProjectMemberRoleRequest, UpdateProjectMemberRoleResponse>(functions, 'updateProjectMemberRole');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  listProjectMembers: async (req: ListProjectMembersRequest): Promise<ListProjectMembersResponse> => {
+    const fn = httpsCallable<ListProjectMembersRequest, ListProjectMembersResponse>(functions, 'listProjectMembers');
+    const result = await fn(req);
+    return result.data;
+  },
+
+  moveAssetProject: async (req: MoveAssetProjectRequest): Promise<MoveAssetProjectResponse> => {
+    const fn = httpsCallable<MoveAssetProjectRequest, MoveAssetProjectResponse>(functions, 'moveAssetProject');
     const result = await fn(req);
     return result.data;
   },

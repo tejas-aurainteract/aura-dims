@@ -3243,6 +3243,7 @@ export interface PendingEnrollmentView {
 // Projects & Workspace Hierarchy
 // ==============================================================================
 
+export const ALLOWED_PROJECT_CREATOR_ROLES: UserRole[] = ['admin', 'department_head'];
 export type ProjectStatus = 'active' | 'archived';
 export type ProjectMemberRole = 'lead' | 'member' | 'viewer';
 

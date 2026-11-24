@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   Tv,
   FolderOpen,
+  FolderKanban,
   Calendar,
   CheckCircle2,
   Users2,
@@ -33,6 +34,7 @@ interface NavItem {
 const baseNavItems: NavItem[] = [
   { name: 'Dashboard', path: '/', icon: LayoutDashboard },
   { name: 'Digital Displays', path: '/displays', icon: Tv },
+  { name: 'Projects', path: '/projects', icon: FolderKanban },
   { name: 'Content', path: '/content', icon: FolderOpen },
   { name: 'Schedules', path: '/schedules', icon: Calendar },
   { name: 'Approvals', path: '/approvals', icon: CheckCircle2 },
