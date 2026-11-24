@@ -58,6 +58,29 @@ export const UsersPage: React.FC = () => {
   const [modalError, setModalError] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
 
+  // Replace Department Head confirmation modal
+  const [replaceHeadState, setReplaceHeadState] = useState<{
+    isOpen: boolean;
+    existingHeadName: string;
+    isProvisioning: boolean;
+    pendingProvisionData?: {
+      displayName: string;
+      email: string;
+      role: UserRole;
+      departmentId: string | null;
+    };
+    pendingUpdateData?: {
+      uid: string;
+      displayName: string;
+      role: UserRole;
+      departmentId: string | null;
+    };
+  }>({
+    isOpen: false,
+    existingHeadName: '',
+    isProvisioning: false,
+  });
+
   // Real-time Firestore query for users & departments
   useEffect(() => {
     setLoading(true);
@@ -137,6 +160,27 @@ export const UsersPage: React.FC = () => {
         setIsProvisionOpen(false);
       }
     } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      if (
+        (err as any)?.code === 'already-exists' ||
+        errorMsg.includes('already has an active Department Head') ||
+        errorMsg.includes('already-exists')
+      ) {
+        const match = errorMsg.match(/active Department Head \((.*?)\)/i);
+        const headName = (match && match[1]) ? match[1] : 'Current Department Head';
+        setReplaceHeadState({
+          isOpen: true,
+          existingHeadName: headName,
+          isProvisioning: true,
+          pendingProvisionData: {
+            displayName: newName.trim(),
+            email: newEmail.trim().toLowerCase(),
+            role: newRole,
+            departmentId: newRole === 'department_head' ? newDeptId : newDeptId || null,
+          },
+        });
+        return;
+      }
       setModalError(err instanceof Error ? err.message : 'User provisioning failed.');
     } finally {
       setIsSubmitting(false);
@@ -180,7 +224,65 @@ export const UsersPage: React.FC = () => {
         await refreshProfile();
       }
     } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      if (
+        (err as any)?.code === 'already-exists' ||
+        errorMsg.includes('already has an active Department Head') ||
+        errorMsg.includes('already-exists')
+      ) {
+        const match = errorMsg.match(/active Department Head \((.*?)\)/i);
+        const headName = (match && match[1]) ? match[1] : 'Current Department Head';
+        setReplaceHeadState({
+          isOpen: true,
+          existingHeadName: headName,
+          isProvisioning: false,
+          pendingUpdateData: {
+            uid: editingUser.uid,
+            displayName: editName.trim(),
+            role: editRole,
+            departmentId: editRole === 'department_head' ? editDeptId : editDeptId || null,
+          },
+        });
+        return;
+      }
       setModalError(err instanceof Error ? err.message : 'User update failed.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleConfirmReplaceHead = async () => {
+    setIsSubmitting(true);
+    setModalError(null);
+    try {
+      if (replaceHeadState.isProvisioning && replaceHeadState.pendingProvisionData) {
+        const res = await api.provisionUser({
+          ...replaceHeadState.pendingProvisionData,
+          replaceExistingHead: true,
+        });
+        setReplaceHeadState({ isOpen: false, existingHeadName: '', isProvisioning: false });
+        setActionSuccess(`User ${res.displayName} provisioned as Department Head. Previous head was demoted to Creator.`);
+        if (res.setupLink) {
+          setGeneratedSetupLink(res.setupLink);
+        } else {
+          setIsProvisionOpen(false);
+        }
+      } else if (!replaceHeadState.isProvisioning && replaceHeadState.pendingUpdateData) {
+        await api.updateUser({
+          ...replaceHeadState.pendingUpdateData,
+          replaceExistingHead: true,
+        });
+        setReplaceHeadState({ isOpen: false, existingHeadName: '', isProvisioning: false });
+        setIsEditOpen(false);
+        setEditingUser(null);
+        setActionSuccess('User promoted to Department Head. Previous head was demoted to Creator and their sessions revoked.');
+        if (replaceHeadState.pendingUpdateData.uid === currentAdminProfile?.uid) {
+          await refreshProfile();
+        }
+      }
+    } catch (err: unknown) {
+      setModalError(err instanceof Error ? err.message : 'Action failed.');
+      setReplaceHeadState({ isOpen: false, existingHeadName: '', isProvisioning: false });
     } finally {
       setIsSubmitting(false);
     }
@@ -698,6 +800,54 @@ export const UsersPage: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Replace Department Head Confirmation Modal */}
+      {replaceHeadState.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150 p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-700 shrink-0">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Replace Department Head?</h3>
+                <p className="text-xs text-slate-500">Aurainteract Private Limited Governance Rule</p>
+              </div>
+            </div>
+
+            <div className="space-y-2 text-xs text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+              <p>
+                This department already has an active Department Head:{' '}
+                <strong className="text-slate-900">{replaceHeadState.existingHeadName}</strong>.
+              </p>
+              <p className="text-amber-800 bg-amber-50 p-2.5 rounded-lg border border-amber-200 leading-relaxed font-medium">
+                Consequence: <strong>{replaceHeadState.existingHeadName}</strong> will be demoted to <strong>Creator</strong>, and their active login sessions will be immediately revoked to enforce security.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setReplaceHeadState({ isOpen: false, existingHeadName: '', isProvisioning: false })
+                }
+                className="px-3.5 py-2 text-xs font-semibold rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={handleConfirmReplaceHead}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-colors shadow-xs"
+              >
+                {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>Replace and demote existing head</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -18,6 +18,7 @@ import {
   Monitor,
   Smartphone,
   AlertCircle,
+  FolderKanban,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
@@ -26,6 +27,7 @@ import type {
   PlaylistItem,
   DisplayOrientation,
   DesignRecord,
+  ProjectRecord,
 } from '@aura-dims/display-schema';
 
 interface CreatePlaylistModalProps {
@@ -54,8 +56,35 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
   const [availableDesigns, setAvailableDesigns] = useState<DesignRecord[]>([]);
   const [selectedDesignId, setSelectedDesignId] = useState('');
   const [loadingDesigns, setLoadingDesigns] = useState(false);
+  const [availableProjects, setAvailableProjects] = useState<ProjectRecord[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Load active projects for department
+  useEffect(() => {
+    async function loadProjects() {
+      const targetDept = userProfile?.role === 'admin' ? departmentId : userProfile?.departmentId;
+      if (!targetDept) return;
+      try {
+        const res = await api.listProjects({
+          departmentId: targetDept,
+          status: 'active',
+        });
+        const projs = res.projects || [];
+        setAvailableProjects(projs);
+        if (userProfile?.role !== 'admin') {
+          const defaultGen = projs.find((p) => p.isGeneral || p.id.startsWith('proj_general_'));
+          setSelectedProjectId(defaultGen ? defaultGen.id : projs[0]?.id || '');
+        } else if (!selectedProjectId && projs.length > 0) {
+          setSelectedProjectId('');
+        }
+      } catch (err) {
+        console.warn('Failed to load projects for playlist:', err);
+      }
+    }
+    loadProjects();
+  }, [departmentId, userProfile?.departmentId, userProfile?.role]);
 
   // Fetch designs matching the chosen orientation
   useEffect(() => {
@@ -150,6 +179,11 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
       return;
     }
 
+    if (!isEditing && !selectedProjectId) {
+      setError('Please select a target project.');
+      return;
+    }
+
     setSaving(true);
     setError(null);
 
@@ -167,6 +201,7 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
           title: title.trim(),
           description: description.trim(),
           departmentId,
+          projectId: selectedProjectId,
           orientation,
           items,
         });
@@ -208,6 +243,37 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {/* Destination Project Selection */}
+          {!isEditing && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                <FolderKanban className="w-3.5 h-3.5 text-teal-600" />
+                <span>Destination Project</span>
+                <span className="text-rose-500">*</span>
+              </label>
+              <select
+                value={selectedProjectId}
+                required
+                onChange={(e) => setSelectedProjectId(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+              >
+                {userProfile?.role === 'admin' && !selectedProjectId && (
+                  <option value="">— Select destination project —</option>
+                )}
+                {availableProjects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} {p.isGeneral ? '(General Project)' : ''}
+                  </option>
+                ))}
+              </select>
+              {userProfile?.role === 'admin' && !selectedProjectId && (
+                <p className="text-[11px] text-amber-600 mt-1">
+                  Administrators must explicitly select a destination project.
+                </p>
+              )}
             </div>
           )}
 
