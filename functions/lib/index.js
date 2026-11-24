@@ -271,11 +271,14 @@ exports.provisionUser = (0, https_1.onCall)({ cors: true, region: REGION }, asyn
         }
     }
     const targetUid = authUser.uid;
-    const finalDepartmentId = role === 'department_head' ? (departmentId || null) : null;
+    const finalDepartmentId = role !== 'admin' ? (departmentId || null) : null;
     let demotedHeadProfile = null;
     try {
         // Transactionally record user and increment activeAdminCount if admin
         await db.runTransaction(async (transaction) => {
+            const countsRef = db.collection('systemMetadata').doc('counts');
+            const countsDoc = await transaction.get(countsRef);
+            let existingHeadDocToDemote = null;
             // Enforce: One head per department (reject unless replaceExistingHead is true)
             if (role === 'department_head' && finalDepartmentId) {
                 const headsSnap = await transaction.get(db.collection('users')
@@ -289,14 +292,16 @@ exports.provisionUser = (0, https_1.onCall)({ cors: true, region: REGION }, asyn
                         throw new https_1.HttpsError('already-exists', `Department already has an active Department Head (${existingHead.displayName || existingHead.email}). Set replaceExistingHead=true to demote the current head to creator.`);
                     }
                     demotedHeadProfile = existingHead;
-                    transaction.update(existingHeadDoc.ref, {
-                        role: 'creator',
-                        updatedAt: firestore_1.FieldValue.serverTimestamp(),
-                    });
+                    existingHeadDocToDemote = existingHeadDoc;
                 }
             }
-            const countsRef = db.collection('systemMetadata').doc('counts');
-            const countsDoc = await transaction.get(countsRef);
+            // Writes begin after all reads
+            if (existingHeadDocToDemote) {
+                transaction.update(existingHeadDocToDemote.ref, {
+                    role: 'creator',
+                    updatedAt: firestore_1.FieldValue.serverTimestamp(),
+                });
+            }
             let activeAdminCount = 0;
             let totalUserCount = 0;
             if (countsDoc.exists) {
@@ -432,6 +437,10 @@ exports.updateUser = (0, https_1.onCall)({ cors: true, region: REGION }, async (
             throw new https_1.HttpsError('invalid-argument', 'A Department Head must have an assigned department.');
         }
         roleChanged = current.role !== targetRole || current.departmentId !== targetDept;
+        // 1. ALL READS: Read countsDoc and head check before executing any writes
+        const countsDoc = await transaction.get(countsRef);
+        let activeAdminCount = countsDoc.exists ? Number(countsDoc.data()?.activeAdminCount || 0) : 0;
+        let existingHeadDocToDemote = null;
         // Enforce: One head per department (reject unless replaceExistingHead is true)
         if (targetRole === 'department_head' && targetDept) {
             const headsSnap = await transaction.get(db.collection('users')
@@ -445,15 +454,17 @@ exports.updateUser = (0, https_1.onCall)({ cors: true, region: REGION }, async (
                     throw new https_1.HttpsError('already-exists', `Department already has an active Department Head (${existingHead.displayName || existingHead.email}). Set replaceExistingHead=true to demote the current head to creator.`);
                 }
                 demotedHeadProfile = existingHead;
-                transaction.update(existingHeadDoc.ref, {
-                    role: 'creator',
-                    updatedAt: firestore_1.FieldValue.serverTimestamp(),
-                });
+                existingHeadDocToDemote = existingHeadDoc;
             }
         }
+        // 2. ALL WRITES: Execute writes now that all reads are completed
+        if (existingHeadDocToDemote) {
+            transaction.update(existingHeadDocToDemote.ref, {
+                role: 'creator',
+                updatedAt: firestore_1.FieldValue.serverTimestamp(),
+            });
+        }
         // Check last-admin invariant if role is being demoted
-        const countsDoc = await transaction.get(countsRef);
-        let activeAdminCount = countsDoc.exists ? Number(countsDoc.data()?.activeAdminCount || 0) : 0;
         if (current.role === 'admin' && current.status === 'active' && targetRole !== 'admin') {
             if (activeAdminCount <= 1) {
                 throw new https_1.HttpsError('failed-precondition', 'Cannot demote the last active Administrator.');
@@ -487,12 +498,19 @@ exports.updateUser = (0, https_1.onCall)({ cors: true, region: REGION }, async (
     // If an existing head was demoted, update their claims, revoke tokens and log audit
     if (demotedHeadProfile) {
         const dh = demotedHeadProfile;
-        await admin.auth().setCustomUserClaims(dh.uid, {
-            role: 'creator',
-            departmentId: dh.departmentId,
-            active: true,
-        });
-        await admin.auth().revokeRefreshTokens(dh.uid);
+        try {
+            await admin.auth().setCustomUserClaims(dh.uid, {
+                role: 'creator',
+                departmentId: dh.departmentId,
+                active: true,
+            });
+            await admin.auth().revokeRefreshTokens(dh.uid);
+        }
+        catch (authErr) {
+            if (authErr?.code !== 'auth/user-not-found') {
+                throw authErr;
+            }
+        }
         await writeAuditLog({
             actorId: caller.uid,
             action: 'user.head_demoted',
@@ -504,17 +522,25 @@ exports.updateUser = (0, https_1.onCall)({ cors: true, region: REGION }, async (
         });
     }
     // Update Firebase Auth claims and displayName
-    await admin.auth().updateUser(uid, {
-        displayName: finalProfile.displayName,
-    });
-    await admin.auth().setCustomUserClaims(uid, {
-        role: finalProfile.role,
-        departmentId: finalProfile.departmentId,
-        active: finalProfile.status === 'active',
-    });
-    // After any role change, revoke refresh tokens
-    if (roleChanged) {
-        await admin.auth().revokeRefreshTokens(uid);
+    try {
+        await admin.auth().updateUser(uid, {
+            displayName: finalProfile.displayName,
+        });
+        await admin.auth().setCustomUserClaims(uid, {
+            role: finalProfile.role,
+            departmentId: finalProfile.departmentId,
+            active: finalProfile.status === 'active',
+        });
+        // After any role change, revoke refresh tokens
+        if (roleChanged) {
+            await admin.auth().revokeRefreshTokens(uid);
+        }
+    }
+    catch (authErr) {
+        if (authErr?.code !== 'auth/user-not-found') {
+            throw authErr;
+        }
+        console.warn(`[updateUser] Auth user ${uid} not found in Firebase Auth; skipping auth record update.`);
     }
     // Department change: cleanup old project memberships and enroll in new General project
     if (oldDeptId && oldDeptId !== finalProfile.departmentId) {
@@ -586,22 +612,32 @@ exports.setUserActiveStatus = (0, https_1.onCall)({ cors: true, region: REGION }
         });
     });
     // Synchronize Auth user state: disable account and immediately revoke tokens if deactivating
+    try {
+        if (status === 'inactive') {
+            await admin.auth().updateUser(uid, { disabled: true });
+            await admin.auth().revokeRefreshTokens(uid);
+        }
+        else {
+            await admin.auth().updateUser(uid, { disabled: false });
+        }
+        // Refresh custom claims
+        const userDoc = await db.collection('users').doc(uid).get();
+        const current = userDoc.data();
+        await admin.auth().setCustomUserClaims(uid, {
+            role: current.role,
+            departmentId: current.departmentId,
+            active: status === 'active',
+        });
+    }
+    catch (authErr) {
+        if (authErr?.code !== 'auth/user-not-found') {
+            throw authErr;
+        }
+        console.warn(`[setUserActiveStatus] Auth user ${uid} not found in Firebase Auth; skipping auth record update.`);
+    }
     if (status === 'inactive') {
-        await admin.auth().updateUser(uid, { disabled: true });
-        await admin.auth().revokeRefreshTokens(uid);
         await removeUserFromDepartmentProjects(uid);
     }
-    else {
-        await admin.auth().updateUser(uid, { disabled: false });
-    }
-    // Refresh custom claims
-    const userDoc = await db.collection('users').doc(uid).get();
-    const current = userDoc.data();
-    await admin.auth().setCustomUserClaims(uid, {
-        role: current.role,
-        departmentId: current.departmentId,
-        active: status === 'active',
-    });
     // Record Audit Event
     await writeAuditLog({
         actorId: caller.uid,

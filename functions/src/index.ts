@@ -302,12 +302,17 @@ export const provisionUser = onCall<ProvisionUserRequest, Promise<ProvisionUserR
     }
 
     const targetUid = authUser.uid;
-    const finalDepartmentId = role === 'department_head' ? (departmentId || null) : null;
+    const finalDepartmentId = role !== 'admin' ? (departmentId || null) : null;
     let demotedHeadProfile: UserProfile | null = null;
 
     try {
       // Transactionally record user and increment activeAdminCount if admin
       await db.runTransaction(async (transaction) => {
+        const countsRef = db.collection('systemMetadata').doc('counts');
+        const countsDoc = await transaction.get(countsRef);
+
+        let existingHeadDocToDemote: FirebaseFirestore.DocumentSnapshot | null = null;
+
         // Enforce: One head per department (reject unless replaceExistingHead is true)
         if (role === 'department_head' && finalDepartmentId) {
           const headsSnap = await transaction.get(
@@ -327,15 +332,17 @@ export const provisionUser = onCall<ProvisionUserRequest, Promise<ProvisionUserR
               );
             }
             demotedHeadProfile = existingHead;
-            transaction.update(existingHeadDoc.ref, {
-              role: 'creator',
-              updatedAt: FieldValue.serverTimestamp(),
-            });
+            existingHeadDocToDemote = existingHeadDoc;
           }
         }
 
-        const countsRef = db.collection('systemMetadata').doc('counts');
-        const countsDoc = await transaction.get(countsRef);
+        // Writes begin after all reads
+        if (existingHeadDocToDemote) {
+          transaction.update(existingHeadDocToDemote.ref, {
+            role: 'creator',
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
 
         let activeAdminCount = 0;
         let totalUserCount = 0;
@@ -499,6 +506,12 @@ export const updateUser = onCall<UpdateUserRequest, Promise<UpdateUserResponse>>
 
       roleChanged = current.role !== targetRole || current.departmentId !== targetDept;
 
+      // 1. ALL READS: Read countsDoc and head check before executing any writes
+      const countsDoc = await transaction.get(countsRef);
+      let activeAdminCount = countsDoc.exists ? Number(countsDoc.data()?.activeAdminCount || 0) : 0;
+
+      let existingHeadDocToDemote: FirebaseFirestore.DocumentSnapshot | null = null;
+
       // Enforce: One head per department (reject unless replaceExistingHead is true)
       if (targetRole === 'department_head' && targetDept) {
         const headsSnap = await transaction.get(
@@ -518,17 +531,19 @@ export const updateUser = onCall<UpdateUserRequest, Promise<UpdateUserResponse>>
             );
           }
           demotedHeadProfile = existingHead;
-          transaction.update(existingHeadDoc.ref, {
-            role: 'creator',
-            updatedAt: FieldValue.serverTimestamp(),
-          });
+          existingHeadDocToDemote = existingHeadDoc;
         }
       }
 
-      // Check last-admin invariant if role is being demoted
-      const countsDoc = await transaction.get(countsRef);
-      let activeAdminCount = countsDoc.exists ? Number(countsDoc.data()?.activeAdminCount || 0) : 0;
+      // 2. ALL WRITES: Execute writes now that all reads are completed
+      if (existingHeadDocToDemote) {
+        transaction.update(existingHeadDocToDemote.ref, {
+          role: 'creator',
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
 
+      // Check last-admin invariant if role is being demoted
       if (current.role === 'admin' && current.status === 'active' && targetRole !== 'admin') {
         if (activeAdminCount <= 1) {
           throw new HttpsError('failed-precondition', 'Cannot demote the last active Administrator.');
@@ -571,12 +586,18 @@ export const updateUser = onCall<UpdateUserRequest, Promise<UpdateUserResponse>>
     // If an existing head was demoted, update their claims, revoke tokens and log audit
     if (demotedHeadProfile) {
       const dh = demotedHeadProfile as UserProfile;
-      await admin.auth().setCustomUserClaims(dh.uid, {
-        role: 'creator',
-        departmentId: dh.departmentId,
-        active: true,
-      });
-      await admin.auth().revokeRefreshTokens(dh.uid);
+      try {
+        await admin.auth().setCustomUserClaims(dh.uid, {
+          role: 'creator',
+          departmentId: dh.departmentId,
+          active: true,
+        });
+        await admin.auth().revokeRefreshTokens(dh.uid);
+      } catch (authErr: any) {
+        if (authErr?.code !== 'auth/user-not-found') {
+          throw authErr;
+        }
+      }
       await writeAuditLog({
         actorId: caller.uid,
         action: 'user.head_demoted',
@@ -589,18 +610,25 @@ export const updateUser = onCall<UpdateUserRequest, Promise<UpdateUserResponse>>
     }
 
     // Update Firebase Auth claims and displayName
-    await admin.auth().updateUser(uid, {
-      displayName: finalProfile.displayName,
-    });
-    await admin.auth().setCustomUserClaims(uid, {
-      role: finalProfile.role,
-      departmentId: finalProfile.departmentId,
-      active: finalProfile.status === 'active',
-    });
+    try {
+      await admin.auth().updateUser(uid, {
+        displayName: finalProfile.displayName,
+      });
+      await admin.auth().setCustomUserClaims(uid, {
+        role: finalProfile.role,
+        departmentId: finalProfile.departmentId,
+        active: finalProfile.status === 'active',
+      });
 
-    // After any role change, revoke refresh tokens
-    if (roleChanged) {
-      await admin.auth().revokeRefreshTokens(uid);
+      // After any role change, revoke refresh tokens
+      if (roleChanged) {
+        await admin.auth().revokeRefreshTokens(uid);
+      }
+    } catch (authErr: any) {
+      if (authErr?.code !== 'auth/user-not-found') {
+        throw authErr;
+      }
+      console.warn(`[updateUser] Auth user ${uid} not found in Firebase Auth; skipping auth record update.`);
     }
 
     // Department change: cleanup old project memberships and enroll in new General project
@@ -696,22 +724,32 @@ export const setUserActiveStatus = onCall<SetUserStatusRequest, Promise<SetUserS
     });
 
     // Synchronize Auth user state: disable account and immediately revoke tokens if deactivating
-    if (status === 'inactive') {
-      await admin.auth().updateUser(uid, { disabled: true });
-      await admin.auth().revokeRefreshTokens(uid);
-      await removeUserFromDepartmentProjects(uid);
-    } else {
-      await admin.auth().updateUser(uid, { disabled: false });
+    try {
+      if (status === 'inactive') {
+        await admin.auth().updateUser(uid, { disabled: true });
+        await admin.auth().revokeRefreshTokens(uid);
+      } else {
+        await admin.auth().updateUser(uid, { disabled: false });
+      }
+
+      // Refresh custom claims
+      const userDoc = await db.collection('users').doc(uid).get();
+      const current = userDoc.data() as UserProfile;
+      await admin.auth().setCustomUserClaims(uid, {
+        role: current.role,
+        departmentId: current.departmentId,
+        active: status === 'active',
+      });
+    } catch (authErr: any) {
+      if (authErr?.code !== 'auth/user-not-found') {
+        throw authErr;
+      }
+      console.warn(`[setUserActiveStatus] Auth user ${uid} not found in Firebase Auth; skipping auth record update.`);
     }
 
-    // Refresh custom claims
-    const userDoc = await db.collection('users').doc(uid).get();
-    const current = userDoc.data() as UserProfile;
-    await admin.auth().setCustomUserClaims(uid, {
-      role: current.role,
-      departmentId: current.departmentId,
-      active: status === 'active',
-    });
+    if (status === 'inactive') {
+      await removeUserFromDepartmentProjects(uid);
+    }
 
     // Record Audit Event
     await writeAuditLog({
