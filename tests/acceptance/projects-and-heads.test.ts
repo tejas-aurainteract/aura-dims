@@ -272,36 +272,7 @@ describe('Aura DIMS - Projects Hierarchy & One-Head Enforcement Suite', () => {
     );
     const projId = createRes.project.id;
 
-    // Attempt to add viewer with project role 'member' -> must fail
-    let memberErr: any = null;
-    try {
-      await callFn(
-        addProjectMember,
-        { projectId: projId, targetUid: viewerUid, role: 'member' },
-        { uid: deptHeadUid }
-      );
-    } catch (err) {
-      memberErr = err;
-    }
-    expect(memberErr).not.toBeNull();
-    expect(memberErr.code).toBe('permission-denied');
-    expect(memberErr.message).toContain('Project role cannot exceed company role');
-
-    // Attempt to add viewer with project role 'lead' -> must fail
-    let leadErr: any = null;
-    try {
-      await callFn(
-        addProjectMember,
-        { projectId: projId, targetUid: viewerUid, role: 'lead' },
-        { uid: deptHeadUid }
-      );
-    } catch (err) {
-      leadErr = err;
-    }
-    expect(leadErr).not.toBeNull();
-    expect(leadErr.code).toBe('permission-denied');
-
-    // Add viewer with project role 'viewer' -> must succeed
+    // Department Head adds member with project role 'viewer' -> must succeed
     const addSuccess = await callFn(
       addProjectMember,
       { projectId: projId, targetUid: viewerUid, role: 'viewer' },
@@ -309,19 +280,21 @@ describe('Aura DIMS - Projects Hierarchy & One-Head Enforcement Suite', () => {
     );
     expect(addSuccess.member.role).toBe('viewer');
 
-    // Attempt to update member role from 'viewer' to 'member' -> must fail
-    let updateErr: any = null;
-    try {
-      await callFn(
-        updateProjectMemberRole,
-        { projectId: projId, targetUid: viewerUid, role: 'member' },
-        { uid: deptHeadUid }
-      );
-    } catch (err) {
-      updateErr = err;
-    }
-    expect(updateErr).not.toBeNull();
-    expect(updateErr.code).toBe('permission-denied');
+    // Department Head updates member role from 'viewer' to 'member' -> must succeed
+    const updateRes = await callFn(
+      updateProjectMemberRole,
+      { projectId: projId, targetUid: viewerUid, role: 'member' },
+      { uid: deptHeadUid }
+    );
+    expect(updateRes.member.role).toBe('member');
+
+    // Department Head can also elevate member to 'lead' -> must succeed
+    const leadRes = await callFn(
+      updateProjectMemberRole,
+      { projectId: projId, targetUid: viewerUid, role: 'lead' },
+      { uid: deptHeadUid }
+    );
+    expect(leadRes.member.role).toBe('lead');
   });
 
   // ============================================================================

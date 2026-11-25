@@ -419,8 +419,8 @@ exports.updateUser = (0, https_1.onCall)({ cors: true, region: REGION }, async (
         if (targetRole === 'admin') {
             targetDept = null;
         }
-        else if (targetRole === 'department_head' && !targetDept) {
-            throw new https_1.HttpsError('invalid-argument', 'A Department Head must have an assigned department.');
+        else if (!targetDept) {
+            throw new https_1.HttpsError('invalid-argument', `Role "${targetRole}" must be assigned to an active department.`);
         }
         roleChanged = current.role !== targetRole || current.departmentId !== targetDept;
         // 1. ALL READS: Read countsDoc and head check before executing any writes

@@ -87,16 +87,13 @@ export async function ensureGeneralProject(
 }
 
 /**
- * Validates that a project role does not exceed the target user's company role.
- * (e.g. A company 'viewer' can never be given 'member' or 'lead' in any project).
+ * Validates project role delegation within a department.
+ * Department Heads and Administrators possess full authority to delegate project-level roles
+ * ('lead', 'member', 'viewer') to users within their department.
  */
-export function validateProjectRoleCeiling(companyRole: UserRole, targetProjectRole: ProjectMemberRole): void {
-  if (companyRole === 'viewer' && targetProjectRole !== 'viewer') {
-    throw new HttpsError(
-      'permission-denied',
-      `User has company role 'viewer' and cannot be granted project role '${targetProjectRole}'. Project role cannot exceed company role.`
-    );
-  }
+export function validateProjectRoleCeiling(_companyRole: UserRole, _targetProjectRole: ProjectMemberRole): void {
+  // Department Heads possess full authority to delegate project-level roles
+  // ('lead', 'member', 'viewer') dynamically per project to their department team members.
 }
 
 /**

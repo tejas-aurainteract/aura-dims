@@ -23,6 +23,7 @@ import {
   Copy,
   Check,
   Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/lib/firebase';
@@ -39,10 +40,12 @@ export const UsersPage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
-  // Provision Modal State
+  // Add User Modal State
   const [isProvisionOpen, setIsProvisionOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [newRole, setNewRole] = useState<UserRole>('creator');
   const [newDeptId, setNewDeptId] = useState<string>('');
   const [generatedSetupLink, setGeneratedSetupLink] = useState<string | null>(null);
@@ -152,9 +155,10 @@ export const UsersPage: React.FC = () => {
         email: newEmail.trim().toLowerCase(),
         role: newRole,
         departmentId: newRole === 'admin' ? (newDeptId || null) : newDeptId,
+        temporaryPassword: newPassword.trim() || undefined,
       });
 
-      setActionSuccess(`User account for ${res.displayName} provisioned successfully.`);
+      setActionSuccess(`User account for ${res.displayName} created successfully.`);
       if (res.setupLink) {
         setGeneratedSetupLink(res.setupLink);
       } else {
@@ -384,6 +388,8 @@ export const UsersPage: React.FC = () => {
           onClick={() => {
             setNewName('');
             setNewEmail('');
+            setNewPassword('');
+            setShowNewPassword(false);
             setNewRole('creator');
             setNewDeptId(departments[0]?.id || '');
             setGeneratedSetupLink(null);
@@ -393,7 +399,7 @@ export const UsersPage: React.FC = () => {
           className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors self-start sm:self-auto"
         >
           <Plus className="h-4 w-4" />
-          <span>Provision User</span>
+          <span>Add User</span>
         </button>
       </div>
 
@@ -457,9 +463,9 @@ export const UsersPage: React.FC = () => {
         ) : users.length === 0 ? (
           <div className="py-12 text-center">
             <Users2 className="h-8 w-8 text-slate-400 mx-auto mb-2" />
-            <div className="text-xs font-semibold text-slate-800">No users provisioned</div>
+            <div className="text-xs font-semibold text-slate-800">No users added</div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Click &quot;Provision User&quot; to create the first administrative or departmental account.
+              Click &quot;Add User&quot; to create the first administrative or departmental account.
             </p>
           </div>
         ) : (
@@ -597,11 +603,11 @@ export const UsersPage: React.FC = () => {
         )}
       </div>
 
-      {/* Provision User Modal */}
+      {/* Add User Modal */}
       {isProvisionOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
-            <h3 className="text-base font-bold text-slate-900">Provision User Account</h3>
+            <h3 className="text-base font-bold text-slate-900">Add User</h3>
 
             {modalError && (
               <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-start gap-2">
@@ -678,14 +684,45 @@ export const UsersPage: React.FC = () => {
                 </div>
 
                 <div>
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Temporary Password <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  <div className="mt-1 relative rounded-xl shadow-xs">
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Set password (min 6 characters) or leave blank"
+                      className="block w-full px-3 pr-10 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-slate-900 placeholder:text-slate-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none"
+                      title={showNewPassword ? 'Hide password' : 'Show password'}
+                      tabIndex={-1}
+                    >
+                      {showNewPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    If left blank, an account setup link will be generated.
+                  </p>
+                </div>
+
+                <div>
                   <label className="block text-xs font-semibold text-slate-700">Role</label>
                   <select
                     value={newRole}
                     onChange={(e) => setNewRole(e.target.value as UserRole)}
                     className="mt-1 block w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-slate-900"
                   >
-                    <option value="creator">Department Member (Project roles assigned by HOD)</option>
-                    <option value="department_head">Department Head (Single departmental leader & approver)</option>
+                    <option value="creator">Department Member (Default - HOD assigns project roles)</option>
+                    <option value="department_head">Department Head (HOD - Single departmental leader)</option>
                     <option value="admin">Administrator (Cross-department system manager)</option>
                     <option value="viewer">Viewer (Read-only observation)</option>
                   </select>
@@ -702,12 +739,12 @@ export const UsersPage: React.FC = () => {
                     )}
                     {newRole === 'admin' && (
                       <p>
-                        <strong className="text-indigo-700">System Administrator:</strong> Global administrative access across all departments, digital displays, system settings, and user provisioning.
+                        <strong className="text-indigo-700">System Administrator:</strong> Global administrative access across all departments, digital displays, system settings, and user management.
                       </p>
                     )}
                     {newRole === 'viewer' && (
                       <p>
-                        <strong className="text-slate-700">Viewer:</strong> Read-only access to browse assets, designs, and playlists without editing or publishing permissions.
+                        <strong className="text-slate-700">Viewer:</strong> Read-only access to browse assets, designs, and playlists without editing permissions.
                       </p>
                     )}
                   </div>
@@ -752,7 +789,7 @@ export const UsersPage: React.FC = () => {
                     disabled={isSubmitting}
                     className="px-4 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50"
                   >
-                    {isSubmitting ? 'Provisioning...' : 'Provision User'}
+                    {isSubmitting ? 'Adding...' : 'Add User'}
                   </button>
                 </div>
               </form>
@@ -803,8 +840,8 @@ export const UsersPage: React.FC = () => {
                   onChange={(e) => setEditRole(e.target.value as UserRole)}
                   className="mt-1 block w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-slate-900"
                 >
-                  <option value="creator">Department Member (Project roles assigned by HOD)</option>
-                  <option value="department_head">Department Head (Single departmental leader & approver)</option>
+                  <option value="creator">Department Member (HOD assigns project roles)</option>
+                  <option value="department_head">Department Head (HOD - Single departmental leader)</option>
                   <option value="admin">Administrator (Cross-department system manager)</option>
                   <option value="viewer">Viewer (Read-only observation)</option>
                 </select>
@@ -899,7 +936,7 @@ export const UsersPage: React.FC = () => {
                 <strong className="text-slate-900">{replaceHeadState.existingHeadName}</strong>.
               </p>
               <p className="text-amber-800 bg-amber-50 p-2.5 rounded-lg border border-amber-200 leading-relaxed font-medium">
-                Consequence: <strong>{replaceHeadState.existingHeadName}</strong> will be demoted to <strong>Creator</strong>, and their active login sessions will be immediately revoked to enforce security.
+                Consequence: <strong>{replaceHeadState.existingHeadName}</strong> will be demoted to <strong>Department Member</strong>, and their active login sessions will be immediately revoked to enforce security.
               </p>
             </div>
 
