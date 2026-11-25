@@ -483,8 +483,8 @@ export const updateUser = onCall<UpdateUserRequest, Promise<UpdateUserResponse>>
 
       if (targetRole === 'admin') {
         targetDept = null;
-      } else if (targetRole === 'department_head' && !targetDept) {
-        throw new HttpsError('invalid-argument', 'A Department Head must have an assigned department.');
+      } else if (!targetDept) {
+        throw new HttpsError('invalid-argument', `Role "${targetRole}" must be assigned to an active department.`);
       }
 
       roleChanged = current.role !== targetRole || current.departmentId !== targetDept;

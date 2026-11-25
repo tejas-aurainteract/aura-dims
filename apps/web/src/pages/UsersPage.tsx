@@ -22,6 +22,7 @@ import {
   Loader2,
   Copy,
   Check,
+  Eye,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/lib/firebase';
@@ -42,7 +43,7 @@ export const UsersPage: React.FC = () => {
   const [isProvisionOpen, setIsProvisionOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
-  const [newRole, setNewRole] = useState<UserRole>('department_head');
+  const [newRole, setNewRole] = useState<UserRole>('creator');
   const [newDeptId, setNewDeptId] = useState<string>('');
   const [generatedSetupLink, setGeneratedSetupLink] = useState<string | null>(null);
 
@@ -50,7 +51,7 @@ export const UsersPage: React.FC = () => {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [editName, setEditName] = useState('');
-  const [editRole, setEditRole] = useState<UserRole>('department_head');
+  const [editRole, setEditRole] = useState<UserRole>('creator');
   const [editDeptId, setEditDeptId] = useState<string>('');
 
   // Action status
@@ -139,8 +140,8 @@ export const UsersPage: React.FC = () => {
       return;
     }
 
-    if (newRole === 'department_head' && !newDeptId) {
-      setModalError('Department Head must be assigned to a specific department.');
+    if (newRole !== 'admin' && !newDeptId) {
+      setModalError('Please assign a department for this user.');
       return;
     }
 
@@ -150,7 +151,7 @@ export const UsersPage: React.FC = () => {
         displayName: newName.trim(),
         email: newEmail.trim().toLowerCase(),
         role: newRole,
-        departmentId: newRole === 'department_head' ? newDeptId : newDeptId || null,
+        departmentId: newRole === 'admin' ? (newDeptId || null) : newDeptId,
       });
 
       setActionSuccess(`User account for ${res.displayName} provisioned successfully.`);
@@ -176,7 +177,7 @@ export const UsersPage: React.FC = () => {
             displayName: newName.trim(),
             email: newEmail.trim().toLowerCase(),
             role: newRole,
-            departmentId: newRole === 'department_head' ? newDeptId : newDeptId || null,
+            departmentId: newRole === 'admin' ? (newDeptId || null) : newDeptId,
           },
         });
         return;
@@ -192,8 +193,8 @@ export const UsersPage: React.FC = () => {
     if (!editingUser) return;
     setModalError(null);
 
-    if (editRole === 'department_head' && !editDeptId) {
-      setModalError('Department Head must be assigned to a department.');
+    if (editRole !== 'admin' && !editDeptId) {
+      setModalError('Please assign a department for this user.');
       return;
     }
 
@@ -214,7 +215,7 @@ export const UsersPage: React.FC = () => {
         uid: editingUser.uid,
         displayName: editName.trim(),
         role: editRole,
-        departmentId: editRole === 'department_head' ? editDeptId : editDeptId || null,
+        departmentId: editRole === 'admin' ? (editDeptId || null) : editDeptId,
       });
 
       setIsEditOpen(false);
@@ -240,7 +241,7 @@ export const UsersPage: React.FC = () => {
             uid: editingUser.uid,
             displayName: editName.trim(),
             role: editRole,
-            departmentId: editRole === 'department_head' ? editDeptId : editDeptId || null,
+            departmentId: editRole === 'admin' ? (editDeptId || null) : editDeptId,
           },
         });
         return;
@@ -383,7 +384,7 @@ export const UsersPage: React.FC = () => {
           onClick={() => {
             setNewName('');
             setNewEmail('');
-            setNewRole('department_head');
+            setNewRole('creator');
             setNewDeptId(departments[0]?.id || '');
             setGeneratedSetupLink(null);
             setModalError(null);
@@ -420,21 +421,28 @@ export const UsersPage: React.FC = () => {
       )}
 
       {/* Users Summary Bar */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs">
           <div className="text-xs font-semibold text-slate-500">Total Users</div>
           <div className="text-2xl font-bold text-slate-900 mt-1">{users.length}</div>
         </div>
 
         <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs">
-          <div className="text-xs font-semibold text-slate-500">Active Administrators</div>
-          <div className="text-2xl font-bold text-teal-700 mt-1">{activeAdminCount}</div>
+          <div className="text-xs font-semibold text-slate-500">Administrators</div>
+          <div className="text-2xl font-bold text-indigo-700 mt-1">{activeAdminCount}</div>
         </div>
 
         <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs">
           <div className="text-xs font-semibold text-slate-500">Department Heads</div>
-          <div className="text-2xl font-bold text-slate-800 mt-1">
+          <div className="text-2xl font-bold text-blue-700 mt-1">
             {users.filter((u) => u.role === 'department_head').length}
+          </div>
+        </div>
+
+        <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs">
+          <div className="text-xs font-semibold text-slate-500">Department Members</div>
+          <div className="text-2xl font-bold text-teal-700 mt-1">
+            {users.filter((u) => u.role === 'creator' || u.role === 'viewer').length}
           </div>
         </div>
       </div>
@@ -486,16 +494,30 @@ export const UsersPage: React.FC = () => {
                     </td>
 
                     <td className="py-3.5 px-4">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${
-                          user.role === 'admin'
-                            ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
-                            : 'bg-teal-50 text-teal-700 border border-teal-200'
-                        }`}
-                      >
-                        <Shield className="h-3 w-3" />
-                        <span>{user.role === 'admin' ? 'Admin' : 'Department Head'}</span>
-                      </span>
+                      {user.role === 'admin' && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          <Shield className="h-3 w-3" />
+                          <span>Administrator</span>
+                        </span>
+                      )}
+                      {user.role === 'department_head' && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                          <Building2 className="h-3 w-3" />
+                          <span>Department Head</span>
+                        </span>
+                      )}
+                      {user.role === 'creator' && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-teal-50 text-teal-700 border border-teal-200">
+                          <Users2 className="h-3 w-3" />
+                          <span>Department Member</span>
+                        </span>
+                      )}
+                      {user.role === 'viewer' && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                          <Eye className="h-3 w-3" />
+                          <span>Viewer</span>
+                        </span>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4">
@@ -662,19 +684,43 @@ export const UsersPage: React.FC = () => {
                     onChange={(e) => setNewRole(e.target.value as UserRole)}
                     className="mt-1 block w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-slate-900"
                   >
-                    <option value="department_head">Department Head</option>
-                    <option value="admin">Administrator</option>
+                    <option value="creator">Department Member (Project roles assigned by HOD)</option>
+                    <option value="department_head">Department Head (Single departmental leader & approver)</option>
+                    <option value="admin">Administrator (Cross-department system manager)</option>
+                    <option value="viewer">Viewer (Read-only observation)</option>
                   </select>
+                  <div className="mt-1.5 p-2 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-0.5">
+                    {newRole === 'creator' && (
+                      <p>
+                        <strong className="text-teal-700">Department Member:</strong> Standard organization staff member. Inside projects, their Department Head assigns their exact capabilities (Lead, Member, or Viewer).
+                      </p>
+                    )}
+                    {newRole === 'department_head' && (
+                      <p>
+                        <strong className="text-blue-700">Department Head:</strong> Manages the department team, approves broadcast schedules, and publishes content to department digital displays (1 head per department).
+                      </p>
+                    )}
+                    {newRole === 'admin' && (
+                      <p>
+                        <strong className="text-indigo-700">System Administrator:</strong> Global administrative access across all departments, digital displays, system settings, and user provisioning.
+                      </p>
+                    )}
+                    {newRole === 'viewer' && (
+                      <p>
+                        <strong className="text-slate-700">Viewer:</strong> Read-only access to browse assets, designs, and playlists without editing or publishing permissions.
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700">
-                    Department {newRole === 'department_head' && <span className="text-red-500">*</span>}
+                    Department {newRole !== 'admin' && <span className="text-red-500">*</span>}
                   </label>
                   <select
                     value={newDeptId}
                     onChange={(e) => setNewDeptId(e.target.value)}
-                    required={newRole === 'department_head'}
+                    required={newRole !== 'admin'}
                     className="mt-1 block w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-slate-900"
                   >
                     <option value="">Select Department...</option>
@@ -757,19 +803,43 @@ export const UsersPage: React.FC = () => {
                   onChange={(e) => setEditRole(e.target.value as UserRole)}
                   className="mt-1 block w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-slate-900"
                 >
-                  <option value="department_head">Department Head</option>
-                  <option value="admin">Administrator</option>
+                  <option value="creator">Department Member (Project roles assigned by HOD)</option>
+                  <option value="department_head">Department Head (Single departmental leader & approver)</option>
+                  <option value="admin">Administrator (Cross-department system manager)</option>
+                  <option value="viewer">Viewer (Read-only observation)</option>
                 </select>
+                <div className="mt-1.5 p-2 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-0.5">
+                  {editRole === 'creator' && (
+                    <p>
+                      <strong className="text-teal-700">Department Member:</strong> Standard organization staff member. Inside projects, their Department Head assigns their exact capabilities (Lead, Member, or Viewer).
+                    </p>
+                  )}
+                  {editRole === 'department_head' && (
+                    <p>
+                      <strong className="text-blue-700">Department Head:</strong> Manages the department team, approves broadcast schedules, and publishes content to department digital displays (1 head per department).
+                    </p>
+                  )}
+                  {editRole === 'admin' && (
+                    <p>
+                      <strong className="text-indigo-700">System Administrator:</strong> Global administrative access across all departments, digital displays, system settings, and user provisioning.
+                    </p>
+                  )}
+                  {editRole === 'viewer' && (
+                    <p>
+                      <strong className="text-slate-700">Viewer:</strong> Read-only access to browse assets, designs, and playlists without editing or publishing permissions.
+                    </p>
+                  )}
+                </div>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700">
-                  Department {editRole === 'department_head' && <span className="text-red-500">*</span>}
+                  Department {editRole !== 'admin' && <span className="text-red-500">*</span>}
                 </label>
                 <select
                   value={editDeptId}
                   onChange={(e) => setEditDeptId(e.target.value)}
-                  required={editRole === 'department_head'}
+                  required={editRole !== 'admin'}
                   className="mt-1 block w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-slate-900"
                 >
                   <option value="">Select Department...</option>
@@ -781,6 +851,11 @@ export const UsersPage: React.FC = () => {
                       </option>
                     ))}
                 </select>
+                {editRole === 'admin' && (
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Admins have cross-department privileges; department assignment is optional.
+                  </p>
+                )}
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
