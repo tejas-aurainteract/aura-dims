@@ -24,6 +24,7 @@ import {
   AlertCircle,
   ArrowLeft,
   Folder,
+  Check,
 } from 'lucide-react';
 import {
   collection,
@@ -35,6 +36,7 @@ import {
   query,
   orderBy,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -118,11 +120,19 @@ export const AssetsPage: React.FC = () => {
   useEffect(() => {
     async function loadDepts() {
       try {
-        const snap = await getDocs(collection(db, 'departments'));
+        const q = query(collection(db, 'departments'), where('status', '==', 'active'));
+        const snap = await getDocs(q);
         const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Department));
-        setDepartments(list.filter((d) => d.status === 'active'));
+        setDepartments(list.length > 0 ? list : snap.docs.map((d) => ({ id: d.id, ...d.data() } as Department)));
       } catch (err) {
-        console.warn('[AssetsPage] Error loading departments:', err);
+        console.warn('[AssetsPage] Error querying active departments, retrying all:', err);
+        try {
+          const snap = await getDocs(collection(db, 'departments'));
+          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Department));
+          setDepartments(list.filter((d) => d.status === 'active'));
+        } catch (innerErr) {
+          console.error('[AssetsPage] Error loading departments:', innerErr);
+        }
       }
     }
     loadDepts();
@@ -134,9 +144,9 @@ export const AssetsPage: React.FC = () => {
     setLoadError(null);
     try {
       const res = await api.listMediaAssets({
-        scope: isAdmin ? 'global' : 'department',
+        scope: isAdmin ? 'all' : 'department',
         departmentId: userProfile?.departmentId || undefined,
-        pageSize: 200,
+        pageSize: 500,
         includeArchived: false,
       });
       setAssets(res.assets || []);
@@ -495,13 +505,12 @@ export const AssetsPage: React.FC = () => {
                     <div>
                       <div className="flex items-start justify-between gap-2">
                         <div
-                          className={`h-11 w-11 rounded-xl flex items-center justify-center transition-colors ${
-                            isImages
-                              ? 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white'
-                              : isVideos
+                          className={`h-11 w-11 rounded-xl flex items-center justify-center transition-colors ${isImages
+                            ? 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white'
+                            : isVideos
                               ? 'bg-purple-50 text-purple-600 group-hover:bg-purple-600 group-hover:text-white'
                               : 'bg-teal-50 text-teal-700 group-hover:bg-teal-600 group-hover:text-white'
-                          }`}
+                            }`}
                         >
                           {isImages ? (
                             <FileImage className="h-6 w-6" />
@@ -536,8 +545,8 @@ export const AssetsPage: React.FC = () => {
                           {isImages
                             ? 'All JPEG & PNG image assets from projects'
                             : isVideos
-                            ? 'All MP4 video assets from projects'
-                            : 'Custom department media folder'}
+                              ? 'All MP4 video assets from projects'
+                              : 'Custom department media folder'}
                         </p>
                       </div>
                     </div>
@@ -577,27 +586,24 @@ export const AssetsPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setSelectedType('all')}
-                    className={`px-3 py-1 rounded-lg font-medium transition-colors ${
-                      selectedType === 'all' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                    }`}
+                    className={`px-3 py-1 rounded-lg font-medium transition-colors ${selectedType === 'all' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
                   >
                     All Types
                   </button>
                   <button
                     type="button"
                     onClick={() => setSelectedType('image')}
-                    className={`px-3 py-1 rounded-lg font-medium transition-colors ${
-                      selectedType === 'image' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                    }`}
+                    className={`px-3 py-1 rounded-lg font-medium transition-colors ${selectedType === 'image' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
                   >
                     Images
                   </button>
                   <button
                     type="button"
                     onClick={() => setSelectedType('video')}
-                    className={`px-3 py-1 rounded-lg font-medium transition-colors ${
-                      selectedType === 'video' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                    }`}
+                    className={`px-3 py-1 rounded-lg font-medium transition-colors ${selectedType === 'video' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
                   >
                     Videos
                   </button>
@@ -609,9 +615,8 @@ export const AssetsPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setViewMode('grid')}
-                  className={`p-1.5 rounded-lg transition-colors ${
-                    viewMode === 'grid' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-900'
-                  }`}
+                  className={`p-1.5 rounded-lg transition-colors ${viewMode === 'grid' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-900'
+                    }`}
                   title="Grid view"
                 >
                   <LayoutGrid className="h-4 w-4" />
@@ -619,9 +624,8 @@ export const AssetsPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setViewMode('list')}
-                  className={`p-1.5 rounded-lg transition-colors ${
-                    viewMode === 'list' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-900'
-                  }`}
+                  className={`p-1.5 rounded-lg transition-colors ${viewMode === 'list' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-900'
+                    }`}
                   title="List view"
                 >
                   <List className="h-4 w-4" />
@@ -858,8 +862,8 @@ export const AssetsPage: React.FC = () => {
                     uploadFolderId === 'system_images'
                       ? 'image/jpeg,image/png'
                       : uploadFolderId === 'system_videos'
-                      ? 'video/mp4'
-                      : 'image/jpeg,image/png,video/mp4'
+                        ? 'video/mp4'
+                        : 'image/jpeg,image/png,video/mp4'
                   }
                   onChange={(e) => {
                     const f = e.target.files?.[0];
@@ -874,8 +878,8 @@ export const AssetsPage: React.FC = () => {
                   {uploadFolderId === 'system_images'
                     ? 'Supported formats: JPEG, PNG (max 20MB)'
                     : uploadFolderId === 'system_videos'
-                    ? 'Supported formats: MP4 H.264 (max 200MB)'
-                    : 'Supported formats: JPEG, PNG (max 20MB) and MP4 H.264 (max 200MB)'}
+                      ? 'Supported formats: MP4 H.264 (max 200MB)'
+                      : 'Supported formats: JPEG, PNG (max 20MB) and MP4 H.264 (max 200MB)'}
                 </p>
               </div>
 
@@ -924,51 +928,94 @@ export const AssetsPage: React.FC = () => {
                 </select>
               </div>
 
-              {/* Multi-Department Visibility Selection */}
+              {/* Department Availability Selection */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Department Availability <span className="text-teal-600 font-normal">(Multi-Select)</span>
+                  Availability & Visibility
                 </label>
                 <p className="text-[11px] text-slate-500 mb-2">
-                  Select which departments can access and use this asset in their slides and designs.
+                  Choose whether this asset is restricted to specific departments or made an Organization-wide General Asset.
                 </p>
 
-                <div className="space-y-2 border border-slate-200 rounded-xl p-3 bg-slate-50/50 max-h-40 overflow-y-auto">
-                  {/* Global Option */}
-                  <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-800 pb-2 border-b border-slate-200">
-                    <input
-                      type="checkbox"
-                      checked={isGlobalShared}
-                      onChange={(e) => setIsGlobalShared(e.target.checked)}
-                      className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 h-4 w-4"
-                    />
-                    <span>All Departments (Organization Global)</span>
-                  </label>
+                <div className="space-y-3 border border-slate-200 rounded-xl p-3 bg-slate-50/50">
+                  {/* Scope Selector: Specific Depts vs General Asset */}
+                  <div className="grid grid-cols-2 gap-2 pb-2 border-b border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsGlobalShared(false);
+                        setUploadError(null);
+                      }}
+                      className={`py-2 px-3 rounded-lg text-xs font-semibold text-center transition-all ${
+                        !isGlobalShared
+                          ? 'bg-teal-600 text-white shadow-xs'
+                          : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      Department Scoped
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsGlobalShared(true);
+                        setUploadError(null);
+                      }}
+                      className={`py-2 px-3 rounded-lg text-xs font-semibold text-center transition-all ${
+                        isGlobalShared
+                          ? 'bg-teal-600 text-white shadow-xs'
+                          : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      General Asset (Global)
+                    </button>
+                  </div>
 
-                  {/* Individual Department Checkboxes */}
-                  {!isGlobalShared && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                      {departments.map((dept) => {
-                        const isChecked = selectedDeptIds.includes(dept.id);
-                        return (
-                          <label
-                            key={dept.id}
-                            className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
-                              isChecked
-                                ? 'bg-teal-50 border-teal-300 text-teal-900 font-semibold'
-                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => handleToggleDept(dept.id)}
-                              className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 h-3.5 w-3.5"
-                            />
-                            <span className="truncate">{dept.name} ({dept.code})</span>
-                          </label>
-                        );
-                      })}
+                  {isGlobalShared ? (
+                    <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 text-xs text-teal-950 space-y-1">
+                      <div className="font-semibold flex items-center gap-1.5 text-teal-900">
+                        <Check className="h-4 w-4 text-teal-600 shrink-0" />
+                        <span>Organization-Wide General Asset</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">
+                        {isAdmin
+                          ? 'As an Administrator, uploading this general asset makes it immediately available to all departments across the organization.'
+                          : 'Uploading as a General Asset will submit an approval request to the Administrator. Once approved, this asset will become available to all departments and digital displays.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <span className="text-[11px] font-semibold text-slate-700 block mb-1.5">
+                        Select departments to make this asset available in (multi-select):
+                      </span>
+                      {departments.length === 0 ? (
+                        <div className="p-3 bg-white rounded-lg border border-slate-200 text-xs text-slate-500">
+                          Loading departments...
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pt-1">
+                          {departments.map((dept) => {
+                            const isChecked = selectedDeptIds.includes(dept.id);
+                            return (
+                              <label
+                                key={dept.id}
+                                className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
+                                  isChecked
+                                    ? 'bg-teal-50 border-teal-300 text-teal-900 font-semibold'
+                                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => handleToggleDept(dept.id)}
+                                  className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 h-3.5 w-3.5"
+                                />
+                                <span className="truncate">{dept.name} ({dept.code})</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

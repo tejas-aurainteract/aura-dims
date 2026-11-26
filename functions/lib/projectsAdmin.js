@@ -300,14 +300,20 @@ exports.listProjects = (0, https_1.onCall)(common_js_1.CALLABLE_OPTS, async (req
     }
     const snap = await query.get();
     let projects = snap.docs.map((doc) => doc.data());
-    // If caller is non-admin and non-head (creator/viewer), filter to projects they are members of
+    // If caller is non-admin and non-head (creator/viewer/member), filter to projects they are members of
     if (caller.role !== 'admin' && caller.role !== 'department_head') {
-        // Find all memberships of this user
-        const memberSnaps = await common_js_1.db
-            .collectionGroup('members')
-            .where('uid', '==', caller.uid)
-            .get();
-        const accessibleProjectIds = new Set(memberSnaps.docs.map((d) => d.data().projectId));
+        const memberChecks = await Promise.all(projects.map(async (p) => {
+            if (p.isGeneral)
+                return { projectId: p.id, isMember: true };
+            try {
+                const mDoc = await common_js_1.db.collection('projects').doc(p.id).collection('members').doc(caller.uid).get();
+                return { projectId: p.id, isMember: mDoc.exists };
+            }
+            catch {
+                return { projectId: p.id, isMember: false };
+            }
+        }));
+        const accessibleProjectIds = new Set(memberChecks.filter((m) => m.isMember).map((m) => m.projectId));
         // Always include department's General project
         projects = projects.filter((p) => p.isGeneral || accessibleProjectIds.has(p.id));
     }

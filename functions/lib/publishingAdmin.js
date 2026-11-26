@@ -1155,6 +1155,31 @@ exports.reviewApproval = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
             updatedSchedule = { ...curSchedule, status: newSchedStatus, updatedAt: now };
         }
     }
+    // If this is an asset global visibility approval, update the underlying asset
+    const targetAssetId = approval.assetId || approval.targetAssetId;
+    if (targetAssetId) {
+        const assetRef = db.collection('assets').doc(targetAssetId);
+        const assetDoc = await assetRef.get();
+        if (assetDoc.exists) {
+            if (decision === 'approved') {
+                const curAsset = assetDoc.data();
+                const currentScopes = curAsset.accessScopes || [];
+                const updatedScopes = Array.from(new Set([...currentScopes, 'global'])).sort();
+                await assetRef.update({
+                    visibility: 'global',
+                    globalApprovalState: 'approved',
+                    accessScopes: updatedScopes,
+                    updatedAt: now,
+                });
+            }
+            else {
+                await assetRef.update({
+                    globalApprovalState: 'rejected',
+                    updatedAt: now,
+                });
+            }
+        }
+    }
     await writeAuditLog({
         actorId: caller.uid,
         action: `approval.${decision}`,

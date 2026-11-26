@@ -536,11 +536,10 @@ export const UsersPage: React.FC = () => {
 
                     <td className="py-3.5 px-4">
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                          user.status === 'active'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-slate-100 text-slate-600 border border-slate-200'
-                        }`}
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${user.status === 'active'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : 'bg-slate-100 text-slate-600 border border-slate-200'
+                          }`}
                       >
                         {user.status === 'active' ? 'Active' : 'Inactive'}
                       </span>
@@ -579,11 +578,10 @@ export const UsersPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleToggleStatus(user)}
-                        className={`p-1.5 rounded-lg transition-colors ${
-                          user.status === 'active'
-                            ? 'text-amber-600 hover:text-amber-800 hover:bg-amber-50'
-                            : 'text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50'
-                        }`}
+                        className={`p-1.5 rounded-lg transition-colors ${user.status === 'active'
+                          ? 'text-amber-600 hover:text-amber-800 hover:bg-amber-50'
+                          : 'text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50'
+                          }`}
                         title={user.status === 'active' ? 'Deactivate user' : 'Activate user'}
                       >
                         <Power className="h-3.5 w-3.5" />

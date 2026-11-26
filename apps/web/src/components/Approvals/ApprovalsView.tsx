@@ -257,20 +257,36 @@ export const ApprovalsView: React.FC = () => {
                     )}
                   </div>
 
-                  <h3 className="text-sm font-bold text-slate-900">{a.playlistTitle}</h3>
+                  <h3 className="text-sm font-bold text-slate-900">{a.playlistTitle || (a as any).assetTitle || 'Submission Review'}</h3>
 
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
                     <span>
-                      Submitted by: <strong className="text-slate-700">{a.submittedByName}</strong>
+                      Submitted by: <strong className="text-slate-700">{a.submittedByName || (a as any).requesterDisplayName || 'Staff Member'}</strong>
                     </span>
-                    <span>•</span>
-                    <span>
-                      Target: <strong className="text-slate-700">{a.targetDisplayIds.length} digital displays</strong>
-                    </span>
-                    <span>•</span>
-                    <span>
-                      Window: {a.scheduleRule.startDate} to {a.scheduleRule.endDate} ({a.scheduleRule.startTime}–{a.scheduleRule.endTime})
-                    </span>
+                    {a.targetDisplayIds && (
+                      <>
+                        <span>•</span>
+                        <span>
+                          Target: <strong className="text-slate-700">{a.targetDisplayIds.length} digital displays</strong>
+                        </span>
+                      </>
+                    )}
+                    {a.scheduleRule && (
+                      <>
+                        <span>•</span>
+                        <span>
+                          Window: {a.scheduleRule.startDate} to {a.scheduleRule.endDate} ({a.scheduleRule.startTime}–{a.scheduleRule.endTime})
+                        </span>
+                      </>
+                    )}
+                    {(a as any).assetTitle && (
+                      <>
+                        <span>•</span>
+                        <span>
+                          Asset: <strong className="text-slate-700">{(a as any).assetTitle}</strong>
+                        </span>
+                      </>
+                    )}
                   </div>
 
                   {a.status === 'rejected' && a.rejectionReason && (

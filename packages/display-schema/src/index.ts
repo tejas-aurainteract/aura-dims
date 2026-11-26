@@ -862,7 +862,7 @@ export interface SetMediaArchivedResponse {
 export interface ListMediaAssetsRequest {
   departmentId?: string;
   projectId?: string;
-  scope?: 'project' | 'department' | 'shared' | 'global';
+  scope?: 'project' | 'department' | 'shared' | 'global' | 'all';
   mediaType?: 'all' | 'image' | 'video';
   status?: 'all' | 'ready' | 'validating' | 'failed' | 'archived';
   search?: string;

@@ -291,9 +291,15 @@ exports.initiateMediaUpload = (0, https_1.onCall)(CALLABLE_OPTS, async (request)
     let effectiveVisibility = reqVis;
     let globalApprovalState = 'none';
     if (reqVis === 'global') {
-        // Requested 'global' creates a pending approval and leaves current visibility as 'project'
-        effectiveVisibility = 'project';
-        globalApprovalState = 'pending';
+        if (caller.role === 'admin') {
+            effectiveVisibility = 'global';
+            globalApprovalState = 'approved';
+        }
+        else {
+            // Requested 'global' by non-admin creates a pending approval and leaves current visibility as 'project'
+            effectiveVisibility = 'project';
+            globalApprovalState = 'pending';
+        }
     }
     // Validate sharedWith if visibility is 'shared'
     const cleanSharedWith = [];
@@ -389,11 +395,14 @@ exports.initiateMediaUpload = (0, https_1.onCall)(CALLABLE_OPTS, async (request)
         version: 1,
     };
     await db.collection('assets').doc(assetId).set(newAsset);
-    // If global visibility was requested, record a pending approval document
-    if (reqVis === 'global') {
+    // If global visibility was requested by a non-admin, record a pending approval document
+    if (reqVis === 'global' && caller.role !== 'admin') {
         await db.collection('approvals').add({
             type: 'asset_global_visibility',
-            status: 'pending',
+            status: 'pending_review',
+            playlistTitle: `General Asset: ${cleanTitle.slice(0, 50)}`,
+            submittedBy: caller.uid,
+            submittedByName: caller.displayName || caller.email,
             requesterUid: caller.uid,
             requesterEmail: caller.email,
             requesterDisplayName: caller.displayName || caller.email,
@@ -403,6 +412,13 @@ exports.initiateMediaUpload = (0, https_1.onCall)(CALLABLE_OPTS, async (request)
             projectId: targetProjectId,
             createdAt: now,
             updatedAt: now,
+            history: [{
+                    action: 'submitted',
+                    actorId: caller.uid,
+                    actorName: caller.displayName || caller.email,
+                    timestamp: now,
+                    reason: 'Requested organization-wide global visibility for media asset',
+                }],
         });
     }
     await recordMediaAudit(caller.uid, 'media_upload_initiated', assetId, targetDeptId, {
@@ -847,6 +863,12 @@ exports.listMediaAssets = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => 
             }
         }
         query = query.where('projectId', '==', projectId);
+    }
+    else if (scope === 'all' || (caller.role === 'admin' && (!scope || scope === 'all'))) {
+        // Admin sees ALL assets across all departments
+        if (departmentId && departmentId !== 'all') {
+            query = query.where('departmentId', '==', departmentId);
+        }
     }
     else if (scope === 'department') {
         const targetDeptId = caller.role === 'admin' && departmentId && departmentId !== 'all'

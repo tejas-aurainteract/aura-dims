@@ -57,27 +57,20 @@ service cloud.firestore {
 
     // Departments Collection: /departments/{departmentId}
     match /departments/{departmentId} {
-      allow read: if isAuthenticated() && (
-        isAdmin() ||
-        (resource.data.status == 'active') ||
-        (isDepartmentHead() && resource.data.id == getCallerDepartmentId())
-      );
+      allow read: if isAuthenticated();
       allow write: if false;
     }
 
     // Assets Collection: /assets/{assetId}
     match /assets/{assetId} {
       // 1. Admin can read any asset across departments.
-      // 2. Department Head can read assets in their own department.
-      // 3. Staging/awaiting_upload assets can be read by their creator or Admin.
-      // 4. Cross-department reads are strictly denied.
-      // 5. Unauthenticated callers or device identities are denied.
+      // 2. Department members & HOD can read assets in their own department.
+      // 3. Any authenticated user can read global or shared assets assigned to their department.
+      // 4. Staging/awaiting_upload assets can be read by their creator or Admin.
       allow read: if isAuthenticated() && (
         isAdmin() ||
-        (isDepartmentHead() && (
-          resource.data.departmentId == getCallerDepartmentId() ||
-          ('accessScopes' in resource.data && resource.data.accessScopes.hasAny(['global', 'dept:' + getCallerDepartmentId()]))
-        )) ||
+        resource.data.departmentId == getCallerDepartmentId() ||
+        ('accessScopes' in resource.data && resource.data.accessScopes.hasAny(['global', 'dept:' + getCallerDepartmentId()])) ||
         (resource.data.status == 'awaiting_upload' && resource.data.ownerId == request.auth.uid)
       );
 

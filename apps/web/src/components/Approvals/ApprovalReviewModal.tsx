@@ -47,7 +47,11 @@ export const ApprovalReviewModal: React.FC<ApprovalReviewModalProps> = ({
   const rule = approval.scheduleRule;
 
   const handleApprove = async () => {
-    if (!window.confirm(`Approve publication for "${approval.playlistTitle}" to ${approval.targetDisplayIds.length} digital displays?`)) {
+    const targetCount = approval.targetDisplayIds?.length ?? 0;
+    const confirmMsg = targetCount > 0
+      ? `Approve publication for "${approval.playlistTitle}" to ${targetCount} digital displays?`
+      : `Approve general availability for "${approval.playlistTitle || (approval as any).assetTitle}"?`;
+    if (!window.confirm(confirmMsg)) {
       return;
     }
 
@@ -185,78 +189,82 @@ export const ApprovalReviewModal: React.FC<ApprovalReviewModalProps> = ({
             </div>
           </div>
 
-          {/* Schedule Window Section */}
-          <div className="p-4 bg-slate-50/70 border border-slate-200 rounded-xl space-y-2">
-            <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-              <Calendar className="h-4 w-4 text-teal-600" />
-              <span>Broadcast Scheduling Window</span>
-            </h3>
+          {/* Schedule Window Section (if schedule submission) */}
+          {rule && (
+            <div className="p-4 bg-slate-50/70 border border-slate-200 rounded-xl space-y-2">
+              <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                <Calendar className="h-4 w-4 text-teal-600" />
+                <span>Broadcast Scheduling Window</span>
+              </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-700 mt-2">
-              <div>
-                <span className="text-slate-400 block text-[11px]">Validity Dates</span>
-                <span className="font-medium text-slate-900">
-                  {rule?.startDate} to {rule?.endDate}
-                </span>
-              </div>
-
-              <div>
-                <span className="text-slate-400 block text-[11px]">Daily Time Window</span>
-                <span className="font-medium text-slate-900">
-                  {rule?.startTime} – {rule?.endTime} (Asia/Kolkata)
-                  {rule?.isOvernight && (
-                    <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-semibold">
-                      Overnight Window
-                    </span>
-                  )}
-                </span>
-              </div>
-
-              <div>
-                <span className="text-slate-400 block text-[11px]">Recurrence Model</span>
-                <span className="font-medium text-slate-900">
-                  {rule?.scheduleType === 'recurring' ? 'Weekly recurring' : 'One-time broadcast'}
-                </span>
-              </div>
-
-              <div>
-                <span className="text-slate-400 block text-[11px]">Active Days of Week</span>
-                <span className="font-medium text-slate-900">
-                  {rule?.scheduleType === 'recurring' && rule?.daysOfWeek
-                    ? rule.daysOfWeek
-                        .map((d) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d])
-                        .join(', ')
-                    : 'Exact specified dates'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Targeted Digital Displays */}
-          <div>
-            <h3 className="text-xs font-bold text-slate-900 mb-2 flex items-center gap-1.5">
-              <Monitor className="h-4 w-4 text-teal-600" />
-              <span>
-                Targeted Digital Displays ({approval.targetDisplayIds.length} devices)
-              </span>
-            </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
-              {approval.targetDisplayNames.map((name, idx) => (
-                <div
-                  key={approval.targetDisplayIds[idx] || idx}
-                  className="p-2.5 bg-white border border-slate-200 rounded-xl text-xs flex items-center justify-between"
-                >
-                  <span className="font-medium text-slate-800 truncate" title={name}>
-                    {name}
-                  </span>
-                  <span className="text-[10px] font-mono text-slate-400 shrink-0 ml-2">
-                    {approval.targetDisplayIds[idx]}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-700 mt-2">
+                <div>
+                  <span className="text-slate-400 block text-[11px]">Validity Dates</span>
+                  <span className="font-medium text-slate-900">
+                    {rule.startDate} to {rule.endDate}
                   </span>
                 </div>
-              ))}
+
+                <div>
+                  <span className="text-slate-400 block text-[11px]">Daily Time Window</span>
+                  <span className="font-medium text-slate-900">
+                    {rule.startTime} – {rule.endTime} (Asia/Kolkata)
+                    {rule.isOvernight && (
+                      <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-semibold">
+                        Overnight Window
+                      </span>
+                    )}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-slate-400 block text-[11px]">Recurrence Model</span>
+                  <span className="font-medium text-slate-900">
+                    {rule.scheduleType === 'recurring' ? 'Weekly recurring' : 'One-time broadcast'}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-slate-400 block text-[11px]">Active Days of Week</span>
+                  <span className="font-medium text-slate-900">
+                    {rule.scheduleType === 'recurring' && rule.daysOfWeek
+                      ? rule.daysOfWeek
+                          .map((d) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d])
+                          .join(', ')
+                      : 'Exact specified dates'}
+                  </span>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Targeted Digital Displays (if schedule submission) */}
+          {approval.targetDisplayIds && approval.targetDisplayIds.length > 0 && (
+            <div>
+              <h3 className="text-xs font-bold text-slate-900 mb-2 flex items-center gap-1.5">
+                <Monitor className="h-4 w-4 text-teal-600" />
+                <span>
+                  Targeted Digital Displays ({approval.targetDisplayIds.length} devices)
+                </span>
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
+                {(approval.targetDisplayNames || []).map((name, idx) => (
+                  <div
+                    key={approval.targetDisplayIds[idx] || idx}
+                    className="p-2.5 bg-white border border-slate-200 rounded-xl text-xs flex items-center justify-between"
+                  >
+                    <span className="font-medium text-slate-800 truncate" title={name}>
+                      {name}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400 shrink-0 ml-2">
+                      {approval.targetDisplayIds[idx]}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Rejection Form when Reject is clicked */}
           {decisionMode === 'rejecting' && (
