@@ -185,7 +185,7 @@ service cloud.firestore {
     match /displays/{displayId} {
       allow read: if isAuthenticated() && (
         isAdmin() ||
-        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId()) ||
+        resource.data.departmentId == getCallerDepartmentId() ||
         (request.auth.token.role == 'device' && request.auth.token.displayId == displayId)
       );
       allow write: if false;

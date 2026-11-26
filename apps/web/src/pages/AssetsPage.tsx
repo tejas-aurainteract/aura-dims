@@ -12,7 +12,6 @@ import {
   FolderOpen,
   FolderPlus,
   Upload,
-  Plus,
   Search,
   LayoutGrid,
   List,
@@ -51,6 +50,11 @@ export interface AssetFolder {
   createdAt: string;
   departmentId?: string | null;
 }
+
+const SYSTEM_FOLDERS: AssetFolder[] = [
+  { id: 'system_images', name: 'Images', createdBy: 'system', createdAt: '2026-01-01T00:00:00.000Z' },
+  { id: 'system_videos', name: 'Videos', createdBy: 'system', createdAt: '2026-01-01T00:00:00.000Z' },
+];
 
 export const AssetsPage: React.FC = () => {
   const { userProfile, currentUser } = useAuth();
@@ -132,7 +136,7 @@ export const AssetsPage: React.FC = () => {
       const res = await api.listMediaAssets({
         scope: isAdmin ? 'global' : 'department',
         departmentId: userProfile?.departmentId || undefined,
-        pageSize: 100,
+        pageSize: 200,
         includeArchived: false,
       });
       setAssets(res.assets || []);
@@ -148,19 +152,36 @@ export const AssetsPage: React.FC = () => {
     loadAssets();
   }, [loadAssets]);
 
+  // Combine system folders (Images, Videos) with custom folders
+  const allFolders = useMemo(() => {
+    const custom = folders.filter(
+      (f) => f.name.toLowerCase() !== 'images' && f.name.toLowerCase() !== 'videos'
+    );
+    return [...SYSTEM_FOLDERS, ...custom];
+  }, [folders]);
+
   // Active folder object
   const activeFolder = useMemo(() => {
-    return folders.find((f) => f.id === activeFolderId) || null;
-  }, [folders, activeFolderId]);
+    return allFolders.find((f) => f.id === activeFolderId) || null;
+  }, [allFolders, activeFolderId]);
 
-  // Assets grouped by folder
+  // Assets grouped by folder count
   const folderAssetCounts = useMemo(() => {
     const map = new Map<string, number>();
     assets.forEach((a) => {
+      const type = a.mediaType || a.type;
+      if (type === 'image') {
+        map.set('system_images', (map.get('system_images') || 0) + 1);
+      } else if (type === 'video') {
+        map.set('system_videos', (map.get('system_videos') || 0) + 1);
+      }
+
       const folderTag = a.tags?.find((t) => t.startsWith('folder:'));
       if (folderTag) {
         const fId = folderTag.replace('folder:', '');
-        map.set(fId, (map.get(fId) || 0) + 1);
+        if (fId !== 'system_images' && fId !== 'system_videos') {
+          map.set(fId, (map.get(fId) || 0) + 1);
+        }
       }
     });
     return map;
@@ -169,10 +190,18 @@ export const AssetsPage: React.FC = () => {
   // Filtered assets for current view
   const displayedAssets = useMemo(() => {
     return assets.filter((asset) => {
+      const type = asset.mediaType || asset.type;
+
       // Folder filtering
       if (activeFolderId) {
-        const matchesFolder = asset.tags?.includes(`folder:${activeFolderId}`);
-        if (!matchesFolder) return false;
+        if (activeFolderId === 'system_images' || activeFolder?.name.toLowerCase() === 'images') {
+          if (type !== 'image' && !asset.tags?.includes('folder:system_images')) return false;
+        } else if (activeFolderId === 'system_videos' || activeFolder?.name.toLowerCase() === 'videos') {
+          if (type !== 'video' && !asset.tags?.includes('folder:system_videos')) return false;
+        } else {
+          const matchesFolder = asset.tags?.includes(`folder:${activeFolderId}`);
+          if (!matchesFolder) return false;
+        }
       }
 
       // Search query filtering
@@ -185,13 +214,12 @@ export const AssetsPage: React.FC = () => {
 
       // Media type filtering
       if (selectedType !== 'all') {
-        const type = asset.mediaType || asset.type;
         if (type !== selectedType) return false;
       }
 
       return true;
     });
-  }, [assets, activeFolderId, searchQuery, selectedType]);
+  }, [assets, activeFolderId, activeFolder, searchQuery, selectedType]);
 
   // Create Folder Handler
   const handleCreateFolder = async (e: React.FormEvent) => {
@@ -243,10 +271,11 @@ export const AssetsPage: React.FC = () => {
 
   // Open Upload Modal with preset folder
   const handleOpenUpload = (targetFolderId?: string | null) => {
+    const fId = targetFolderId || activeFolderId || allFolders[0]?.id || 'system_images';
     setUploadFile(null);
     setUploadTitle('');
     setUploadDescription('');
-    setUploadFolderId(targetFolderId || activeFolderId || '');
+    setUploadFolderId(fId);
     setIsGlobalShared(false);
     setSelectedDeptIds(userProfile?.departmentId ? [userProfile.departmentId] : []);
     setUploadError(null);
@@ -259,6 +288,24 @@ export const AssetsPage: React.FC = () => {
     e.preventDefault();
     if (!uploadFile) {
       setUploadError('Please select a file to upload.');
+      return;
+    }
+
+    if (!uploadFolderId) {
+      setUploadError('Please select a folder to upload into.');
+      return;
+    }
+
+    const isImageFile = uploadFile.type.startsWith('image/') || /\.(jpe?g|png)$/i.test(uploadFile.name);
+    const isVideoFile = uploadFile.type.startsWith('video/') || /\.(mp4|m4v|mov)$/i.test(uploadFile.name);
+
+    if (uploadFolderId === 'system_images' && !isImageFile) {
+      setUploadError('The Images folder only accepts JPEG and PNG image files. Please select an image.');
+      return;
+    }
+
+    if (uploadFolderId === 'system_videos' && !isVideoFile) {
+      setUploadError('The Videos folder only accepts MP4 video files. Please select a video.');
       return;
     }
 
@@ -357,14 +404,25 @@ export const AssetsPage: React.FC = () => {
 
         <div className="flex items-center gap-2 self-start sm:self-auto">
           {activeFolder && (
-            <button
-              type="button"
-              onClick={() => setActiveFolderId(null)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 shadow-2xs transition-colors"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              <span>All Folders</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setActiveFolderId(null)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 shadow-2xs transition-colors"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                <span>All Folders</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleOpenUpload(activeFolderId)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors"
+              >
+                <Upload className="h-4 w-4" />
+                <span>Upload to {activeFolder.name}</span>
+              </button>
+            </>
           )}
 
           <button
@@ -378,15 +436,6 @@ export const AssetsPage: React.FC = () => {
           >
             <FolderPlus className="h-4 w-4 text-teal-600" />
             <span>New Folder</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleOpenUpload()}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors"
-          >
-            <Upload className="h-4 w-4" />
-            <span>Upload Asset</span>
           </button>
         </div>
       </div>
@@ -407,263 +456,312 @@ export const AssetsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search assets by title or file name..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-teal-500 text-slate-900 placeholder:text-slate-400"
-          />
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Type Filter */}
-          <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs">
-            <button
-              type="button"
-              onClick={() => setSelectedType('all')}
-              className={`px-3 py-1 rounded-lg font-medium transition-colors ${
-                selectedType === 'all' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              All Types
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedType('image')}
-              className={`px-3 py-1 rounded-lg font-medium transition-colors ${
-                selectedType === 'image' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Images
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedType('video')}
-              className={`px-3 py-1 rounded-lg font-medium transition-colors ${
-                selectedType === 'video' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Videos
-            </button>
-          </div>
-
-          {/* View Mode Toggle */}
-          <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200">
-            <button
-              type="button"
-              onClick={() => setViewMode('grid')}
-              className={`p-1.5 rounded-lg transition-colors ${
-                viewMode === 'grid' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-900'
-              }`}
-              title="Grid view"
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('list')}
-              className={`p-1.5 rounded-lg transition-colors ${
-                viewMode === 'list' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-900'
-              }`}
-              title="List view"
-            >
-              <List className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Root View: Folders Section */}
-      {!activeFolderId && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Folders</h2>
-            <span className="text-[11px] text-slate-400">{folders.length} folder(s)</span>
-          </div>
-
-          {folders.length === 0 ? (
-            <div className="p-6 border border-dashed border-slate-200 rounded-2xl bg-white text-center">
-              <FolderOpen className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-              <p className="text-xs font-semibold text-slate-700">No folders created yet</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                Create folders like &quot;Images&quot; or &quot;Videos&quot; to organize assets across departments.
-              </p>
-              <button
-                type="button"
-                onClick={() => setIsFolderModalOpen(true)}
-                className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>Create first folder</span>
-              </button>
+      {/* Root View: Folders Grid & Segregation Explainer */}
+      {!activeFolderId ? (
+        <div className="space-y-6">
+          {/* Informative Folder Banner */}
+          <div className="bg-gradient-to-r from-teal-500/10 via-emerald-500/10 to-teal-500/5 p-4 rounded-2xl border border-teal-200/80 flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-teal-600 text-white shadow-xs shrink-0 mt-0.5">
+              <FolderOpen className="h-5 w-5" />
             </div>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-              {folders.map((f) => {
+            <div>
+              <h3 className="text-xs font-bold text-slate-900">Folder-Organized Media Repository</h3>
+              <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
+                Assets are segregated by media category and folder. Open the <strong>Images</strong> or <strong>Videos</strong> folder to access media uploaded across all projects and departments, or create a custom folder. Assets can only be uploaded from inside a destination folder.
+              </p>
+            </div>
+          </div>
+
+          {/* Folders Grid */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Media Folders</h2>
+              <span className="text-[11px] text-slate-400">{allFolders.length} folder(s)</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {allFolders.map((f) => {
                 const count = folderAssetCounts.get(f.id) || 0;
+                const isSystem = f.id === 'system_images' || f.id === 'system_videos';
+                const isImages = f.id === 'system_images' || f.name.toLowerCase() === 'images';
+                const isVideos = f.id === 'system_videos' || f.name.toLowerCase() === 'videos';
+
                 return (
                   <div
                     key={f.id}
                     onClick={() => setActiveFolderId(f.id)}
-                    className="group p-4 bg-white rounded-2xl border border-slate-200 hover:border-teal-500/50 hover:shadow-xs transition-all cursor-pointer flex flex-col justify-between"
+                    className="group p-5 bg-white rounded-2xl border border-slate-200 hover:border-teal-500/60 hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="h-10 w-10 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center group-hover:bg-teal-600 group-hover:text-white transition-colors">
-                        <Folder className="h-5 w-5" />
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div
+                          className={`h-11 w-11 rounded-xl flex items-center justify-center transition-colors ${
+                            isImages
+                              ? 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white'
+                              : isVideos
+                              ? 'bg-purple-50 text-purple-600 group-hover:bg-purple-600 group-hover:text-white'
+                              : 'bg-teal-50 text-teal-700 group-hover:bg-teal-600 group-hover:text-white'
+                          }`}
+                        >
+                          {isImages ? (
+                            <FileImage className="h-6 w-6" />
+                          ) : isVideos ? (
+                            <FileVideo className="h-6 w-6" />
+                          ) : (
+                            <Folder className="h-6 w-6" />
+                          )}
+                        </div>
+
+                        {isSystem ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                            Auto-Categorized
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteFolder(f.id, f.name, e)}
+                            className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-opacity hover:bg-red-50"
+                            title="Delete folder"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={(e) => handleDeleteFolder(f.id, f.name, e)}
-                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-600 rounded-lg transition-opacity"
-                        title="Delete folder"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+
+                      <div className="mt-4">
+                        <h3 className="font-bold text-sm text-slate-900 group-hover:text-teal-700 transition-colors">
+                          {f.name}
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {isImages
+                            ? 'All JPEG & PNG image assets from projects'
+                            : isVideos
+                            ? 'All MP4 video assets from projects'
+                            : 'Custom department media folder'}
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="mt-3">
-                      <div className="font-semibold text-xs text-slate-900 truncate">{f.name}</div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">{count} asset{count === 1 ? '' : 's'}</div>
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                      <span className="font-semibold text-slate-700">{count} asset{count === 1 ? '' : 's'}</span>
+                      <span className="text-teal-600 group-hover:translate-x-0.5 transition-transform font-medium flex items-center gap-1 text-[11px]">
+                        Open Folder <ChevronRight className="h-3 w-3" />
+                      </span>
                     </div>
                   </div>
                 );
               })}
             </div>
-          )}
-        </div>
-      )}
-
-      {/* Assets Section */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-            {activeFolder ? `Assets in ${activeFolder.name}` : 'All Media Assets'}
-          </h2>
-          <span className="text-[11px] text-slate-400">{displayedAssets.length} asset(s)</span>
-        </div>
-
-        {loading ? (
-          <div className="py-16 bg-white rounded-2xl border border-slate-200 text-center flex flex-col items-center justify-center">
-            <Loader2 className="h-6 w-6 text-teal-600 animate-spin mb-2" />
-            <p className="text-xs text-slate-500">Loading assets repository...</p>
           </div>
-        ) : displayedAssets.length === 0 ? (
-          <div className="py-12 bg-white rounded-2xl border border-slate-200 text-center">
-            <FileImage className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-            <p className="text-xs font-semibold text-slate-700">No assets found</p>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              {activeFolder
-                ? `No media assets have been uploaded to "${activeFolder.name}" yet.`
-                : 'Upload assets and choose which departments can access them.'}
-            </p>
-            <button
-              type="button"
-              onClick={() => handleOpenUpload(activeFolderId)}
-              className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-2xs"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              <span>Upload asset now</span>
-            </button>
-          </div>
-        ) : viewMode === 'grid' ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {displayedAssets.map((asset) => (
-              <div
-                key={asset.id}
-                onClick={() => setSelectedAsset(asset)}
-                className="group bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-sm hover:border-teal-500/50 transition-all cursor-pointer flex flex-col"
-              >
-                {/* Media Thumbnail */}
-                <div className="aspect-video bg-slate-100 relative overflow-hidden flex items-center justify-center">
-                  {asset.thumbnailPath ? (
-                    <img
-                      src={asset.thumbnailPath}
-                      alt={asset.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                    />
-                  ) : (
-                    <div className="text-slate-400 flex flex-col items-center gap-1">
-                      {asset.mediaType === 'video' ? (
-                        <FileVideo className="h-8 w-8" />
-                      ) : (
-                        <FileImage className="h-8 w-8" />
-                      )}
-                    </div>
-                  )}
+        </div>
+      ) : (
+        /* Folder View: Search Bar & Asset Contents */
+        <div className="space-y-4">
+          {/* Filter and Search Bar */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder={`Search assets in ${activeFolder?.name || 'folder'}...`}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-teal-500 text-slate-900 placeholder:text-slate-400"
+              />
+            </div>
 
-                  <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-black/60 text-white backdrop-blur-xs">
-                    {asset.mediaType || asset.type}
-                  </span>
+            <div className="flex items-center gap-2">
+              {/* Type Filter only for custom folders that can hold both */}
+              {activeFolderId !== 'system_images' && activeFolderId !== 'system_videos' && (
+                <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedType('all')}
+                    className={`px-3 py-1 rounded-lg font-medium transition-colors ${
+                      selectedType === 'all' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    All Types
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedType('image')}
+                    className={`px-3 py-1 rounded-lg font-medium transition-colors ${
+                      selectedType === 'image' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Images
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedType('video')}
+                    className={`px-3 py-1 rounded-lg font-medium transition-colors ${
+                      selectedType === 'video' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Videos
+                  </button>
                 </div>
+              )}
 
-                {/* Metadata */}
-                <div className="p-3 flex-1 flex flex-col justify-between">
-                  <div>
-                    <h3 className="font-semibold text-xs text-slate-900 truncate" title={asset.title}>
-                      {asset.title || asset.fileName}
-                    </h3>
-                    <p className="text-[11px] text-slate-400 font-mono truncate mt-0.5">{asset.fileName}</p>
-                  </div>
-
-                  <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
-                    <span>{(asset.fileSizeBytes / 1024 / 1024).toFixed(1)} MB</span>
-                    <span className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 font-medium">
-                      {asset.visibility === 'global' ? 'Global' : 'Shared'}
-                    </span>
-                  </div>
-                </div>
+              {/* View Mode Toggle */}
+              <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('grid')}
+                  className={`p-1.5 rounded-lg transition-colors ${
+                    viewMode === 'grid' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-900'
+                  }`}
+                  title="Grid view"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('list')}
+                  className={`p-1.5 rounded-lg transition-colors ${
+                    viewMode === 'list' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-900'
+                  }`}
+                  title="List view"
+                >
+                  <List className="h-4 w-4" />
+                </button>
               </div>
-            ))}
+            </div>
           </div>
-        ) : (
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-            <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-semibold">
-                <tr>
-                  <th className="py-3 px-4">Asset</th>
-                  <th className="py-3 px-4">Type</th>
-                  <th className="py-3 px-4">Size</th>
-                  <th className="py-3 px-4">Visibility</th>
-                  <th className="py-3 px-4">Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+
+          {/* Assets Listing */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                {activeFolder ? `Assets in ${activeFolder.name}` : 'Media Assets'}
+              </h2>
+              <span className="text-[11px] text-slate-400">{displayedAssets.length} asset(s)</span>
+            </div>
+
+            {loading ? (
+              <div className="py-16 bg-white rounded-2xl border border-slate-200 text-center flex flex-col items-center justify-center">
+                <Loader2 className="h-6 w-6 text-teal-600 animate-spin mb-2" />
+                <p className="text-xs text-slate-500">Loading assets repository...</p>
+              </div>
+            ) : displayedAssets.length === 0 ? (
+              <div className="py-12 bg-white rounded-2xl border border-slate-200 text-center">
+                {activeFolderId === 'system_videos' ? (
+                  <FileVideo className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                ) : (
+                  <FileImage className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                )}
+                <p className="text-xs font-semibold text-slate-700">No assets found</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {activeFolder
+                    ? `No media assets in "${activeFolder.name}" yet.`
+                    : 'Upload assets directly into this folder.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleOpenUpload(activeFolderId)}
+                  className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-2xs"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  <span>Upload to {activeFolder?.name}</span>
+                </button>
+              </div>
+            ) : viewMode === 'grid' ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
                 {displayedAssets.map((asset) => (
-                  <tr
+                  <div
                     key={asset.id}
                     onClick={() => setSelectedAsset(asset)}
-                    className="hover:bg-slate-50/70 transition-colors cursor-pointer"
+                    className="group bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-sm hover:border-teal-500/50 transition-all cursor-pointer flex flex-col"
                   >
-                    <td className="py-3 px-4">
-                      <div className="font-semibold text-slate-900">{asset.title}</div>
-                      <div className="text-[11px] text-slate-400 font-mono">{asset.fileName}</div>
-                    </td>
-                    <td className="py-3 px-4 uppercase text-[10px] font-semibold text-slate-600">
-                      {asset.mediaType || asset.type}
-                    </td>
-                    <td className="py-3 px-4 text-slate-600 font-mono text-[11px]">
-                      {(asset.fileSizeBytes / 1024 / 1024).toFixed(1)} MB
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-50 text-teal-700 border border-teal-200">
-                        {asset.visibility === 'global' ? 'Organization Global' : 'Department Shared'}
+                    {/* Media Thumbnail */}
+                    <div className="aspect-video bg-slate-100 relative overflow-hidden flex items-center justify-center">
+                      {asset.thumbnailPath ? (
+                        <img
+                          src={asset.thumbnailPath}
+                          alt={asset.title}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                        />
+                      ) : (
+                        <div className="text-slate-400 flex flex-col items-center gap-1">
+                          {asset.mediaType === 'video' ? (
+                            <FileVideo className="h-8 w-8" />
+                          ) : (
+                            <FileImage className="h-8 w-8" />
+                          )}
+                        </div>
+                      )}
+
+                      <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-black/60 text-white backdrop-blur-xs">
+                        {asset.mediaType || asset.type}
                       </span>
-                    </td>
-                    <td className="py-3 px-4 text-slate-400 text-[11px]">
-                      {new Date(asset.createdAt).toLocaleDateString()}
-                    </td>
-                  </tr>
+                    </div>
+
+                    {/* Metadata */}
+                    <div className="p-3 flex-1 flex flex-col justify-between">
+                      <div>
+                        <h3 className="font-semibold text-xs text-slate-900 truncate" title={asset.title}>
+                          {asset.title || asset.fileName}
+                        </h3>
+                        <p className="text-[11px] text-slate-400 font-mono truncate mt-0.5">{asset.fileName}</p>
+                      </div>
+
+                      <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
+                        <span>{(asset.fileSizeBytes / 1024 / 1024).toFixed(1)} MB</span>
+                        <span className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 font-medium">
+                          {asset.visibility === 'global' ? 'Global' : 'Shared'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 font-semibold">
+                    <tr>
+                      <th className="py-3 px-4">Asset</th>
+                      <th className="py-3 px-4">Type</th>
+                      <th className="py-3 px-4">Size</th>
+                      <th className="py-3 px-4">Visibility</th>
+                      <th className="py-3 px-4">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {displayedAssets.map((asset) => (
+                      <tr
+                        key={asset.id}
+                        onClick={() => setSelectedAsset(asset)}
+                        className="hover:bg-slate-50/70 transition-colors cursor-pointer"
+                      >
+                        <td className="py-3 px-4">
+                          <div className="font-semibold text-slate-900">{asset.title}</div>
+                          <div className="text-[11px] text-slate-400 font-mono">{asset.fileName}</div>
+                        </td>
+                        <td className="py-3 px-4 uppercase text-[10px] font-semibold text-slate-600">
+                          {asset.mediaType || asset.type}
+                        </td>
+                        <td className="py-3 px-4 text-slate-600 font-mono text-[11px]">
+                          {(asset.fileSizeBytes / 1024 / 1024).toFixed(1)} MB
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-50 text-teal-700 border border-teal-200">
+                            {asset.visibility === 'global' ? 'Organization Global' : 'Department Shared'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-slate-400 text-[11px]">
+                          {new Date(asset.createdAt).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Modal: Create Folder */}
       {isFolderModalOpen && (
@@ -756,7 +854,13 @@ export const AssetsPage: React.FC = () => {
                 <input
                   type="file"
                   required
-                  accept="image/jpeg,image/png,video/mp4"
+                  accept={
+                    uploadFolderId === 'system_images'
+                      ? 'image/jpeg,image/png'
+                      : uploadFolderId === 'system_videos'
+                      ? 'video/mp4'
+                      : 'image/jpeg,image/png,video/mp4'
+                  }
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) {
@@ -767,7 +871,11 @@ export const AssetsPage: React.FC = () => {
                   className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100 cursor-pointer"
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Supported formats: JPEG, PNG (max 20MB) and MP4 H.264 (max 200MB)
+                  {uploadFolderId === 'system_images'
+                    ? 'Supported formats: JPEG, PNG (max 20MB)'
+                    : uploadFolderId === 'system_videos'
+                    ? 'Supported formats: MP4 H.264 (max 200MB)'
+                    : 'Supported formats: JPEG, PNG (max 20MB) and MP4 H.264 (max 200MB)'}
                 </p>
               </div>
 
@@ -802,13 +910,15 @@ export const AssetsPage: React.FC = () => {
                 <label className="block text-xs font-semibold text-slate-700">Target Folder</label>
                 <select
                   value={uploadFolderId}
-                  onChange={(e) => setUploadFolderId(e.target.value)}
+                  onChange={(e) => {
+                    setUploadFolderId(e.target.value);
+                    setUploadError(null);
+                  }}
                   className="mt-1 block w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 text-slate-900"
                 >
-                  <option value="">(Root / No Folder)</option>
-                  {folders.map((f) => (
+                  {allFolders.map((f) => (
                     <option key={f.id} value={f.id}>
-                      📁 {f.name}
+                      📁 {f.name} {f.id === 'system_images' ? '(Images only)' : f.id === 'system_videos' ? '(Videos only)' : ''}
                     </option>
                   ))}
                 </select>

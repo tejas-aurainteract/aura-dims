@@ -18,6 +18,7 @@ import { deriveConnectivity, useNowTick } from '../../lib/connectivity';
 interface DisplayDetailsDrawerProps {
   display: DisplayView;
   isAdmin: boolean;
+  canManageHardware?: boolean;
   onClose: () => void;
   onDisplayUpdated: () => void;
   /** Tab to open first (e.g. 'operations' for the Maintenance entry point). */
@@ -65,11 +66,15 @@ function formatTimestamp(iso: string | null | undefined): string {
 export const DisplayDetailsDrawer: React.FC<DisplayDetailsDrawerProps> = ({
   display: initialDisplay,
   isAdmin,
+  canManageHardware,
   onClose,
   onDisplayUpdated,
   initialTab = 'health',
 }) => {
-  const [activeTab, setActiveTab] = useState<DrawerTab>(initialTab);
+  const hasHardwareAccess = canManageHardware ?? isAdmin;
+  const [activeTab, setActiveTab] = useState<DrawerTab>(
+    !hasHardwareAccess && initialTab === 'operations' ? 'health' : initialTab
+  );
   const [fetchedDisplay, setDisplay] = useState<DisplayView>(initialDisplay);
 
   // Live connectivity: re-evaluated every tick so a powered-off digital display
@@ -255,11 +260,13 @@ export const DisplayDetailsDrawer: React.FC<DisplayDetailsDrawerProps> = ({
         <div className="px-6 border-b border-slate-800 bg-slate-900/60 flex gap-6">
           {(
             [
-              { id: 'health', label: 'Hardware & Health' },
-              { id: 'delivery', label: 'Package Delivery & Presentation' },
-              { id: 'files', label: 'Verified Cache & Files' },
-              { id: 'operations', label: 'Maintenance & Device Control' },
-            ] as Array<{ id: DrawerTab; label: string }>
+              { id: 'health' as DrawerTab, label: 'Hardware & Health' },
+              { id: 'delivery' as DrawerTab, label: 'Package Delivery & Presentation' },
+              { id: 'files' as DrawerTab, label: 'Verified Cache & Files' },
+              ...(hasHardwareAccess
+                ? [{ id: 'operations' as DrawerTab, label: 'Maintenance & Device Control' }]
+                : []),
+            ]
           ).map((tab) => (
             <button
               key={tab.id}

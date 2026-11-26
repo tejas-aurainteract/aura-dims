@@ -35,7 +35,7 @@ interface NavItem {
 
 const baseNavItems: NavItem[] = [
   { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-  { name: 'Digital Displays', path: '/displays', icon: Tv, leadersOnly: true },
+  { name: 'Digital Displays', path: '/displays', icon: Tv },
   { name: 'Projects', path: '/projects', icon: FolderKanban },
   { name: 'Content', path: '/content', icon: FolderOpen },
   { name: 'Assets', path: '/assets', icon: Boxes, leadersOnly: true },

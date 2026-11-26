@@ -869,25 +869,39 @@ export const DisplaysPage: React.FC = () => {
                         {/* Commissioning status badge */}
                         <div>
                           {isCommissioned ? (
-                            <button
-                              type="button"
-                              onClick={() => setCommissioningDisplay(display)}
-                              title="View commissioning checklist"
-                              className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 inline-flex items-center gap-1 hover:bg-emerald-900/60 transition-colors cursor-pointer"
-                            >
-                              <CheckCircle2 className="w-3 h-3" />
-                              Commissioned
-                            </button>
+                            canManageHardware ? (
+                              <button
+                                type="button"
+                                onClick={() => setCommissioningDisplay(display)}
+                                title="View commissioning checklist"
+                                className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 inline-flex items-center gap-1 hover:bg-emerald-900/60 transition-colors cursor-pointer"
+                              >
+                                <CheckCircle2 className="w-3 h-3" />
+                                Commissioned
+                              </button>
+                            ) : (
+                              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 inline-flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" />
+                                Commissioned
+                              </span>
+                            )
                           ) : (
-                            <button
-                              type="button"
-                              onClick={() => setCommissioningDisplay(display)}
-                              title="Complete commissioning checklist"
-                              className="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-950/80 text-amber-400 hover:bg-amber-900/80 border border-amber-800/60 inline-flex items-center gap-1 transition-colors cursor-pointer"
-                            >
-                              <ClipboardCheck className="w-3 h-3" />
-                              Commissioning
-                            </button>
+                            canManageHardware ? (
+                              <button
+                                type="button"
+                                onClick={() => setCommissioningDisplay(display)}
+                                title="Complete commissioning checklist"
+                                className="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-950/80 text-amber-400 hover:bg-amber-900/80 border border-amber-800/60 inline-flex items-center gap-1 transition-colors cursor-pointer"
+                              >
+                                <ClipboardCheck className="w-3 h-3" />
+                                Commissioning
+                              </button>
+                            ) : (
+                              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-950/80 text-amber-400 border border-amber-800/60 inline-flex items-center gap-1">
+                                <ClipboardCheck className="w-3 h-3" />
+                                Commissioning
+                              </span>
+                            )
                           )}
                         </div>
                       </div>
@@ -1186,7 +1200,7 @@ export const DisplaysPage: React.FC = () => {
       )}
 
       {/* Modal: Pairing Code Generated */}
-      {pairingModalDisplay && (
+      {isAdmin && pairingModalDisplay && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
             <button
@@ -1450,6 +1464,7 @@ export const DisplaysPage: React.FC = () => {
           display={detailsModalDisplay}
           initialTab={detailsInitialTab}
           isAdmin={isAdmin}
+          canManageHardware={canManageHardware}
           onClose={() => setDetailsModalDisplay(null)}
           onDisplayUpdated={() => { }}
         />
