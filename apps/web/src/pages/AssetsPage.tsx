@@ -1,15 +1,17 @@
 /**
- * Aura DIMS - Centralized Assets Management Hub
+ * Aura DIMS - Centralized Assets Management Hub (Department-First Architecture)
  * Company: Aurainteract Private Limited
  * Product: Aura Digital Information Management System (Aura DIMS)
  *
- * Leader-only workspace (Admin & Department Head) for organizing, uploading,
- * and sharing media assets across departments with folder hierarchy.
+ * Enterprise DAM structure:
+ * - Admin: Department-First Directory (General Assets + each Department) -> Images/Videos -> Media Assets
+ * - HOD: Directly scoped to their assigned Department -> Images/Videos -> Media Assets
+ * - Uploads: Dedicated per media type with multi-project assignment and company-wide approval workflows.
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  FolderOpen,
+  Building2,
   FolderPlus,
   Upload,
   Search,
@@ -24,7 +26,8 @@ import {
   AlertCircle,
   ArrowLeft,
   Folder,
-  Check,
+  Globe,
+  Sparkles,
 } from 'lucide-react';
 import {
   collection,
@@ -43,7 +46,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
 import { startMediaUpload, type UploadProgressEvent } from '@/lib/mediaUpload';
 import { MediaDetailModal } from '@/components/Media/MediaDetailModal';
-import type { MediaAsset, Department } from '@aura-dims/display-schema';
+import type { MediaAsset, Department, ProjectRecord } from '@aura-dims/display-schema';
 
 export interface AssetFolder {
   id: string;
@@ -62,15 +65,21 @@ export const AssetsPage: React.FC = () => {
   const { userProfile, currentUser } = useAuth();
   const isAdmin = userProfile?.role === 'admin';
 
+  // Navigation state:
+  // Admin: Level 0 (activeDeptId === null) -> Level 1 (activeDeptId !== null && !activeFolderId) -> Level 2 (activeFolderId !== null)
+  // HOD: Defaults directly to their department ID (or 'general' when exploring brand assets)
+  const [activeDeptId, setActiveDeptId] = useState<string | null>(
+    isAdmin ? null : (userProfile?.departmentId || 'general')
+  );
+  const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
+
   // Data state
   const [folders, setFolders] = useState<AssetFolder[]>([]);
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [departmentProjects, setDepartmentProjects] = useState<ProjectRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-
-  // Active navigation folder (null = root)
-  const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
 
   // Filtering & view mode
   const [searchQuery, setSearchQuery] = useState('');
@@ -87,9 +96,8 @@ export const AssetsPage: React.FC = () => {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadTitle, setUploadTitle] = useState('');
   const [uploadDescription, setUploadDescription] = useState('');
-  const [uploadFolderId, setUploadFolderId] = useState<string>('');
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [isGlobalShared, setIsGlobalShared] = useState(false);
-  const [selectedDeptIds, setSelectedDeptIds] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressEvent | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -97,7 +105,7 @@ export const AssetsPage: React.FC = () => {
   // Detail modal state
   const [selectedAsset, setSelectedAsset] = useState<MediaAsset | null>(null);
 
-  // 1. Subscribe to Folders
+  // 1. Subscribe to Custom Folders
   useEffect(() => {
     const q = query(collection(db, 'asset_folders'), orderBy('name', 'asc'));
     const unsubscribe = onSnapshot(
@@ -116,7 +124,7 @@ export const AssetsPage: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  // 2. Load Departments
+  // 2. Load Active Departments
   useEffect(() => {
     async function loadDepts() {
       try {
@@ -138,7 +146,7 @@ export const AssetsPage: React.FC = () => {
     loadDepts();
   }, []);
 
-  // 3. Load Assets
+  // 3. Load Assets Repository
   const loadAssets = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
@@ -151,7 +159,7 @@ export const AssetsPage: React.FC = () => {
       });
       setAssets(res.assets || []);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to load assets.';
+      const msg = err instanceof Error ? err.message : 'Failed to load assets repository.';
       setLoadError(msg);
     } finally {
       setLoading(false);
@@ -162,23 +170,72 @@ export const AssetsPage: React.FC = () => {
     loadAssets();
   }, [loadAssets]);
 
-  // Combine system folders (Images, Videos) with custom folders
-  const allFolders = useMemo(() => {
-    const custom = folders.filter(
-      (f) => f.name.toLowerCase() !== 'images' && f.name.toLowerCase() !== 'videos'
-    );
-    return [...SYSTEM_FOLDERS, ...custom];
-  }, [folders]);
+  // 4. Load Projects for Active Department (for Multi-project Assignment in uploads)
+  useEffect(() => {
+    async function loadProjects() {
+      const targetDept = activeDeptId && activeDeptId !== 'general'
+        ? activeDeptId
+        : userProfile?.departmentId;
+      if (!targetDept) {
+        setDepartmentProjects([]);
+        return;
+      }
+      try {
+        const res = await api.listProjects({ departmentId: targetDept, status: 'active' });
+        setDepartmentProjects(res.projects || []);
+      } catch (err) {
+        console.warn('[AssetsPage] Error loading department projects:', err);
+      }
+    }
+    loadProjects();
+  }, [activeDeptId, userProfile?.departmentId]);
 
-  // Active folder object
-  const activeFolder = useMemo(() => {
-    return allFolders.find((f) => f.id === activeFolderId) || null;
-  }, [allFolders, activeFolderId]);
+  // Active Department Object
+  const activeDepartment = useMemo(() => {
+    if (!activeDeptId) return null;
+    if (activeDeptId === 'general') {
+      return {
+        id: 'general',
+        name: 'General & Brand Assets',
+        code: 'GLOBAL',
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      } as unknown as Department;
+    }
+    return departments.find((d) => d.id === activeDeptId) || null;
+  }, [activeDeptId, departments]);
 
-  // Assets grouped by folder count
-  const folderAssetCounts = useMemo(() => {
+  // Department Asset Counts (for Admin Level 0 Overview)
+  const departmentAssetCounts = useMemo(() => {
     const map = new Map<string, number>();
     assets.forEach((a) => {
+      const isGlobal = a.visibility === 'global' || a.accessScopes?.includes('global');
+      if (isGlobal) {
+        map.set('general', (map.get('general') || 0) + 1);
+      }
+      if (a.departmentId) {
+        map.set(a.departmentId, (map.get(a.departmentId) || 0) + 1);
+      }
+    });
+    return map;
+  }, [assets]);
+
+  // Assets Scoped to the Currently Active Department
+  const departmentAssets = useMemo(() => {
+    if (!activeDeptId) return [];
+    if (activeDeptId === 'general') {
+      return assets.filter((a) => a.visibility === 'global' || a.accessScopes?.includes('global'));
+    }
+    return assets.filter(
+      (a) => a.departmentId === activeDeptId || a.accessScopes?.includes(`dept:${activeDeptId}`)
+    );
+  }, [assets, activeDeptId]);
+
+  // Folder Counts inside Current Department
+  const folderAssetCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    departmentAssets.forEach((a) => {
       const type = a.mediaType || a.type;
       if (type === 'image') {
         map.set('system_images', (map.get('system_images') || 0) + 1);
@@ -195,14 +252,31 @@ export const AssetsPage: React.FC = () => {
       }
     });
     return map;
-  }, [assets]);
+  }, [departmentAssets]);
 
-  // Filtered assets for current view
+  // Custom Folders in Current Department
+  const departmentCustomFolders = useMemo(() => {
+    return folders.filter((f) => {
+      if (f.name.toLowerCase() === 'images' || f.name.toLowerCase() === 'videos') return false;
+      if (!f.departmentId) return true;
+      return f.departmentId === activeDeptId;
+    });
+  }, [folders, activeDeptId]);
+
+  const allFolders = useMemo(() => {
+    return [...SYSTEM_FOLDERS, ...departmentCustomFolders];
+  }, [departmentCustomFolders]);
+
+  const activeFolder = useMemo(() => {
+    return allFolders.find((f) => f.id === activeFolderId) || null;
+  }, [allFolders, activeFolderId]);
+
+  // Displayed Assets in Current Folder View
   const displayedAssets = useMemo(() => {
-    return assets.filter((asset) => {
+    return departmentAssets.filter((asset) => {
       const type = asset.mediaType || asset.type;
 
-      // Folder filtering
+      // Filter by folder
       if (activeFolderId) {
         if (activeFolderId === 'system_images' || activeFolder?.name.toLowerCase() === 'images') {
           if (type !== 'image' && !asset.tags?.includes('folder:system_images')) return false;
@@ -214,7 +288,7 @@ export const AssetsPage: React.FC = () => {
         }
       }
 
-      // Search query filtering
+      // Filter by search query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchesTitle = asset.title?.toLowerCase().includes(q);
@@ -222,16 +296,16 @@ export const AssetsPage: React.FC = () => {
         if (!matchesTitle && !matchesFileName) return false;
       }
 
-      // Media type filtering
+      // Filter by media type (for custom folders)
       if (selectedType !== 'all') {
         if (type !== selectedType) return false;
       }
 
       return true;
     });
-  }, [assets, activeFolderId, activeFolder, searchQuery, selectedType]);
+  }, [departmentAssets, activeFolderId, activeFolder, searchQuery, selectedType]);
 
-  // Create Folder Handler
+  // Create Custom Folder Handler
   const handleCreateFolder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFolderName.trim()) return;
@@ -245,7 +319,7 @@ export const AssetsPage: React.FC = () => {
         name: newFolderName.trim(),
         createdBy: currentUser?.uid || 'user',
         createdAt: new Date().toISOString(),
-        departmentId: userProfile?.departmentId || null,
+        departmentId: activeDeptId && activeDeptId !== 'general' ? activeDeptId : (userProfile?.departmentId || null),
       };
 
       await setDoc(doc(db, 'asset_folders', folderId), newFolder);
@@ -258,7 +332,7 @@ export const AssetsPage: React.FC = () => {
     }
   };
 
-  // Delete Folder Handler
+  // Delete Custom Folder Handler
   const handleDeleteFolder = async (folderId: string, folderName: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const count = folderAssetCounts.get(folderId) || 0;
@@ -274,26 +348,38 @@ export const AssetsPage: React.FC = () => {
       if (activeFolderId === folderId) {
         setActiveFolderId(null);
       }
-    } catch (err) {
+    } catch {
       alert('Failed to delete folder.');
     }
   };
 
-  // Open Upload Modal with preset folder
+  // Open Upload Modal inside specific folder
   const handleOpenUpload = (targetFolderId?: string | null) => {
-    const fId = targetFolderId || activeFolderId || allFolders[0]?.id || 'system_images';
+    const fId = targetFolderId || activeFolderId || 'system_images';
     setUploadFile(null);
     setUploadTitle('');
     setUploadDescription('');
-    setUploadFolderId(fId);
-    setIsGlobalShared(false);
-    setSelectedDeptIds(userProfile?.departmentId ? [userProfile.departmentId] : []);
+    setActiveFolderId(fId);
+    setIsGlobalShared(activeDeptId === 'general');
+
+    // Default to General project if available
+    const genProj = departmentProjects.find((p) => p.isGeneral);
+    setSelectedProjectIds(
+      genProj ? [genProj.id] : departmentProjects[0]?.id ? [departmentProjects[0].id] : []
+    );
     setUploadError(null);
     setUploadProgress(null);
     setIsUploadModalOpen(true);
   };
 
-  // Upload Asset Handler
+  // Toggle Project Assignment in Upload Modal
+  const handleToggleProject = (projectId: string) => {
+    setSelectedProjectIds((prev) =>
+      prev.includes(projectId) ? prev.filter((id) => id !== projectId) : [...prev, projectId]
+    );
+  };
+
+  // Upload Asset Execution Handler
   const handleStartUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!uploadFile) {
@@ -301,26 +387,17 @@ export const AssetsPage: React.FC = () => {
       return;
     }
 
-    if (!uploadFolderId) {
-      setUploadError('Please select a folder to upload into.');
-      return;
-    }
-
+    const folderToUse = activeFolderId || 'system_images';
     const isImageFile = uploadFile.type.startsWith('image/') || /\.(jpe?g|png)$/i.test(uploadFile.name);
     const isVideoFile = uploadFile.type.startsWith('video/') || /\.(mp4|m4v|mov)$/i.test(uploadFile.name);
 
-    if (uploadFolderId === 'system_images' && !isImageFile) {
+    if (folderToUse === 'system_images' && !isImageFile) {
       setUploadError('The Images folder only accepts JPEG and PNG image files. Please select an image.');
       return;
     }
 
-    if (uploadFolderId === 'system_videos' && !isVideoFile) {
+    if (folderToUse === 'system_videos' && !isVideoFile) {
       setUploadError('The Videos folder only accepts MP4 video files. Please select a video.');
-      return;
-    }
-
-    if (!isGlobalShared && selectedDeptIds.length === 0) {
-      setUploadError('Please select at least one department or choose Organization Global.');
       return;
     }
 
@@ -328,19 +405,23 @@ export const AssetsPage: React.FC = () => {
     setUploadError(null);
 
     try {
-      // Build sharedWith array
-      const sharedWithTargets = isGlobalShared
-        ? ['dept:global']
-        : selectedDeptIds.map((id) => `dept:${id}`);
-
-      // Build tags
-      const tags: string[] = [];
-      if (uploadFolderId) {
-        tags.push(`folder:${uploadFolderId}`);
+      // Build sharedWith targets
+      const sharedWithTargets: string[] = [];
+      if (isGlobalShared) {
+        sharedWithTargets.push('dept:global');
       }
+      selectedProjectIds.forEach((pId) => {
+        sharedWithTargets.push(`proj:${pId}`);
+      });
+
+      // Tags
+      const tags: string[] = [`folder:${folderToUse}`];
 
       // Department owner
-      const targetDeptId = userProfile?.departmentId || departments[0]?.id || 'general';
+      const targetDeptId =
+        activeDeptId && activeDeptId !== 'general'
+          ? activeDeptId
+          : userProfile?.departmentId || departments[0]?.id || 'general';
 
       const handle = startMediaUpload({
         file: uploadFile,
@@ -357,11 +438,10 @@ export const AssetsPage: React.FC = () => {
 
       const newAsset = await handle.done;
 
-      // Ensure folder tag is persisted if folder was selected
-      if (uploadFolderId) {
+      if (folderToUse) {
         try {
           await updateDoc(doc(db, 'assets', newAsset.id), {
-            tags: [...(newAsset.tags || []), `folder:${uploadFolderId}`],
+            tags: [...(newAsset.tags || []), `folder:${folderToUse}`],
           });
         } catch {
           // Non-critical
@@ -377,42 +457,92 @@ export const AssetsPage: React.FC = () => {
     }
   };
 
-  // Toggle department in upload multi-select
-  const handleToggleDept = (deptId: string) => {
-    setSelectedDeptIds((prev) =>
-      prev.includes(deptId) ? prev.filter((id) => id !== deptId) : [...prev, deptId]
-    );
-  };
-
   return (
     <div className="space-y-6">
-      {/* Top Header & Actions */}
+      {/* Top Header & Breadcrumb Navigation */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-            <button
-              type="button"
-              onClick={() => setActiveFolderId(null)}
-              className="hover:text-teal-700 font-medium"
-            >
-              Assets
-            </button>
-            {activeFolder && (
+            {isAdmin ? (
               <>
-                <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-                <span className="font-semibold text-slate-800">{activeFolder.name}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveDeptId(null);
+                    setActiveFolderId(null);
+                  }}
+                  className={`font-medium transition-colors ${
+                    !activeDeptId ? 'text-teal-700 font-semibold' : 'hover:text-teal-700'
+                  }`}
+                >
+                  All Departments
+                </button>
+
+                {activeDepartment && (
+                  <>
+                    <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+                    <button
+                      type="button"
+                      onClick={() => setActiveFolderId(null)}
+                      className={`font-medium transition-colors ${
+                        !activeFolderId ? 'text-teal-700 font-semibold' : 'hover:text-teal-700'
+                      }`}
+                    >
+                      {activeDepartment.name}
+                    </button>
+                  </>
+                )}
+
+                {activeFolder && (
+                  <>
+                    <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+                    <span className="font-semibold text-slate-800">{activeFolder.name}</span>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setActiveFolderId(null)}
+                  className={`font-medium transition-colors ${
+                    !activeFolderId ? 'text-teal-700 font-semibold' : 'hover:text-teal-700'
+                  }`}
+                >
+                  {activeDepartment?.name || 'Department Assets'}
+                </button>
+
+                {activeFolder && (
+                  <>
+                    <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+                    <span className="font-semibold text-slate-800">{activeFolder.name}</span>
+                  </>
+                )}
               </>
             )}
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            {activeFolder ? activeFolder.name : 'Central Assets'}
+
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+            {activeFolder ? (
+              <span>{activeFolder.name}</span>
+            ) : activeDepartment ? (
+              <span>{activeDepartment.name}</span>
+            ) : (
+              <span>Central Assets Hub</span>
+            )}
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Folder-organized media assets with cross-department sharing • Aurainteract Private Limited
+            {activeFolder
+              ? `Manage and upload ${activeFolder.name.toLowerCase()} for ${activeDepartment?.name || 'department'}`
+              : activeDepartment
+              ? (activeDepartment as any).description || 'Department media library and project assets'
+              : 'Enterprise Department-First Digital Asset Management • Aurainteract Private Limited'}
           </p>
         </div>
 
+        {/* Action Buttons */}
         <div className="flex items-center gap-2 self-start sm:self-auto">
+          {/* Level 2: Inside Folder View */}
           {activeFolder && (
             <>
               <button
@@ -435,18 +565,37 @@ export const AssetsPage: React.FC = () => {
             </>
           )}
 
-          <button
-            type="button"
-            onClick={() => {
-              setNewFolderName('');
-              setFolderError(null);
-              setIsFolderModalOpen(true);
-            }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl border border-slate-200 bg-white text-slate-800 hover:bg-slate-50 shadow-2xs transition-colors"
-          >
-            <FolderPlus className="h-4 w-4 text-teal-600" />
-            <span>New Folder</span>
-          </button>
+          {/* Level 1: Inside Department View */}
+          {!activeFolderId && activeDeptId && (
+            <>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveDeptId(null);
+                    setActiveFolderId(null);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 shadow-2xs transition-colors"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  <span>All Departments</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setNewFolderName('');
+                  setFolderError(null);
+                  setIsFolderModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl border border-slate-200 bg-white text-slate-800 hover:bg-slate-50 shadow-2xs transition-colors"
+              >
+                <FolderPlus className="h-4 w-4 text-teal-600" />
+                <span>New Folder</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -466,35 +615,165 @@ export const AssetsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Root View: Folders Grid & Segregation Explainer */}
-      {!activeFolderId ? (
-        <div className="space-y-6">
-          {/* Informative Folder Banner */}
+      {/* ========================================================================= */}
+      {/* LEVEL 0: ADMIN DEPARTMENT DIRECTORY (Visible strictly when activeDeptId is null) */}
+      {/* ========================================================================= */}
+      {isAdmin && !activeDeptId && (
+        <div className="space-y-6 animate-in fade-in duration-150">
+          {/* Informative Directory Banner */}
           <div className="bg-gradient-to-r from-teal-500/10 via-emerald-500/10 to-teal-500/5 p-4 rounded-2xl border border-teal-200/80 flex items-start gap-3">
             <div className="p-2 rounded-xl bg-teal-600 text-white shadow-xs shrink-0 mt-0.5">
-              <FolderOpen className="h-5 w-5" />
+              <Building2 className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-xs font-bold text-slate-900">Folder-Organized Media Repository</h3>
+              <h3 className="text-xs font-bold text-slate-900">Department-First Asset Architecture</h3>
               <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
-                Assets are segregated by media category and folder. Open the <strong>Images</strong> or <strong>Videos</strong> folder to access media uploaded across all projects and departments, or create a custom folder. Assets can only be uploaded from inside a destination folder.
+                Assets are organized by department to prevent contamination and enforce access boundaries. Select a department to view and manage its image and video repositories, or access the company-wide General Brand Assets library.
               </p>
             </div>
           </div>
 
-          {/* Folders Grid */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Media Folders</h2>
+              <h2 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Department Libraries</h2>
+              <span className="text-[11px] text-slate-400">{departments.length + 1} library units</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Organization General Assets Card */}
+              <div
+                onClick={() => {
+                  setActiveDeptId('general');
+                  setActiveFolderId(null);
+                }}
+                className="group p-5 bg-gradient-to-br from-white to-teal-50/40 rounded-2xl border border-teal-200 hover:border-teal-500 hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="h-11 w-11 rounded-xl bg-teal-100 text-teal-700 group-hover:bg-teal-600 group-hover:text-white flex items-center justify-center transition-colors shadow-2xs">
+                      <Globe className="h-6 w-6" />
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-600 text-white">
+                      Company-Wide
+                    </span>
+                  </div>
+
+                  <div className="mt-4">
+                    <h3 className="font-bold text-sm text-slate-900 group-hover:text-teal-700 transition-colors">
+                      General & Brand Assets
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                      Corporate logos, official templates, brand standards, and company-wide broadcast media.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-teal-100/80 flex items-center justify-between text-xs text-slate-500">
+                  <span className="font-semibold text-slate-800">
+                    {departmentAssetCounts.get('general') || 0} asset(s)
+                  </span>
+                  <span className="text-teal-600 group-hover:translate-x-0.5 transition-transform font-medium flex items-center gap-1 text-[11px]">
+                    Open Library <ChevronRight className="h-3 w-3" />
+                  </span>
+                </div>
+              </div>
+
+              {/* Department Cards */}
+              {departments.map((dept) => {
+                const count = departmentAssetCounts.get(dept.id) || 0;
+                return (
+                  <div
+                    key={dept.id}
+                    onClick={() => {
+                      setActiveDeptId(dept.id);
+                      setActiveFolderId(null);
+                    }}
+                    className="group p-5 bg-white rounded-2xl border border-slate-200 hover:border-teal-500/70 hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="h-11 w-11 rounded-xl bg-slate-100 text-slate-700 group-hover:bg-teal-600 group-hover:text-white flex items-center justify-center transition-colors">
+                          <Building2 className="h-6 w-6" />
+                        </div>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                          {dept.code}
+                        </span>
+                      </div>
+
+                      <div className="mt-4">
+                        <h3 className="font-bold text-sm text-slate-900 group-hover:text-teal-700 transition-colors">
+                          {dept.name}
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                          {(dept as any).description || 'Department media library, presentations, and project repositories.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                      <span className="font-semibold text-slate-800">{count} asset(s)</span>
+                      <span className="text-teal-600 group-hover:translate-x-0.5 transition-transform font-medium flex items-center gap-1 text-[11px]">
+                        Open Department <ChevronRight className="h-3 w-3" />
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* LEVEL 1: DEPARTMENT MEDIA HUB (Folders: Images, Videos, Custom Folders) */}
+      {/* ========================================================================= */}
+      {activeDeptId && !activeFolderId && (
+        <div className="space-y-6 animate-in fade-in duration-150">
+          {/* HOD Workspace Quick Toggle between Department and General Assets */}
+          {!isAdmin && (
+            <div className="flex items-center gap-2 p-1 bg-slate-100 border border-slate-200 rounded-xl w-fit">
+              <button
+                type="button"
+                onClick={() => setActiveDeptId(userProfile?.departmentId || 'general')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  activeDeptId !== 'general'
+                    ? 'bg-white text-slate-900 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <span>{departments.find((d) => d.id === userProfile?.departmentId)?.name || 'My Department'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveDeptId('general')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                  activeDeptId === 'general'
+                    ? 'bg-white text-teal-800 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Globe className="h-3.5 w-3.5 text-teal-600" />
+                <span>General & Brand Assets</span>
+              </button>
+            </div>
+          )}
+
+          {/* Department Folders Section */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                {activeDepartment ? `${activeDepartment.name} Folders` : 'Media Folders'}
+              </h2>
               <span className="text-[11px] text-slate-400">{allFolders.length} folder(s)</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {allFolders.map((f) => {
                 const count = folderAssetCounts.get(f.id) || 0;
-                const isSystem = f.id === 'system_images' || f.id === 'system_videos';
-                const isImages = f.id === 'system_images' || f.name.toLowerCase() === 'images';
-                const isVideos = f.id === 'system_videos' || f.name.toLowerCase() === 'videos';
+                const isImages = f.id === 'system_images';
+                const isVideos = f.id === 'system_videos';
+                const isSystem = isImages || isVideos;
 
                 return (
                   <div
@@ -505,12 +784,13 @@ export const AssetsPage: React.FC = () => {
                     <div>
                       <div className="flex items-start justify-between gap-2">
                         <div
-                          className={`h-11 w-11 rounded-xl flex items-center justify-center transition-colors ${isImages
-                            ? 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white'
-                            : isVideos
+                          className={`h-11 w-11 rounded-xl flex items-center justify-center transition-colors ${
+                            isImages
+                              ? 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white'
+                              : isVideos
                               ? 'bg-purple-50 text-purple-600 group-hover:bg-purple-600 group-hover:text-white'
                               : 'bg-teal-50 text-teal-700 group-hover:bg-teal-600 group-hover:text-white'
-                            }`}
+                          }`}
                         >
                           {isImages ? (
                             <FileImage className="h-6 w-6" />
@@ -543,16 +823,18 @@ export const AssetsPage: React.FC = () => {
                         </h3>
                         <p className="text-xs text-slate-500 mt-0.5">
                           {isImages
-                            ? 'All JPEG & PNG image assets from projects'
+                            ? 'All JPEG & PNG image assets'
                             : isVideos
-                              ? 'All MP4 video assets from projects'
-                              : 'Custom department media folder'}
+                            ? 'All MP4 video media assets'
+                            : 'Custom folder'}
                         </p>
                       </div>
                     </div>
 
                     <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-                      <span className="font-semibold text-slate-700">{count} asset{count === 1 ? '' : 's'}</span>
+                      <span className="font-semibold text-slate-700">
+                        {count} asset{count === 1 ? '' : 's'}
+                      </span>
                       <span className="text-teal-600 group-hover:translate-x-0.5 transition-transform font-medium flex items-center gap-1 text-[11px]">
                         Open Folder <ChevronRight className="h-3 w-3" />
                       </span>
@@ -563,16 +845,20 @@ export const AssetsPage: React.FC = () => {
             </div>
           </div>
         </div>
-      ) : (
-        /* Folder View: Search Bar & Asset Contents */
-        <div className="space-y-4">
+      )}
+
+      {/* ========================================================================= */}
+      {/* LEVEL 2: MEDIA ASSETS GRID (Inside specific folder e.g. Images or Videos) */}
+      {/* ========================================================================= */}
+      {activeFolderId && (
+        <div className="space-y-4 animate-in fade-in duration-150">
           {/* Filter and Search Bar */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs">
             <div className="relative flex-1 max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <input
                 type="text"
-                placeholder={`Search assets in ${activeFolder?.name || 'folder'}...`}
+                placeholder={`Search ${activeFolder?.name.toLowerCase()} in ${activeDepartment?.name || 'department'}...`}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-teal-500 text-slate-900 placeholder:text-slate-400"
@@ -586,24 +872,33 @@ export const AssetsPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setSelectedType('all')}
-                    className={`px-3 py-1 rounded-lg font-medium transition-colors ${selectedType === 'all' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                      }`}
+                    className={`px-3 py-1 rounded-lg font-medium transition-colors ${
+                      selectedType === 'all'
+                        ? 'bg-white text-slate-900 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
                   >
                     All Types
                   </button>
                   <button
                     type="button"
                     onClick={() => setSelectedType('image')}
-                    className={`px-3 py-1 rounded-lg font-medium transition-colors ${selectedType === 'image' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                      }`}
+                    className={`px-3 py-1 rounded-lg font-medium transition-colors ${
+                      selectedType === 'image'
+                        ? 'bg-white text-slate-900 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
                   >
                     Images
                   </button>
                   <button
                     type="button"
                     onClick={() => setSelectedType('video')}
-                    className={`px-3 py-1 rounded-lg font-medium transition-colors ${selectedType === 'video' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                      }`}
+                    className={`px-3 py-1 rounded-lg font-medium transition-colors ${
+                      selectedType === 'video'
+                        ? 'bg-white text-slate-900 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
                   >
                     Videos
                   </button>
@@ -615,8 +910,11 @@ export const AssetsPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setViewMode('grid')}
-                  className={`p-1.5 rounded-lg transition-colors ${viewMode === 'grid' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-900'
-                    }`}
+                  className={`p-1.5 rounded-lg transition-colors ${
+                    viewMode === 'grid'
+                      ? 'bg-white text-slate-900 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-900'
+                  }`}
                   title="Grid view"
                 >
                   <LayoutGrid className="h-4 w-4" />
@@ -624,8 +922,11 @@ export const AssetsPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setViewMode('list')}
-                  className={`p-1.5 rounded-lg transition-colors ${viewMode === 'list' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-900'
-                    }`}
+                  className={`p-1.5 rounded-lg transition-colors ${
+                    viewMode === 'list'
+                      ? 'bg-white text-slate-900 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-900'
+                  }`}
                   title="List view"
                 >
                   <List className="h-4 w-4" />
@@ -634,11 +935,11 @@ export const AssetsPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Assets Listing */}
+          {/* Asset Content Display */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                {activeFolder ? `Assets in ${activeFolder.name}` : 'Media Assets'}
+                {activeFolder?.name} in {activeDepartment?.name}
               </h2>
               <span className="text-[11px] text-slate-400">{displayedAssets.length} asset(s)</span>
             </div>
@@ -657,9 +958,7 @@ export const AssetsPage: React.FC = () => {
                 )}
                 <p className="text-xs font-semibold text-slate-700">No assets found</p>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  {activeFolder
-                    ? `No media assets in "${activeFolder.name}" yet.`
-                    : 'Upload assets directly into this folder.'}
+                  No {activeFolder?.name.toLowerCase()} found in &quot;{activeDepartment?.name}&quot;.
                 </p>
                 <button
                   type="button"
@@ -713,7 +1012,7 @@ export const AssetsPage: React.FC = () => {
                       <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
                         <span>{(asset.fileSizeBytes / 1024 / 1024).toFixed(1)} MB</span>
                         <span className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 font-medium">
-                          {asset.visibility === 'global' ? 'Global' : 'Shared'}
+                          {asset.visibility === 'global' ? 'Global' : 'Department'}
                         </span>
                       </div>
                     </div>
@@ -751,7 +1050,7 @@ export const AssetsPage: React.FC = () => {
                         </td>
                         <td className="py-3 px-4">
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-50 text-teal-700 border border-teal-200">
-                            {asset.visibility === 'global' ? 'Organization Global' : 'Department Shared'}
+                            {asset.visibility === 'global' ? 'Organization Global' : 'Department'}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-slate-400 text-[11px]">
@@ -767,7 +1066,9 @@ export const AssetsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Modal: Create Folder */}
+      {/* ========================================================================= */}
+      {/* MODAL: CREATE CUSTOM FOLDER */}
+      {/* ========================================================================= */}
       {isFolderModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95">
@@ -798,7 +1099,7 @@ export const AssetsPage: React.FC = () => {
                   type="text"
                   required
                   autoFocus
-                  placeholder="e.g. Images, Videos, Brand Logos"
+                  placeholder="e.g. Logos, Event Banners, Safety Posters"
                   value={newFolderName}
                   onChange={(e) => setNewFolderName(e.target.value)}
                   className="mt-1 block w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-slate-900"
@@ -826,15 +1127,24 @@ export const AssetsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Modal: Upload Asset with Folder & Multi-Department Selector */}
+      {/* ========================================================================= */}
+      {/* MODAL: UPLOAD ASSET WITH PROJECT MULTI-SELECT & GLOBAL APPROVAL */}
+      {/* ========================================================================= */}
       {isUploadModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <Upload className="h-5 w-5 text-teal-600" />
-                <span>Upload New Asset</span>
-              </h3>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Upload className="h-5 w-5 text-teal-600" />
+                  <span>
+                    Upload New {activeFolderId === 'system_videos' ? 'Video' : activeFolderId === 'system_images' ? 'Image' : 'Media Asset'}
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Uploading to folder: <strong className="text-slate-800 font-semibold">{activeFolder?.name}</strong> • {activeDepartment?.name}
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setIsUploadModalOpen(false)}
@@ -854,16 +1164,18 @@ export const AssetsPage: React.FC = () => {
             <form onSubmit={handleStartUpload} className="space-y-4">
               {/* File Selector */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Select Media File</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Select {activeFolderId === 'system_videos' ? 'Video' : activeFolderId === 'system_images' ? 'Image' : 'File'}
+                </label>
                 <input
                   type="file"
                   required
                   accept={
-                    uploadFolderId === 'system_images'
+                    activeFolderId === 'system_images'
                       ? 'image/jpeg,image/png'
-                      : uploadFolderId === 'system_videos'
-                        ? 'video/mp4'
-                        : 'image/jpeg,image/png,video/mp4'
+                      : activeFolderId === 'system_videos'
+                      ? 'video/mp4'
+                      : 'image/jpeg,image/png,video/mp4'
                   }
                   onChange={(e) => {
                     const f = e.target.files?.[0];
@@ -875,11 +1187,11 @@ export const AssetsPage: React.FC = () => {
                   className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100 cursor-pointer"
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  {uploadFolderId === 'system_images'
-                    ? 'Supported formats: JPEG, PNG (max 20MB)'
-                    : uploadFolderId === 'system_videos'
-                      ? 'Supported formats: MP4 H.264 (max 200MB)'
-                      : 'Supported formats: JPEG, PNG (max 20MB) and MP4 H.264 (max 200MB)'}
+                  {activeFolderId === 'system_images'
+                    ? 'Accepted formats: JPEG, PNG (max 20MB)'
+                    : activeFolderId === 'system_videos'
+                    ? 'Accepted formats: MP4 H.264 (max 200MB)'
+                    : 'Accepted formats: JPEG, PNG (max 20MB) and MP4 H.264 (max 200MB)'}
                 </p>
               </div>
 
@@ -889,7 +1201,7 @@ export const AssetsPage: React.FC = () => {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Corporate Welcome Banner"
+                  placeholder="e.g. Welcome Banner, Q1 Update Video"
                   value={uploadTitle}
                   onChange={(e) => setUploadTitle(e.target.value)}
                   className="mt-1 block w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 text-slate-900"
@@ -909,116 +1221,77 @@ export const AssetsPage: React.FC = () => {
                 />
               </div>
 
-              {/* Target Folder Selector */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">Target Folder</label>
-                <select
-                  value={uploadFolderId}
-                  onChange={(e) => {
-                    setUploadFolderId(e.target.value);
-                    setUploadError(null);
-                  }}
-                  className="mt-1 block w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 text-slate-900"
-                >
-                  {allFolders.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      📁 {f.name} {f.id === 'system_images' ? '(Images only)' : f.id === 'system_videos' ? '(Videos only)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Department Availability Selection */}
+              {/* Multi-Project Assignment inside Department */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Availability & Visibility
+                  Assign to Projects <span className="text-teal-600 font-normal">(Multi-Select)</span>
                 </label>
                 <p className="text-[11px] text-slate-500 mb-2">
-                  Choose whether this asset is restricted to specific departments or made an Organization-wide General Asset.
+                  Select which project workspaces inside {activeDepartment?.name || 'this department'} can immediately use this asset.
                 </p>
 
-                <div className="space-y-3 border border-slate-200 rounded-xl p-3 bg-slate-50/50">
-                  {/* Scope Selector: Specific Depts vs General Asset */}
-                  <div className="grid grid-cols-2 gap-2 pb-2 border-b border-slate-200">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsGlobalShared(false);
-                        setUploadError(null);
-                      }}
-                      className={`py-2 px-3 rounded-lg text-xs font-semibold text-center transition-all ${
-                        !isGlobalShared
-                          ? 'bg-teal-600 text-white shadow-xs'
-                          : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      Department Scoped
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsGlobalShared(true);
-                        setUploadError(null);
-                      }}
-                      className={`py-2 px-3 rounded-lg text-xs font-semibold text-center transition-all ${
-                        isGlobalShared
-                          ? 'bg-teal-600 text-white shadow-xs'
-                          : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      General Asset (Global)
-                    </button>
-                  </div>
-
-                  {isGlobalShared ? (
-                    <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 text-xs text-teal-950 space-y-1">
-                      <div className="font-semibold flex items-center gap-1.5 text-teal-900">
-                        <Check className="h-4 w-4 text-teal-600 shrink-0" />
-                        <span>Organization-Wide General Asset</span>
-                      </div>
-                      <p className="text-[11px] text-slate-600 leading-relaxed">
-                        {isAdmin
-                          ? 'As an Administrator, uploading this general asset makes it immediately available to all departments across the organization.'
-                          : 'Uploading as a General Asset will submit an approval request to the Administrator. Once approved, this asset will become available to all departments and digital displays.'}
-                      </p>
+                <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 max-h-36 overflow-y-auto space-y-1.5">
+                  {departmentProjects.length === 0 ? (
+                    <div className="text-xs text-slate-500 p-2">
+                      Department General project (Default)
                     </div>
                   ) : (
-                    <div>
-                      <span className="text-[11px] font-semibold text-slate-700 block mb-1.5">
-                        Select departments to make this asset available in (multi-select):
-                      </span>
-                      {departments.length === 0 ? (
-                        <div className="p-3 bg-white rounded-lg border border-slate-200 text-xs text-slate-500">
-                          Loading departments...
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pt-1">
-                          {departments.map((dept) => {
-                            const isChecked = selectedDeptIds.includes(dept.id);
-                            return (
-                              <label
-                                key={dept.id}
-                                className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
-                                  isChecked
-                                    ? 'bg-teal-50 border-teal-300 text-teal-900 font-semibold'
-                                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                                }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={() => handleToggleDept(dept.id)}
-                                  className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 h-3.5 w-3.5"
-                                />
-                                <span className="truncate">{dept.name} ({dept.code})</span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {departmentProjects.map((p) => {
+                        const isChecked = selectedProjectIds.includes(p.id);
+                        return (
+                          <label
+                            key={p.id}
+                            className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
+                              isChecked
+                                ? 'bg-teal-50 border-teal-300 text-teal-900 font-semibold'
+                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => handleToggleProject(p.id)}
+                              className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 h-3.5 w-3.5"
+                            />
+                            <span className="truncate">{p.name} {p.isGeneral ? '(General)' : ''}</span>
+                          </label>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Organization-Wide General Asset Checkbox */}
+              <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={isGlobalShared}
+                    onChange={(e) => setIsGlobalShared(e.target.checked)}
+                    className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 h-4 w-4"
+                  />
+                  <span className="flex items-center gap-1.5">
+                    <Globe className="h-4 w-4 text-teal-600" />
+                    <span>Make Organization-Wide General Asset</span>
+                  </span>
+                </label>
+
+                {isGlobalShared && (
+                  <p className="text-[11px] text-slate-600 pl-6 leading-relaxed">
+                    {isAdmin ? (
+                      <span className="text-teal-900 font-medium flex items-center gap-1">
+                        <Sparkles className="h-3.5 w-3.5 text-teal-600" />
+                        As an Administrator, this general asset will be immediately available to all departments and digital displays.
+                      </span>
+                    ) : (
+                      <span>
+                        Notice: Setting an asset as Organization-Wide will submit an approval request to the Administrator. Once approved, all departments will be able to access it.
+                      </span>
+                    )}
+                  </p>
+                )}
               </div>
 
               {/* Upload Progress Indicator */}
