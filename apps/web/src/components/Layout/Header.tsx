@@ -10,7 +10,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
-import { ChevronDown, LogOut, User, Shield, Building2 } from 'lucide-react';
+import { ChevronDown, LogOut, User, Shield, Building2, Users2 } from 'lucide-react';
 import { EMULATOR_CONFIG } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -18,6 +18,7 @@ const routeTitles: Record<string, string> = {
   '/': 'Dashboard',
   '/displays': 'Digital Displays',
   '/content': 'Content',
+  '/assets': 'Assets',
   '/schedules': 'Schedules',
   '/approvals': 'Approvals',
   '/users': 'Users & Access Control',
@@ -45,7 +46,12 @@ export const Header: React.FC = () => {
   }, []);
 
   const displayName = userProfile?.displayName || currentUser?.displayName || currentUser?.email || 'User';
-  const roleLabel = userProfile?.role === 'admin' ? 'Admin' : 'Department Head';
+  const roleLabel =
+    userProfile?.role === 'admin'
+      ? 'Administrator'
+      : userProfile?.role === 'department_head'
+      ? 'Department Head'
+      : 'Department Member';
   const userInitials = displayName.charAt(0).toUpperCase();
 
   return (
@@ -69,7 +75,25 @@ export const Header: React.FC = () => {
         </div>
 
         {/* User Profile & Actions Menu */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          {/* User Role Tag on Right Side of Navbar */}
+          {userProfile?.role === 'admin' ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-2xs">
+              <Shield className="h-3.5 w-3.5 text-indigo-600" />
+              <span>Administrator</span>
+            </span>
+          ) : userProfile?.role === 'department_head' ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs">
+              <Building2 className="h-3.5 w-3.5 text-blue-600" />
+              <span>Department Head</span>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-teal-50 text-teal-700 border border-teal-200 shadow-2xs">
+              <Users2 className="h-3.5 w-3.5 text-teal-600" />
+              <span>Department Member</span>
+            </span>
+          )}
+
           <div className="relative" ref={dropdownRef}>
             <button
               type="button"

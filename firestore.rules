@@ -74,7 +74,10 @@ service cloud.firestore {
       // 5. Unauthenticated callers or device identities are denied.
       allow read: if isAuthenticated() && (
         isAdmin() ||
-        (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId()) ||
+        (isDepartmentHead() && (
+          resource.data.departmentId == getCallerDepartmentId() ||
+          ('accessScopes' in resource.data && resource.data.accessScopes.hasAny(['global', 'dept:' + getCallerDepartmentId()]))
+        )) ||
         (resource.data.status == 'awaiting_upload' && resource.data.ownerId == request.auth.uid)
       );
 
@@ -230,6 +233,12 @@ service cloud.firestore {
         (isDepartmentHead() && resource.data.departmentId == getCallerDepartmentId())
       );
       allow write: if false;
+    }
+
+    // Asset Folders Collection: /asset_folders/{folderId}
+    match /asset_folders/{folderId} {
+      allow read: if isAuthenticated() && (isAdmin() || isDepartmentHead());
+      allow create, update, delete: if isAuthenticated() && (isAdmin() || isDepartmentHead());
     }
 
     // Audit Events Collection: /auditEvents/{eventId}

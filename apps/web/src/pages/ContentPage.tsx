@@ -13,7 +13,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, Palette, FolderOpen, LayoutTemplate, ListMusic } from 'lucide-react';
+import { Plus, Palette, LayoutTemplate, ListMusic } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { Department } from '@aura-dims/display-schema';
@@ -21,10 +21,8 @@ import { useAuth } from '@/contexts/AuthContext';
 
 import { DesignsView } from '@/components/Content/DesignsView';
 import { PlaylistsView } from '@/components/Playlists/PlaylistsView';
-import { MediaLibraryView } from '@/components/Media/MediaLibraryView';
 import { TemplatesView } from '@/components/Content/TemplatesView';
 import { CreateContentChoiceModal } from '@/components/Content/CreateContentChoiceModal';
-import { UploadMediaModal } from '@/components/Media/UploadMediaModal';
 
 export const ContentPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -32,7 +30,6 @@ export const ContentPage: React.FC = () => {
   const { userProfile } = useAuth();
 
   const [isChoiceModalOpen, setIsChoiceModalOpen] = useState(false);
-  const [isMediaUploadOpen, setIsMediaUploadOpen] = useState(false);
   const [departments, setDepartments] = useState<Department[]>([]);
 
   const setTab = (tab: string) => {
@@ -69,25 +66,14 @@ export const ContentPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto">
-          {currentTab === 'media' ? (
-            <button
-              type="button"
-              onClick={() => setIsMediaUploadOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Upload media</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setIsChoiceModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Create content</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setIsChoiceModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Create content</span>
+          </button>
         </div>
       </div>
 
@@ -122,19 +108,6 @@ export const ContentPage: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => setTab('media')}
-            className={`flex items-center gap-2 py-3 px-1 border-b-2 text-xs font-medium transition-colors ${
-              currentTab === 'media'
-                ? 'border-teal-600 text-teal-800 font-semibold'
-                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-            }`}
-          >
-            <FolderOpen className="h-4 w-4" />
-            <span>Media Library</span>
-          </button>
-
-          <button
-            type="button"
             onClick={() => setTab('templates')}
             className={`flex items-center gap-2 py-3 px-1 border-b-2 text-xs font-medium transition-colors ${
               currentTab === 'templates'
@@ -156,8 +129,6 @@ export const ContentPage: React.FC = () => {
 
         {currentTab === 'playlists' && <PlaylistsView />}
 
-        {currentTab === 'media' && <MediaLibraryView />}
-
         {currentTab === 'templates' && (
           <TemplatesView departments={departments} />
         )}
@@ -169,17 +140,6 @@ export const ContentPage: React.FC = () => {
         onClose={() => setIsChoiceModalOpen(false)}
         onSelectTemplatesTab={() => setTab('templates')}
         departments={departments}
-      />
-
-      {/* Upload Media Modal */}
-      <UploadMediaModal
-        isOpen={isMediaUploadOpen}
-        onClose={() => setIsMediaUploadOpen(false)}
-        departments={departments}
-        onUploadSuccess={() => {
-          setIsMediaUploadOpen(false);
-          setTab('media');
-        }}
       />
     </div>
   );

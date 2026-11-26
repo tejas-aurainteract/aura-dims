@@ -89,7 +89,8 @@ export const ProjectDetailPage: React.FC = () => {
   }, [members, userProfile?.uid]);
 
   const isProjectLead = myMembership?.role === 'lead';
-  const canManageProject = isAdmin || isDeptHead || isProjectLead;
+  // General projects are read-only for regular members; only Admin & HOD can manage General
+  const canManageProject = (isAdmin || isDeptHead || isProjectLead) && (!isGeneral || isAdmin || isDeptHead);
   const canArchiveProject = (isAdmin || isDeptHead) && !isGeneral;
 
   const setTab = (tab: ActiveTab) => {
@@ -569,8 +570,8 @@ export const ProjectDetailPage: React.FC = () => {
                             }
                             className="text-xs font-semibold bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-700 focus:outline-teal-500 focus:border-teal-500 cursor-pointer"
                           >
-                            <option value="lead">Lead</option>
-                            <option value="member">Member</option>
+                            <option value="lead">Publisher</option>
+                            <option value="member">Contributor</option>
                             <option value="viewer">Viewer</option>
                           </select>
                         ) : (
@@ -583,7 +584,7 @@ export const ProjectDetailPage: React.FC = () => {
                                 : 'bg-slate-100 text-slate-600'
                             }`}
                           >
-                            {m.role}
+                            {m.role === 'lead' ? 'Publisher' : m.role === 'member' ? 'Contributor' : 'Viewer'}
                           </span>
                         )}
                       </td>
@@ -820,14 +821,14 @@ export const ProjectDetailPage: React.FC = () => {
                   onChange={(e) => setSelectedProjectRole(e.target.value as ProjectMemberRole)}
                   className="w-full text-xs rounded-xl border border-slate-200 px-3 py-2 bg-white focus:outline-teal-500 focus:border-teal-500"
                 >
-                  <option value="lead">Lead (Manage project assets, compositions & team)</option>
-                  <option value="member">Member (Create and edit content in project)</option>
+                  <option value="lead">Publisher (Can edit content and publish to digital displays)</option>
+                  <option value="member">Contributor (Can create and edit content, cannot publish)</option>
                   <option value="viewer">Viewer (Read-only access)</option>
                 </select>
                 <p className="text-[11px] text-slate-400 mt-1 flex items-start gap-1">
                   <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   <span>
-                    Note: A user's project role cannot exceed their company role (e.g. company viewer must remain a viewer).
+                    Department Heads assign project roles (Publisher, Contributor, or Viewer) per project.
                   </span>
                 </p>
               </div>

@@ -109,6 +109,8 @@ function isScheduleActiveNow(rule?: ScheduleRule | null): boolean {
 export const DisplaysPage: React.FC = () => {
   const { userProfile } = useAuth();
   const isAdmin = userProfile?.role === 'admin';
+  const isHead = userProfile?.role === 'department_head';
+  const canManageHardware = isAdmin || isHead;
 
   const [rawDisplays, setDisplays] = useState<DisplayView[]>([]);
   const [maintenanceModalDisplay, setMaintenanceModalDisplay] = useState<DisplayView | null>(null);
@@ -1046,8 +1048,8 @@ export const DisplaysPage: React.FC = () => {
 
                     {/* Card Footer Actions */}
                     <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2">
-                      {/* Primary Quick Actions (3 equal columns) */}
-                      <div className="grid grid-cols-3 gap-1.5">
+                      {/* Primary Quick Actions */}
+                      <div className={`grid ${canManageHardware ? 'grid-cols-3' : 'grid-cols-1'} gap-1.5`}>
                         <button
                           type="button"
                           onClick={() => openDetails(display, 'health')}
@@ -1058,27 +1060,31 @@ export const DisplaysPage: React.FC = () => {
                           <span>Telemetry</span>
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => setMaintenanceModalDisplay(display)}
-                          className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 hover:text-teal-200 text-xs font-medium border border-teal-500/30 transition-colors shadow-sm"
-                          title="Restart, refresh, sync, clear cache, or capture a preview of this digital display"
-                          data-testid={`maintenance-btn-${display.id}`}
-                        >
-                          <Wrench className="w-3.5 h-3.5 text-teal-400" />
-                          <span>Maintenance</span>
-                        </button>
+                        {canManageHardware && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setMaintenanceModalDisplay(display)}
+                              className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 hover:text-teal-200 text-xs font-medium border border-teal-500/30 transition-colors shadow-sm"
+                              title="Restart, refresh, sync, clear cache, or capture a preview of this digital display"
+                              data-testid={`maintenance-btn-${display.id}`}
+                            >
+                              <Wrench className="w-3.5 h-3.5 text-teal-400" />
+                              <span>Maintenance</span>
+                            </button>
 
-                        <button
-                          type="button"
-                          onClick={() => setWifiModalDisplay(display)}
-                          className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-200 text-xs font-medium border border-cyan-500/30 transition-colors shadow-sm"
-                          title="Scan and configure Wi-Fi network for this digital display"
-                          data-testid={`wifi-btn-${display.id}`}
-                        >
-                          <Wifi className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>Wi-Fi</span>
-                        </button>
+                            <button
+                              type="button"
+                              onClick={() => setWifiModalDisplay(display)}
+                              className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-200 text-xs font-medium border border-cyan-500/30 transition-colors shadow-sm"
+                              title="Scan and configure Wi-Fi network for this digital display"
+                              data-testid={`wifi-btn-${display.id}`}
+                            >
+                              <Wifi className="w-3.5 h-3.5 text-cyan-400" />
+                              <span>Wi-Fi</span>
+                            </button>
+                          </>
+                        )}
                       </div>
 
                       {/* Admin Fleet Actions */}
@@ -1419,7 +1425,7 @@ export const DisplaysPage: React.FC = () => {
       )}
 
       {/* Modal: Digital Display Remote Wi-Fi Network Setup */}
-      {wifiModalDisplay && (
+      {canManageHardware && wifiModalDisplay && (
         <DeviceWifiModal
           display={wifiModalDisplay}
           onClose={() => setWifiModalDisplay(null)}
@@ -1428,7 +1434,7 @@ export const DisplaysPage: React.FC = () => {
       )}
 
       {/* Modal: Digital Display Maintenance, Remote Diagnostics & Service Controls */}
-      {maintenanceModalDisplay && (
+      {canManageHardware && maintenanceModalDisplay && (
         <DeviceMaintenanceModal
           display={maintenanceModalDisplay}
           isAdmin={isAdmin}

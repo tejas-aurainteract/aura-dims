@@ -15,6 +15,7 @@ import {
   Tv,
   FolderOpen,
   FolderKanban,
+  Boxes,
   Calendar,
   CheckCircle2,
   Users2,
@@ -28,15 +29,17 @@ interface NavItem {
   path: string;
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
+  leadersOnly?: boolean; // Admin and Department Head
   devOnly?: boolean;
 }
 
 const baseNavItems: NavItem[] = [
   { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-  { name: 'Digital Displays', path: '/displays', icon: Tv },
+  { name: 'Digital Displays', path: '/displays', icon: Tv, leadersOnly: true },
   { name: 'Projects', path: '/projects', icon: FolderKanban },
   { name: 'Content', path: '/content', icon: FolderOpen },
-  { name: 'Schedules', path: '/schedules', icon: Calendar },
+  { name: 'Assets', path: '/assets', icon: Boxes, leadersOnly: true },
+  { name: 'Schedules', path: '/schedules', icon: Calendar, leadersOnly: true },
   { name: 'Approvals', path: '/approvals', icon: CheckCircle2 },
   { name: 'Users', path: '/users', icon: Users2, adminOnly: true },
   { name: 'Settings', path: '/settings', icon: Settings },
@@ -46,10 +49,13 @@ const baseNavItems: NavItem[] = [
 export const Sidebar: React.FC = () => {
   const { userProfile } = useAuth();
   const isAdmin = userProfile?.role === 'admin';
+  const isHead = userProfile?.role === 'department_head';
+  const isLeader = isAdmin || isHead;
   const isDev = import.meta.env.DEV;
 
   const visibleNavItems = baseNavItems.filter((item) => {
     if (item.adminOnly && !isAdmin) return false;
+    if (item.leadersOnly && !isLeader) return false;
     if (item.devOnly && !isDev) return false;
     return true;
   });

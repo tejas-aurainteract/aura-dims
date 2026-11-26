@@ -24,6 +24,7 @@ import { DisplaysPage } from '@/pages/DisplaysPage';
 import { ProjectsPage } from '@/pages/ProjectsPage';
 import { ProjectDetailPage } from '@/pages/ProjectDetailPage';
 import { ContentPage } from '@/pages/ContentPage';
+import { AssetsPage } from '@/pages/AssetsPage';
 import { DesignEditorPage } from '@/pages/DesignEditorPage';
 import { SchedulesPage } from '@/pages/SchedulesPage';
 import { ApprovalsPage } from '@/pages/ApprovalsPage';
@@ -68,6 +69,15 @@ export const App: React.FC = () => {
             <Route path="projects" element={<ProjectsPage />} />
             <Route path="projects/:projectId" element={<ProjectDetailPage />} />
             <Route path="content" element={<ContentPage />} />
+            {/* Leader-Only Assets Management (Admin & Department Head) */}
+            <Route
+              path="assets"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'department_head']}>
+                  <AssetsPage />
+                </ProtectedRoute>
+              }
+            />
             <Route path="schedules" element={<SchedulesPage />} />
             <Route path="approvals" element={<ApprovalsPage />} />
 

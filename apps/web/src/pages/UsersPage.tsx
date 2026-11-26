@@ -23,7 +23,6 @@ import {
   Copy,
   Check,
   Eye,
-  EyeOff,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/lib/firebase';
@@ -44,8 +43,6 @@ export const UsersPage: React.FC = () => {
   const [isProvisionOpen, setIsProvisionOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
   const [newRole, setNewRole] = useState<UserRole>('creator');
   const [newDeptId, setNewDeptId] = useState<string>('');
   const [generatedSetupLink, setGeneratedSetupLink] = useState<string | null>(null);
@@ -155,7 +152,6 @@ export const UsersPage: React.FC = () => {
         email: newEmail.trim().toLowerCase(),
         role: newRole,
         departmentId: newRole === 'admin' ? (newDeptId || null) : newDeptId,
-        temporaryPassword: newPassword.trim() || undefined,
       });
 
       setActionSuccess(`User account for ${res.displayName} created successfully.`);
@@ -388,10 +384,8 @@ export const UsersPage: React.FC = () => {
           onClick={() => {
             setNewName('');
             setNewEmail('');
-            setNewPassword('');
-            setShowNewPassword(false);
             setNewRole('creator');
-            setNewDeptId(departments[0]?.id || '');
+            setNewDeptId('');
             setGeneratedSetupLink(null);
             setModalError(null);
             setIsProvisionOpen(true);
@@ -684,67 +678,24 @@ export const UsersPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700">
-                    Temporary Password <span className="text-slate-400 font-normal">(Optional)</span>
-                  </label>
-                  <div className="mt-1 relative rounded-xl shadow-xs">
-                    <input
-                      type={showNewPassword ? 'text' : 'password'}
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Set password (min 6 characters) or leave blank"
-                      className="block w-full px-3 pr-10 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-slate-900 placeholder:text-slate-400"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowNewPassword(!showNewPassword)}
-                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none"
-                      title={showNewPassword ? 'Hide password' : 'Show password'}
-                      tabIndex={-1}
-                    >
-                      {showNewPassword ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
-                    </button>
-                  </div>
-                  <p className="mt-1 text-[11px] text-slate-400">
-                    If left blank, an account setup link will be generated.
-                  </p>
-                </div>
-
-                <div>
                   <label className="block text-xs font-semibold text-slate-700">Role</label>
                   <select
                     value={newRole}
                     onChange={(e) => setNewRole(e.target.value as UserRole)}
                     className="mt-1 block w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-slate-900"
                   >
-                    <option value="creator">Department Member (Default - HOD assigns project roles)</option>
-                    <option value="department_head">Department Head (HOD - Single departmental leader)</option>
-                    <option value="admin">Administrator (Cross-department system manager)</option>
-                    <option value="viewer">Viewer (Read-only observation)</option>
+                    <option value="creator">Department Member (Standard member - HOD assigns project roles)</option>
+                    <option value="department_head">Department Head (HOD - Department leader & approver)</option>
                   </select>
                   <div className="mt-1.5 p-2 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-0.5">
                     {newRole === 'creator' && (
                       <p>
-                        <strong className="text-teal-700">Department Member:</strong> Standard organization staff member. Inside projects, their Department Head assigns their exact capabilities (Lead, Member, or Viewer).
+                        <strong className="text-teal-700">Department Member:</strong> Regular staff member of this department. Their Department Head will assign their specific role (Publisher, Contributor, or Viewer) per project.
                       </p>
                     )}
                     {newRole === 'department_head' && (
                       <p>
-                        <strong className="text-blue-700">Department Head:</strong> Manages the department team, approves broadcast schedules, and publishes content to department digital displays (1 head per department).
-                      </p>
-                    )}
-                    {newRole === 'admin' && (
-                      <p>
-                        <strong className="text-indigo-700">System Administrator:</strong> Global administrative access across all departments, digital displays, system settings, and user management.
-                      </p>
-                    )}
-                    {newRole === 'viewer' && (
-                      <p>
-                        <strong className="text-slate-700">Viewer:</strong> Read-only access to browse assets, designs, and playlists without editing permissions.
+                        <strong className="text-blue-700">Department Head (HOD):</strong> Department leader. Approves broadcast schedules, manages department digital displays, and leads projects (1 head per department).
                       </p>
                     )}
                   </div>

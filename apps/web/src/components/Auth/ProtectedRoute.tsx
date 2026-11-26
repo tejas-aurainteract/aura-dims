@@ -16,9 +16,10 @@ import type { UserRole } from '@aura-dims/display-schema';
 interface ProtectedRouteProps {
   children: React.ReactNode;
   requiredRole?: UserRole;
+  allowedRoles?: UserRole[];
 }
 
-export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole }) => {
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole, allowedRoles }) => {
   const { currentUser, userProfile, loadingAuth, isResolvingAuth } = useAuth();
   const location = useLocation();
 
@@ -49,8 +50,12 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requir
     return <Navigate to="/access-denied" replace />;
   }
 
-  // 4. Role restriction (e.g. Admin only)
-  if (requiredRole && userProfile.role !== requiredRole) {
+  // 4. Role restriction (e.g. Admin only or Leaders only)
+  const isRoleDenied = (requiredRole && userProfile.role !== requiredRole) ||
+    (allowedRoles && !allowedRoles.includes(userProfile.role));
+
+  if (isRoleDenied) {
+    const requiredTitle = requiredRole || allowedRoles?.map((r) => r.replace('_', ' ')).join(' or ');
     return (
       <div className="p-8 max-w-2xl mx-auto my-12 bg-white rounded-2xl border border-red-200 shadow-sm text-center">
         <div className="h-12 w-12 rounded-full bg-red-100 text-red-700 flex items-center justify-center mx-auto mb-4">
@@ -58,7 +63,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requir
         </div>
         <h2 className="text-lg font-bold text-slate-900">Access Restricted</h2>
         <p className="text-xs text-slate-600 mt-2">
-          This section requires <strong className="capitalize font-semibold text-slate-900">{requiredRole}</strong> privileges.
+          This section requires <strong className="capitalize font-semibold text-slate-900">{requiredTitle}</strong> privileges.
           Your current account is assigned the role of{' '}
           <strong className="capitalize font-semibold text-slate-900">{userProfile.role.replace('_', ' ')}</strong>.
         </p>
