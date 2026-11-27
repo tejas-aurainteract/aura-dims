@@ -698,6 +698,10 @@ export class CaptivePortalServer {
     .override-label input[type="checkbox"] { width: 16px; height: 16px; accent-color: #14b8a6; cursor: pointer; }
     .form-group { margin-bottom: 1rem; }
     label { display: block; font-size: 0.8rem; font-weight: 500; color: #cbd5e1; margin-bottom: 0.35rem; }
+    .input-password-wrapper { position: relative; display: flex; align-items: center; width: 100%; }
+    .input-password-wrapper input { padding-right: 2.75rem !important; }
+    .eye-toggle-btn { position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: none; border: none; padding: 0.35rem; cursor: pointer; color: #94a3b8; display: flex; align-items: center; justify-content: center; border-radius: 0.375rem; transition: color 0.15s, background-color 0.15s; }
+    .eye-toggle-btn:hover { color: #f8fafc; background-color: rgba(255, 255, 255, 0.08); }
     input[type="text"], input[type="password"] { width: 100%; background: #020617; border: 1px solid #334155; border-radius: 0.5rem; padding: 0.65rem 0.85rem; color: #f8fafc; font-size: 0.9rem; outline: none; }
     input[type="text"]:focus, input[type="password"]:focus { border-color: #14b8a6; box-shadow: 0 0 0 2px rgba(20,184,166,0.2); }
     .btn-connect { width: 100%; padding: 0.75rem; background: #0d9488; color: #ffffff; border: none; border-radius: 0.5rem; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
@@ -766,7 +770,12 @@ export class CaptivePortalServer {
       <form id="auth-form" onsubmit="unlockPortal(event)">
         <div class="form-group">
           <label for="auth-pass-input">Administrator Password</label>
-          <input type="password" id="auth-pass-input" placeholder="Enter administrator password..." required autocomplete="off">
+          <div class="input-password-wrapper">
+            <input type="password" id="auth-pass-input" placeholder="Enter administrator password..." required autocomplete="off">
+            <button type="button" class="eye-toggle-btn" onclick="togglePasswordVisibility('auth-pass-input', this)" title="Show password" aria-label="Toggle password visibility">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </button>
+          </div>
         </div>
         <button type="submit" id="auth-btn" class="btn-connect">Unlock Setup Portal</button>
       </form>
@@ -806,7 +815,12 @@ export class CaptivePortalServer {
 
       <div class="form-group" id="pass-group">
         <label for="pass-input" id="pass-label">Password</label>
-        <input type="password" id="pass-input" placeholder="Enter Wi-Fi password..." autocomplete="off">
+        <div class="input-password-wrapper">
+          <input type="password" id="pass-input" placeholder="Enter Wi-Fi password..." autocomplete="off">
+          <button type="button" class="eye-toggle-btn" onclick="togglePasswordVisibility('pass-input', this)" title="Show password" aria-label="Toggle password visibility">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+          </button>
+        </div>
       </div>
 
       <div id="wifi-error-box" class="status-box status-error hidden" style="margin-top: 0; margin-bottom: 1rem;"></div>
@@ -917,6 +931,17 @@ export class CaptivePortalServer {
   </div>
 
   <script>
+    function togglePasswordVisibility(inputId, btn) {
+      const input = document.getElementById(inputId);
+      if (!input) return;
+      const isPass = input.type === 'password';
+      input.type = isPass ? 'text' : 'password';
+      btn.innerHTML = isPass
+        ? '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>'
+        : '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+      btn.setAttribute('title', isPass ? 'Hide password' : 'Show password');
+    }
+
     let scannedList = [];
     let selectedNetwork = null;
     let deviceHasStoredPairingCode = ${hasPairingCodePresent ? 'true' : 'false'};

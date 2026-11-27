@@ -467,6 +467,10 @@ export class LocalServer {
       else if (ext === '.css') contentType = 'text/css; charset=utf-8';
       else if (ext === '.svg') contentType = 'image/svg+xml';
       else if (ext === '.json') contentType = 'application/json';
+      else if (ext === '.png') contentType = 'image/png';
+      else if (['.jpg', '.jpeg'].includes(ext)) contentType = 'image/jpeg';
+      else if (ext === '.webp') contentType = 'image/webp';
+      else if (ext === '.ico') contentType = 'image/x-icon';
       else if (['.woff', '.woff2'].includes(ext)) contentType = 'font/woff2';
 
       res.writeHead(200, { 'Content-Type': contentType });

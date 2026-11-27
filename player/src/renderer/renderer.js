@@ -233,18 +233,22 @@
     }
   }
 
-  // 2. Awaiting Package Screen
+  // 2. Awaiting Package Screen / Idle Fallback Screen
   function renderAwaitingPackageScreen(displayId) {
     clearSlideTimers();
     isPlaying = false;
     rootEl.innerHTML = `
       <div class="screen-center">
-        <div class="spinner"></div>
-        <h2 style="font-size: 1.5rem; font-weight: 700;">Digital Display Enrolled</h2>
-        <p class="brand-sub" style="margin-bottom: 0;">
-          Display ID: <span style="font-family: monospace; color: #38bdf8;">${escapeHtml(displayId)}</span><br>
-          Synchronizing publication manifest with Aura DIMS Cloud...
-        </p>
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.5rem; text-align: center;">
+          <img src="fallback.png" alt="Aura DIMS Fallback" style="width: 200px; height: 200px; object-fit: contain; filter: drop-shadow(0 12px 30px rgba(0,0,0,0.6)); border-radius: 1.25rem;" onerror="this.style.display='none'">
+          <div>
+            <h1 style="font-size: 2rem; font-weight: 800; color: #f8fafc; letter-spacing: -0.02em; margin-bottom: 0.5rem;">Aura DIMS</h1>
+            <p style="font-size: 1.1rem; color: #14b8a6; font-weight: 600; margin-bottom: 0.35rem;">Enterprise Digital Signage</p>
+            <p class="brand-sub" style="margin-bottom: 0; color: #94a3b8; font-size: 0.95rem;">
+              ${displayId ? `Digital Display ID: <span style="font-family: monospace; color: #38bdf8; font-weight: 600;">${escapeHtml(displayId)}</span> • ` : ''}Awaiting scheduled broadcast content
+            </p>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -624,9 +628,12 @@
     }
 
     if (el.type === 'image') {
-      const url = getAssetUrl(el.assetId);
+      const url =
+        el.assetId === 'fallback-image' || el.storagePath === 'fallback.png'
+          ? 'fallback.png'
+          : getAssetUrl(el.assetId);
       if (!url) return '';
-      const fit = el.fit || 'cover';
+      const fit = el.fit || 'contain';
       return `
         <div class="canvas-element" style="${style}">
           <img class="canvas-image" style="object-fit: ${fit};" src="${url}" alt="" loading="eager">
@@ -735,20 +742,33 @@
       durationSeconds: 15,
       background: {
         type: 'gradient',
-        value: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+        value: 'linear-gradient(135deg, #090d16 0%, #0f172a 50%, #1e293b 100%)',
       },
       elements: [
+        {
+          id: 'fb-logo',
+          type: 'image',
+          name: 'Fallback Logo',
+          x: isPortrait ? 390 : 810,
+          y: isPortrait ? 280 : 180,
+          width: 300,
+          height: 300,
+          assetId: 'fallback-image',
+          storagePath: 'fallback.png',
+          opacity: 1,
+          fit: 'contain',
+        },
         {
           id: 'fb-title',
           type: 'text',
           name: 'Title',
           x: isPortrait ? 80 : 160,
-          y: isPortrait ? 600 : 400,
+          y: isPortrait ? 620 : 520,
           width: isPortrait ? 920 : 1600,
-          height: 120,
+          height: 100,
           content: 'Aurainteract Private Limited',
           fontFamily: 'Inter',
-          fontSize: isPortrait ? 54 : 64,
+          fontSize: isPortrait ? 52 : 60,
           fontWeight: 800,
           color: '#ffffff',
           textAlign: 'center',
@@ -759,12 +779,12 @@
           type: 'text',
           name: 'Subtitle',
           x: isPortrait ? 80 : 160,
-          y: isPortrait ? 740 : 540,
+          y: isPortrait ? 740 : 640,
           width: isPortrait ? 920 : 1600,
           height: 80,
           content: 'Aura DIMS • Enterprise Digital Signage Platform',
           fontFamily: 'Inter',
-          fontSize: isPortrait ? 28 : 32,
+          fontSize: isPortrait ? 26 : 30,
           fontWeight: 500,
           color: '#14b8a6',
           textAlign: 'center',
