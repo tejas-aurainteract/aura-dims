@@ -506,6 +506,7 @@ export const SchedulesListView: React.FC<SchedulesListViewProps> = ({
         <CreateScheduleModal
           schedule={editingSchedule}
           departmentId={userProfile?.departmentId || ''}
+          projectId={projectId}
           onClose={() => {
             setIsCreateModalOpen(false);
             setEditingSchedule(null);

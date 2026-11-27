@@ -13,7 +13,7 @@
  * - Single slide & full-sequence playback simulation
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
@@ -107,9 +107,6 @@ export const DesignEditorPage: React.FC = () => {
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Autosave Debounce Ref
-  const autosaveTimerRef = useRef<NodeJS.Timeout | null>(null);
-
   // Fetch initial design
   const loadDesignData = useCallback(async () => {
     if (!designId) return;
@@ -188,12 +185,6 @@ export const DesignEditorPage: React.FC = () => {
 
       // Local recovery backup immediately
       saveDraftRecovery(userProfile.uid, designId, design.revision, newTitle, newDoc);
-
-      // Debounce autosave to cloud (1.5 seconds)
-      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-      autosaveTimerRef.current = setTimeout(() => {
-        handleSave(newDoc, newTitle);
-      }, 1500);
     },
     [design, userProfile?.uid, designId, history, historyIndex, title]
   );
@@ -304,6 +295,21 @@ export const DesignEditorPage: React.FC = () => {
     }
   };
 
+  const handleExit = () => {
+    if (saveStatus === 'unsaved') {
+      if (!window.confirm('You have unsaved changes. Are you sure you want to exit without saving?')) {
+        return;
+      }
+    }
+    if (design?.projectId) {
+      navigate(`/projects/${design.projectId}?tab=designs`);
+    } else if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate('/projects');
+    }
+  };
+
   // Beforeunload warning on unsaved changes
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -356,10 +362,16 @@ export const DesignEditorPage: React.FC = () => {
           <div className="flex items-center justify-center gap-3 pt-2">
             <button
               type="button"
-              onClick={() => navigate('/content?tab=designs')}
+              onClick={() => {
+                if (window.history.length > 1) {
+                  navigate(-1);
+                } else {
+                  navigate('/projects');
+                }
+              }}
               className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50"
             >
-              Back to Designs
+              Back
             </button>
             <button
               type="button"
@@ -724,6 +736,7 @@ export const DesignEditorPage: React.FC = () => {
         onRequestOrientationChange={() => setOrientationModalOpen(true)}
         isSaving={isSaving}
         isReadOnly={isReadOnlyViewer}
+        onExit={handleExit}
       />
 
       {/* View-Only Mode Banner */}

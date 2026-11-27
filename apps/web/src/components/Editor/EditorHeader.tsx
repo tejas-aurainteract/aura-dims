@@ -52,6 +52,7 @@ export interface EditorHeaderProps {
   onRequestOrientationChange: () => void;
   isSaving: boolean;
   isReadOnly?: boolean;
+  onExit?: () => void;
 }
 
 export const EditorHeader: React.FC<EditorHeaderProps> = ({
@@ -72,6 +73,7 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
   onRequestOrientationChange,
   isSaving,
   isReadOnly = false,
+  onExit,
 }) => {
   const navigate = useNavigate();
 
@@ -123,9 +125,15 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
       <div className="flex items-center gap-3 min-w-0">
         <button
           type="button"
-          onClick={() => navigate('/content?tab=designs')}
+          onClick={() => {
+            if (onExit) {
+              onExit();
+            } else {
+              navigate(-1);
+            }
+          }}
           className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
-          title="Back to Designs"
+          title="Back"
         >
           <ArrowLeft className="w-4 h-4" />
           <span className="hidden sm:inline">Exit</span>

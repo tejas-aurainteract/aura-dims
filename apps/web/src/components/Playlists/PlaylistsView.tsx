@@ -327,6 +327,7 @@ export const PlaylistsView: React.FC<PlaylistsViewProps> = ({
         <CreatePlaylistModal
           playlist={editingPlaylist}
           departmentId={activeDepartmentId}
+          projectId={projectId}
           onClose={() => {
             setIsCreateModalOpen(false);
             setEditingPlaylist(null);

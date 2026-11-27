@@ -36,6 +36,7 @@ import {
 interface CreateScheduleModalProps {
   schedule?: ScheduleRecord | null;
   departmentId: string;
+  projectId?: string;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -43,6 +44,7 @@ interface CreateScheduleModalProps {
 export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
   schedule,
   departmentId,
+  projectId,
   onClose,
   onSaved,
 }) => {
@@ -55,11 +57,17 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
     schedule?.orientation || 'landscape'
   );
   const [availableProjects, setAvailableProjects] = useState<ProjectRecord[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(
+    schedule?.projectId || projectId || ''
+  );
 
   // Load active projects for department
   useEffect(() => {
     async function loadProjects() {
+      if (projectId) {
+        setSelectedProjectId(projectId);
+        return;
+      }
       const targetDept = isAdmin ? departmentId : userProfile?.departmentId;
       if (!targetDept) return;
       try {
@@ -80,7 +88,7 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
       }
     }
     loadProjects();
-  }, [departmentId, userProfile?.departmentId, isAdmin]);
+  }, [departmentId, userProfile?.departmentId, isAdmin, projectId]);
 
   // Playlists
   const [availablePlaylists, setAvailablePlaylists] = useState<PlaylistRecord[]>([]);
@@ -439,7 +447,7 @@ export const CreateScheduleModal: React.FC<CreateScheduleModalProps> = ({
           )}
 
           {/* Destination Project Selection */}
-          {!isEditing && (
+          {!isEditing && !projectId && (
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
                 <FolderKanban className="w-3.5 h-3.5 text-teal-600" />

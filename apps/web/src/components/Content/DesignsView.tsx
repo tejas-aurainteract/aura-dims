@@ -35,6 +35,7 @@ import {
   Clock,
   Building2,
   User,
+  Plus,
 } from 'lucide-react';
 import { DesignPreviewModal } from '@/components/Editor/DesignPreviewModal';
 
@@ -204,6 +205,17 @@ export const DesignsView: React.FC<DesignsViewProps> = ({
               <ListIcon className="w-3.5 h-3.5" />
             </button>
           </div>
+
+          {canEdit && !isReadOnly && onOpenCreateChoice && (
+            <button
+              type="button"
+              onClick={onOpenCreateChoice}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Create Content</span>
+            </button>
+          )}
         </div>
       </div>
 

@@ -33,6 +33,8 @@ export interface CreateContentChoiceModalProps {
   onClose: () => void;
   onSelectTemplatesTab: () => void;
   departments?: Department[];
+  defaultProjectId?: string;
+  defaultDepartmentId?: string;
 }
 
 export const CreateContentChoiceModal: React.FC<CreateContentChoiceModalProps> = ({
@@ -40,6 +42,8 @@ export const CreateContentChoiceModal: React.FC<CreateContentChoiceModalProps> =
   onClose,
   onSelectTemplatesTab,
   departments = [],
+  defaultProjectId,
+  defaultDepartmentId,
 }) => {
   const navigate = useNavigate();
   const { userProfile } = useAuth();
@@ -49,10 +53,10 @@ export const CreateContentChoiceModal: React.FC<CreateContentChoiceModalProps> =
   const [title, setTitle] = useState('');
   const [orientation, setOrientation] = useState<DisplayOrientation>('landscape');
   const [selectedDeptId, setSelectedDeptId] = useState<string>(
-    userProfile?.departmentId || (departments[0]?.id ?? '')
+    defaultDepartmentId || userProfile?.departmentId || (departments[0]?.id ?? '')
   );
   const [availableProjects, setAvailableProjects] = useState<ProjectRecord[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(defaultProjectId || '');
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +64,10 @@ export const CreateContentChoiceModal: React.FC<CreateContentChoiceModalProps> =
   // Load active projects for target department
   React.useEffect(() => {
     async function loadProjects() {
+      if (defaultProjectId) {
+        setSelectedProjectId(defaultProjectId);
+        return;
+      }
       const targetDept = isAdmin ? selectedDeptId : userProfile?.departmentId;
       if (!targetDept) return;
       setLoadingProjects(true);
@@ -85,7 +93,7 @@ export const CreateContentChoiceModal: React.FC<CreateContentChoiceModalProps> =
     if (isOpen) {
       loadProjects();
     }
-  }, [isOpen, selectedDeptId, isAdmin, userProfile?.departmentId]);
+  }, [isOpen, selectedDeptId, isAdmin, userProfile?.departmentId, defaultProjectId]);
 
   if (!isOpen) return null;
 
@@ -93,7 +101,8 @@ export const CreateContentChoiceModal: React.FC<CreateContentChoiceModalProps> =
     e.preventDefault();
     if (!title.trim()) return;
 
-    if (!selectedProjectId) {
+    const targetProject = defaultProjectId || selectedProjectId;
+    if (!targetProject) {
       setError('Please select a target project.');
       return;
     }
@@ -104,8 +113,8 @@ export const CreateContentChoiceModal: React.FC<CreateContentChoiceModalProps> =
       const res = await api.createDesign({
         title: title.trim(),
         orientation,
-        departmentId: isAdmin ? selectedDeptId : undefined,
-        projectId: selectedProjectId,
+        departmentId: isAdmin ? (defaultDepartmentId || selectedDeptId) : undefined,
+        projectId: targetProject,
       });
 
       onClose();
@@ -253,8 +262,8 @@ export const CreateContentChoiceModal: React.FC<CreateContentChoiceModalProps> =
               </div>
             </div>
 
-            {/* Department Selection (Admin Only) */}
-            {isAdmin && departments.length > 0 && (
+            {/* Department Selection (Admin Only, outside project scope) */}
+            {!defaultProjectId && isAdmin && departments.length > 0 && (
               <div>
                 <label className="text-xs font-semibold text-slate-700">
                   Target Department <span className="text-rose-500">*</span>
@@ -273,37 +282,39 @@ export const CreateContentChoiceModal: React.FC<CreateContentChoiceModalProps> =
               </div>
             )}
 
-            {/* Project Selection */}
-            <div>
-              <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
-                <span className="flex items-center gap-1">
-                  <FolderKanban className="w-3.5 h-3.5 text-teal-600" />
-                  <span>Target Project</span>
-                  <span className="text-rose-500">*</span>
-                </span>
-                {loadingProjects && <Loader2 className="w-3 h-3 animate-spin text-teal-600" />}
-              </label>
-              <select
-                value={selectedProjectId}
-                required
-                onChange={(e) => setSelectedProjectId(e.target.value)}
-                className="mt-1 w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:border-teal-500 focus:outline-hidden bg-white"
-              >
+            {/* Project Selection (outside project scope) */}
+            {!defaultProjectId && (
+              <div>
+                <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <FolderKanban className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Target Project</span>
+                    <span className="text-rose-500">*</span>
+                  </span>
+                  {loadingProjects && <Loader2 className="w-3 h-3 animate-spin text-teal-600" />}
+                </label>
+                <select
+                  value={selectedProjectId}
+                  required
+                  onChange={(e) => setSelectedProjectId(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:border-teal-500 focus:outline-hidden bg-white"
+                >
+                  {isAdmin && !selectedProjectId && (
+                    <option value="">— Select destination project —</option>
+                  )}
+                  {availableProjects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} {p.isGeneral ? '(General Project)' : ''}
+                    </option>
+                  ))}
+                </select>
                 {isAdmin && !selectedProjectId && (
-                  <option value="">— Select destination project —</option>
+                  <p className="text-[11px] text-amber-600 mt-1">
+                    Administrators must explicitly select a destination project.
+                  </p>
                 )}
-                {availableProjects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} {p.isGeneral ? '(General Project)' : ''}
-                  </option>
-                ))}
-              </select>
-              {isAdmin && !selectedProjectId && (
-                <p className="text-[11px] text-amber-600 mt-1">
-                  Administrators must explicitly select a destination project.
-                </p>
-              )}
-            </div>
+              </div>
+            )}
 
             {error && (
               <div className="p-3 bg-rose-50 text-rose-700 text-xs rounded-xl border border-rose-200">

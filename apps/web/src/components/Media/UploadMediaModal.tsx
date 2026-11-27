@@ -21,10 +21,11 @@ import {
   Eye,
   Share2,
   Info,
+  RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
-import { startMediaUpload, validateMediaFileClient, type UploadProgressEvent, type ActiveUploadHandle } from '@/lib/mediaUpload';
+import { startMediaUpload, inspectMediaFileClient, type UploadProgressEvent, type ActiveUploadHandle } from '@/lib/mediaUpload';
 import {
   MEDIA_CONSTRAINTS,
   type MediaAsset,
@@ -79,6 +80,8 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({
 
   // Upload progress states
   const [isUploading, setIsUploading] = useState(false);
+  const [inspectingFile, setInspectingFile] = useState(false);
+  const [mediaMetadata, setMediaMetadata] = useState<{ width: number; height: number; duration?: number } | null>(null);
   const [progressEvent, setProgressEvent] = useState<UploadProgressEvent | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -89,6 +92,8 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({
   // Reset form fields
   const resetForm = useCallback(() => {
     setSelectedFile(null);
+    setMediaMetadata(null);
+    setInspectingFile(false);
     setTitle('');
     setDescription('');
     setTagInput('');
@@ -177,19 +182,35 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({
 
   const isImage = selectedFile?.type.startsWith('image/');
 
-  const handleFileSelect = (file: File) => {
+  const handleFileSelect = async (file: File) => {
     setErrorMessage(null);
-    const validation = validateMediaFileClient(file);
-    if (!validation.valid) {
-      setErrorMessage(validation.error || 'Invalid file');
-      setSelectedFile(null);
-      return;
-    }
+    setMediaMetadata(null);
+    setInspectingFile(true);
 
-    setSelectedFile(file);
-    if (!title) {
-      const baseName = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
-      setTitle(baseName.slice(0, MEDIA_CONSTRAINTS.MAX_TITLE_LENGTH));
+    try {
+      const inspection = await inspectMediaFileClient(file);
+      setInspectingFile(false);
+
+      if (!inspection.valid) {
+        setErrorMessage(inspection.error || 'Invalid file');
+        setSelectedFile(null);
+        return;
+      }
+
+      setMediaMetadata({
+        width: inspection.width,
+        height: inspection.height,
+        duration: inspection.durationSeconds,
+      });
+      setSelectedFile(file);
+      if (!title) {
+        const baseName = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+        setTitle(baseName.slice(0, MEDIA_CONSTRAINTS.MAX_TITLE_LENGTH));
+      }
+    } catch (err: any) {
+      setInspectingFile(false);
+      setErrorMessage(err.message || 'Failed to inspect media file.');
+      setSelectedFile(null);
     }
   };
 
@@ -334,7 +355,19 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({
           )}
 
           {/* Drag & Drop Zone */}
-          {!selectedFile ? (
+          {inspectingFile ? (
+            <div className="border-2 border-dashed border-teal-300 rounded-2xl p-7 text-center bg-teal-50/40 animate-pulse">
+              <div className="mx-auto w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center text-teal-600 mb-2 shadow-xs">
+                <RefreshCw className="h-5 w-5 animate-spin" />
+              </div>
+              <p className="text-xs font-semibold text-teal-900">
+                Inspecting media resolution & encoding...
+              </p>
+              <p className="text-[11px] text-teal-600 mt-1">
+                Checking dimensions against digital display 1080p standards
+              </p>
+            </div>
+          ) : !selectedFile ? (
             <div
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -385,6 +418,12 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({
                   <p className="text-xs font-bold text-slate-900 truncate">{selectedFile.name}</p>
                   <p className="text-[11px] text-slate-500">
                     {(selectedFile.size / 1024 / 1024).toFixed(2)} MB • {selectedFile.type || 'Media'}
+                    {mediaMetadata && (
+                      <span className="font-semibold text-teal-700 ml-1.5">
+                        • {mediaMetadata.width}×{mediaMetadata.height} px
+                        {mediaMetadata.duration ? ` (${Math.round(mediaMetadata.duration)}s)` : ''}
+                      </span>
+                    )}
                   </p>
                 </div>
               </div>
@@ -393,6 +432,7 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({
                   type="button"
                   onClick={() => {
                     setSelectedFile(null);
+                    setMediaMetadata(null);
                     setProgressEvent(null);
                     setErrorMessage(null);
                   }}

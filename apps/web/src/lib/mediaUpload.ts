@@ -78,6 +78,119 @@ export function validateMediaFileClient(file: File): { valid: boolean; error?: s
   return { valid: true };
 }
 
+export interface ClientMediaMetadata {
+  width: number;
+  height: number;
+  durationSeconds?: number;
+  valid: boolean;
+  error?: string;
+}
+
+export async function inspectMediaFileClient(file: File): Promise<ClientMediaMetadata> {
+  const syncValidation = validateMediaFileClient(file);
+  if (!syncValidation.valid) {
+    return { width: 0, height: 0, valid: false, error: syncValidation.error };
+  }
+
+  const isImage = file.type === 'image/jpeg' || file.type === 'image/png' || /\.(jpe?g|png)$/i.test(file.name);
+  const isVideo = file.type === 'video/mp4' || file.type === 'video/quicktime' || /\.(mp4|m4v|mov)$/i.test(file.name);
+
+  if (isImage) {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const width = img.naturalWidth;
+        const height = img.naturalHeight;
+        const pixels = width * height;
+        if (pixels > MEDIA_CONSTRAINTS.MAX_IMAGE_PIXELS) {
+          resolve({
+            width,
+            height,
+            valid: false,
+            error: `Image resolution (${width}×${height}) exceeds maximum limit of 40 Megapixels.`,
+          });
+          return;
+        }
+        resolve({ width, height, valid: true });
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve({
+          width: 0,
+          height: 0,
+          valid: false,
+          error: 'Failed to decode image. Please ensure the file is a valid PNG or JPEG.',
+        });
+      };
+      img.src = url;
+    });
+  }
+
+  if (isVideo) {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => {
+        URL.revokeObjectURL(url);
+        const width = video.videoWidth;
+        const height = video.videoHeight;
+        const duration = video.duration;
+
+        if (width <= 0 || height <= 0) {
+          resolve({
+            width,
+            height,
+            durationSeconds: duration,
+            valid: false,
+            error: 'Could not detect video resolution. Please ensure it is an encoded MP4 video.',
+          });
+          return;
+        }
+
+        const pixels = width * height;
+        if (pixels > MEDIA_CONSTRAINTS.MAX_VIDEO_PIXELS) {
+          resolve({
+            width,
+            height,
+            durationSeconds: duration,
+            valid: false,
+            error: `Video resolution (${width}×${height}) exceeds digital display maximum of Full HD (1920×1080 or 1080×1920). Please compress or scale down to 1080p before uploading.`,
+          });
+          return;
+        }
+
+        if (duration > MEDIA_CONSTRAINTS.MAX_VIDEO_DURATION_SECONDS) {
+          resolve({
+            width,
+            height,
+            durationSeconds: duration,
+            valid: false,
+            error: `Video duration (${Math.round(duration)}s) exceeds maximum limit of ${MEDIA_CONSTRAINTS.MAX_VIDEO_DURATION_SECONDS / 60} minutes.`,
+          });
+          return;
+        }
+
+        resolve({ width, height, durationSeconds: duration, valid: true });
+      };
+      video.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve({
+          width: 0,
+          height: 0,
+          valid: false,
+          error: 'Failed to inspect video. Supported video format is MP4 (H.264/AAC).',
+        });
+      };
+      video.src = url;
+    });
+  }
+
+  return { width: 0, height: 0, valid: false, error: 'Unknown media file type.' };
+}
+
 export function startMediaUpload(options: UploadMediaOptions): ActiveUploadHandle {
   const { file, departmentId, projectId, visibility, sharedWith, title, description, tags, onProgress } = options;
 
@@ -89,16 +202,16 @@ export function startMediaUpload(options: UploadMediaOptions): ActiveUploadHandl
   });
 
   const donePromise = (async (): Promise<MediaAsset> => {
-    // 1. Client-side Validation
-    const validation = validateMediaFileClient(file);
-    if (!validation.valid) {
-      const err = new Error(validation.error);
+    // 1. Client-side Validation & Metadata Inspection
+    const inspection = await inspectMediaFileClient(file);
+    if (!inspection.valid) {
+      const err = new Error(inspection.error);
       onProgress?.({
         step: 'error',
         progressPercent: 0,
         bytesTransferred: 0,
         totalBytes: file.size,
-        message: validation.error || 'Validation error',
+        message: inspection.error || 'Validation error',
       });
       throw err;
     }

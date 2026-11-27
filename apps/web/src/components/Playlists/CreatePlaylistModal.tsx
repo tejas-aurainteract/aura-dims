@@ -33,6 +33,7 @@ import type {
 interface CreatePlaylistModalProps {
   playlist?: PlaylistRecord | null;
   departmentId: string;
+  projectId?: string;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -40,6 +41,7 @@ interface CreatePlaylistModalProps {
 export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
   playlist,
   departmentId,
+  projectId,
   onClose,
   onSaved,
 }) => {
@@ -57,13 +59,19 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
   const [selectedDesignId, setSelectedDesignId] = useState('');
   const [loadingDesigns, setLoadingDesigns] = useState(false);
   const [availableProjects, setAvailableProjects] = useState<ProjectRecord[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(
+    playlist?.projectId || projectId || ''
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Load active projects for department
   useEffect(() => {
     async function loadProjects() {
+      if (projectId) {
+        setSelectedProjectId(projectId);
+        return;
+      }
       const targetDept = userProfile?.role === 'admin' ? departmentId : userProfile?.departmentId;
       if (!targetDept) return;
       try {
@@ -84,7 +92,7 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
       }
     }
     loadProjects();
-  }, [departmentId, userProfile?.departmentId, userProfile?.role]);
+  }, [departmentId, userProfile?.departmentId, userProfile?.role, projectId]);
 
   // Fetch designs matching the chosen orientation
   useEffect(() => {
@@ -247,7 +255,7 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
           )}
 
           {/* Destination Project Selection */}
-          {!isEditing && (
+          {!isEditing && !projectId && (
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
                 <FolderKanban className="w-3.5 h-3.5 text-teal-600" />

@@ -43,6 +43,7 @@ import { MediaLibraryView } from '@/components/Media/MediaLibraryView';
 import { DesignsView } from '@/components/Content/DesignsView';
 import { PlaylistsView } from '@/components/Playlists/PlaylistsView';
 import { SchedulesListView } from '@/components/Schedules/SchedulesListView';
+import { CreateContentChoiceModal } from '@/components/Content/CreateContentChoiceModal';
 
 type ActiveTab = 'assets' | 'designs' | 'playlists' | 'schedules' | 'members';
 
@@ -59,6 +60,9 @@ export const ProjectDetailPage: React.FC = () => {
   const [deptUsers, setDeptUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Create Content Modal
+  const [isCreateContentOpen, setIsCreateContentOpen] = useState(false);
 
   // Edit Project Modal
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -505,7 +509,12 @@ export const ProjectDetailPage: React.FC = () => {
         )}
 
         {activeTab === 'designs' && (
-          <DesignsView projectId={project.id} canEdit={canEdit} isReadOnly={isReadOnly} />
+          <DesignsView
+            projectId={project.id}
+            canEdit={canEdit}
+            isReadOnly={isReadOnly}
+            onOpenCreateChoice={() => setIsCreateContentOpen(true)}
+          />
         )}
 
         {activeTab === 'playlists' && (
@@ -866,6 +875,16 @@ export const ProjectDetailPage: React.FC = () => {
           </div>
         </div>
       )}
+      {/* Create Content Choice Modal (Project Scoped) */}
+      <CreateContentChoiceModal
+        isOpen={isCreateContentOpen}
+        onClose={() => setIsCreateContentOpen(false)}
+        defaultProjectId={project.id}
+        defaultDepartmentId={project.departmentId}
+        onSelectTemplatesTab={() => {
+          setIsCreateContentOpen(false);
+        }}
+      />
     </div>
   );
 };

@@ -66,14 +66,16 @@ export const ContentPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto">
-          <button
-            type="button"
-            onClick={() => setIsChoiceModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Create content</span>
-          </button>
+          {currentTab === 'designs' && (
+            <button
+              type="button"
+              onClick={() => setIsChoiceModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Create content</span>
+            </button>
+          )}
         </div>
       </div>
 
