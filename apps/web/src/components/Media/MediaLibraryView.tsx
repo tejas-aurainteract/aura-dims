@@ -485,14 +485,16 @@ export const MediaLibraryView: React.FC<MediaLibraryViewProps> = ({
               ? 'No media assets matched your search filters.'
               : 'There are no media assets in this scope yet.'}
           </p>
-          <button
-            type="button"
-            onClick={() => setIsUploadOpen(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors"
-          >
-            <UploadCloud className="h-4 w-4" />
-            <span>Upload first asset</span>
-          </button>
+          {canUpload && !isReadOnly && (
+            <button
+              type="button"
+              onClick={() => setIsUploadOpen(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors"
+            >
+              <UploadCloud className="h-4 w-4" />
+              <span>Upload first asset</span>
+            </button>
+          )}
         </div>
       ) : viewMode === 'grid' ? (
         /* Grid Layout */

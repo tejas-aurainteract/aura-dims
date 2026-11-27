@@ -39,6 +39,7 @@ interface PublicationRolloutModalProps {
   onClose: () => void;
   publicationId: string;
   scheduleTitle: string;
+  isReadOnly?: boolean;
 }
 
 export const PublicationRolloutModal: React.FC<PublicationRolloutModalProps> = ({
@@ -46,6 +47,7 @@ export const PublicationRolloutModal: React.FC<PublicationRolloutModalProps> = (
   onClose,
   publicationId,
   scheduleTitle,
+  isReadOnly = false,
 }) => {
   const [data, setData] = useState<GetPublicationRolloutProgressResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -224,7 +226,7 @@ export const PublicationRolloutModal: React.FC<PublicationRolloutModalProps> = (
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
                   </button>
-                  {(data.failedCount > 0 || data.staleOrNoReportCount > 0 || data.activeCount < data.targetCount) && (
+                  {!isReadOnly && (data.failedCount > 0 || data.staleOrNoReportCount > 0 || data.activeCount < data.targetCount) && (
                     <button
                       onClick={handleRetryAllIncomplete}
                       disabled={retryingAll}
@@ -292,7 +294,7 @@ export const PublicationRolloutModal: React.FC<PublicationRolloutModalProps> = (
                         )}
                       </div>
 
-                      {t.deliveryStage !== 'active' && (
+                      {!isReadOnly && t.deliveryStage !== 'active' && (
                         <button
                           type="button"
                           onClick={() => handleRetryTarget(t.displayId)}

@@ -203,7 +203,7 @@ export const SchedulesListView: React.FC<SchedulesListViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto">
-          {displays.length > 0 && (
+          {!isReadOnly && displays.length > 0 && (
             <button
               type="button"
               onClick={() => setIsSimulatorOpen(true)}
@@ -324,17 +324,19 @@ export const SchedulesListView: React.FC<SchedulesListViewProps> = ({
               ? `No schedules match "${searchQuery}".`
               : 'Create a schedule to map visual playlists to your digital displays.'}
           </p>
-          <button
-            type="button"
-            onClick={() => {
-              setEditingSchedule(null);
-              setIsCreateModalOpen(true);
-            }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Create schedule</span>
-          </button>
+          {canEdit && !isReadOnly && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditingSchedule(null);
+                setIsCreateModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Create schedule</span>
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-4">
@@ -439,7 +441,7 @@ export const SchedulesListView: React.FC<SchedulesListViewProps> = ({
                   )}
 
                   {/* Rollout Progress button if a publication exists */}
-                  {s.publishedPublicationId && (
+                  {!isReadOnly && s.publishedPublicationId && (
                     <button
                       type="button"
                       onClick={() => setSelectedRolloutPublication({ id: s.publishedPublicationId!, title: s.title })}
@@ -530,6 +532,7 @@ export const SchedulesListView: React.FC<SchedulesListViewProps> = ({
           isOpen={!!selectedRolloutPublication}
           publicationId={selectedRolloutPublication.id}
           scheduleTitle={selectedRolloutPublication.title}
+          isReadOnly={isReadOnly}
           onClose={() => setSelectedRolloutPublication(null)}
         />
       )}
