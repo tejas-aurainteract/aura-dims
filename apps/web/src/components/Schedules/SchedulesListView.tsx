@@ -37,12 +37,20 @@ import { PublicationRolloutModal } from '@/components/Rollout/PublicationRollout
 
 export interface SchedulesListViewProps {
   projectId?: string;
+  canEdit?: boolean;
+  canPublish?: boolean;
+  isReadOnly?: boolean;
 }
 
-export const SchedulesListView: React.FC<SchedulesListViewProps> = ({ projectId }) => {
+export const SchedulesListView: React.FC<SchedulesListViewProps> = ({
+  projectId,
+  canEdit = true,
+  canPublish = false,
+  isReadOnly = false,
+}) => {
   const { userProfile } = useAuth();
   const isAdmin = userProfile?.role === 'admin';
-  const canDirectPublish = isAdmin || !!userProfile?.canDirectPublish;
+  const canDirectPublish = isAdmin || !!userProfile?.canDirectPublish || canPublish;
 
   const [schedules, setSchedules] = useState<ScheduleRecord[]>([]);
   const [displays, setDisplays] = useState<DigitalDisplay[]>([]);
@@ -206,17 +214,19 @@ export const SchedulesListView: React.FC<SchedulesListViewProps> = ({ projectId 
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={() => {
-              setEditingSchedule(null);
-              setIsCreateModalOpen(true);
-            }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Create schedule</span>
-          </button>
+          {canEdit && !isReadOnly && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditingSchedule(null);
+                setIsCreateModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Create schedule</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -416,7 +426,7 @@ export const SchedulesListView: React.FC<SchedulesListViewProps> = ({ projectId 
                 {/* Schedule Actions */}
                 <div className="flex flex-wrap items-center gap-2 shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100">
                   {/* Publish button if approved or direct publish eligible */}
-                  {(canDirectPublish || s.status === 'approved') && s.status !== 'withdrawn' && (
+                  {!isReadOnly && (canDirectPublish || s.status === 'approved') && s.status !== 'withdrawn' && (
                     <button
                       type="button"
                       disabled={isActionLoading}
@@ -442,7 +452,7 @@ export const SchedulesListView: React.FC<SchedulesListViewProps> = ({ projectId 
                   )}
 
                   {/* Submit for approval if draft */}
-                  {s.status === 'draft' && (
+                  {!isReadOnly && canEdit && s.status === 'draft' && (
                     <button
                       type="button"
                       disabled={isActionLoading}
@@ -456,7 +466,7 @@ export const SchedulesListView: React.FC<SchedulesListViewProps> = ({ projectId 
                   )}
 
                   {/* Edit */}
-                  {s.status !== 'withdrawn' && (
+                  {!isReadOnly && canEdit && s.status !== 'withdrawn' && (
                     <button
                       type="button"
                       onClick={() => {
@@ -471,7 +481,7 @@ export const SchedulesListView: React.FC<SchedulesListViewProps> = ({ projectId 
                   )}
 
                   {/* Withdraw */}
-                  {s.status === 'active' && (
+                  {!isReadOnly && (canDirectPublish || canEdit) && s.status === 'active' && (
                     <button
                       type="button"
                       disabled={isActionLoading}

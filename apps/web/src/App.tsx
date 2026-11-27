@@ -68,7 +68,15 @@ export const App: React.FC = () => {
             <Route path="displays" element={<DisplaysPage />} />
             <Route path="projects" element={<ProjectsPage />} />
             <Route path="projects/:projectId" element={<ProjectDetailPage />} />
-            <Route path="content" element={<ContentPage />} />
+            {/* Leader-Only Content Management (Admin & Department Head) */}
+            <Route
+              path="content"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'department_head']}>
+                  <ContentPage />
+                </ProtectedRoute>
+              }
+            />
             {/* Leader-Only Assets Management (Admin & Department Head) */}
             <Route
               path="assets"
@@ -78,8 +86,24 @@ export const App: React.FC = () => {
                 </ProtectedRoute>
               }
             />
-            <Route path="schedules" element={<SchedulesPage />} />
-            <Route path="approvals" element={<ApprovalsPage />} />
+            {/* Leader-Only Schedules Management (Admin & Department Head) */}
+            <Route
+              path="schedules"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'department_head']}>
+                  <SchedulesPage />
+                </ProtectedRoute>
+              }
+            />
+            {/* Leader-Only Approvals & Governance (Admin & Department Head) */}
+            <Route
+              path="approvals"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'department_head']}>
+                  <ApprovalsPage />
+                </ProtectedRoute>
+              }
+            />
 
             {/* Admin-Only Users Management */}
             <Route

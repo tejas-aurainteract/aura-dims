@@ -125,6 +125,76 @@ async function assertProjectManageAccess(
   );
 }
 
+/**
+ * Role hierarchy for project members:
+ * 'lead' (Publisher): 3
+ * 'member' (Contributor): 2
+ * 'viewer' (Viewer): 1
+ */
+const PROJECT_ROLE_LEVELS: Record<ProjectMemberRole, number> = {
+  lead: 3,
+  member: 2,
+  viewer: 1,
+};
+
+/**
+ * Verifies that the caller has at least `minRole` privileges in the specified project.
+ * - Admin has superuser authority across all projects.
+ * - Department Head has publisher ('lead') authority over all projects in their department.
+ * - Enrolled project members must have a role >= minRole.
+ */
+export async function assertProjectRole(
+  caller: UserProfile,
+  projectId: string,
+  minRole: ProjectMemberRole = 'viewer'
+): Promise<{ project: ProjectRecord; memberRole: ProjectMemberRole }> {
+  const pDoc = await db.collection('projects').doc(projectId).get();
+  if (!pDoc.exists) {
+    throw new HttpsError('not-found', `Project '${projectId}' not found.`);
+  }
+  const project = pDoc.data() as ProjectRecord;
+
+  // Admin has superuser authority across all projects
+  if (caller.role === 'admin') {
+    return { project, memberRole: 'lead' };
+  }
+
+  // Department Head has publisher/lead authority over all projects in their department
+  if (caller.role === 'department_head' && caller.departmentId === project.departmentId) {
+    return { project, memberRole: 'lead' };
+  }
+
+  // Caller must belong to the project's department
+  if (caller.departmentId !== project.departmentId) {
+    throw new HttpsError('permission-denied', 'You do not have access to projects outside your department.');
+  }
+
+  // Check project membership
+  const mDoc = await db.collection('projects').doc(projectId).collection('members').doc(caller.uid).get();
+  if (!mDoc.exists) {
+    throw new HttpsError('permission-denied', `You are not an assigned member of project '${project.name}'.`);
+  }
+
+  const member = mDoc.data() as ProjectMember;
+  const userRole = member.role || 'viewer';
+  const userLevel = PROJECT_ROLE_LEVELS[userRole] || 1;
+  const requiredLevel = PROJECT_ROLE_LEVELS[minRole] || 1;
+
+  if (userLevel < requiredLevel) {
+    const roleTitles: Record<ProjectMemberRole, string> = {
+      lead: 'Publisher',
+      member: 'Contributor',
+      viewer: 'Viewer',
+    };
+    throw new HttpsError(
+      'permission-denied',
+      `This action requires '${roleTitles[minRole]}' project privileges. Your project role is '${roleTitles[userRole]}'.`
+    );
+  }
+
+  return { project, memberRole: userRole };
+}
+
 // ==============================================================================
 // 1. Project Lifecycle: Create, Update, Archive, List
 // ==============================================================================

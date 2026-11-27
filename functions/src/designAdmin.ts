@@ -49,7 +49,7 @@ import {
   extractReferencedAssetIds,
 } from '@aura-dims/display-schema';
 import { canUseAsset } from './publishingAdmin';
-import { ensureGeneralProject } from './projectsAdmin';
+import { ensureGeneralProject, assertProjectRole } from './projectsAdmin';
 
 const db = admin.firestore();
 const REGION = 'asia-south1'; // India (Mumbai) regional target
@@ -228,22 +228,12 @@ export const createDesign = onCall<CreateDesignRequest, Promise<CreateDesignResp
 
       if (projectId && typeof projectId === 'string' && projectId.trim()) {
         const pId = projectId.trim();
-        const pDoc = await db.collection('projects').doc(pId).get();
-        if (!pDoc.exists) {
-          throw new HttpsError('not-found', `Project '${pId}' not found.`);
-        }
-        const pData = pDoc.data() as ProjectRecord;
+        const { project: pData } = await assertProjectRole(caller, pId, 'member');
         if (pData.status === 'archived') {
           throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
         }
         if (pData.departmentId !== targetDeptId) {
           throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${targetDeptId}'.`);
-        }
-        if (caller.role !== 'department_head') {
-          const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
-          if (!mDoc.exists) {
-            throw new HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
-          }
         }
         targetProjectId = pId;
       } else {
@@ -401,24 +391,12 @@ export const updateDesign = onCall<UpdateDesignRequest, Promise<UpdateDesignResp
       }
 
       let targetProjectId = projectId || current.projectId || `proj_general_${current.departmentId}`;
-      if (projectId && projectId !== current.projectId) {
-        const pDoc = await db.collection('projects').doc(projectId).get();
-        if (!pDoc.exists) {
-          throw new HttpsError('not-found', `Project '${projectId}' not found.`);
-        }
-        const pData = pDoc.data() as ProjectRecord;
-        if (pData.status === 'archived') {
-          throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
-        }
-        if (pData.departmentId !== current.departmentId) {
-          throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${current.departmentId}'.`);
-        }
-        if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === current.departmentId)) {
-          const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
-          if (!mDoc.exists) {
-            throw new HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
-          }
-        }
+      const { project: pData } = await assertProjectRole(caller, targetProjectId, 'member');
+      if (pData.status === 'archived') {
+        throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
+      }
+      if (pData.departmentId !== current.departmentId) {
+        throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${current.departmentId}'.`);
       }
 
       // Revalidate referenced assets
@@ -479,6 +457,7 @@ export const duplicateDesign = onCall<DuplicateDesignRequest, Promise<DuplicateD
     }
 
     const targetProjectId = source.projectId || `proj_general_${source.departmentId}`;
+    await assertProjectRole(caller, targetProjectId, 'member');
 
     // Revalidate referenced assets
     const assetIds = extractReferencedAssetIds(source.document);
@@ -565,6 +544,9 @@ export const setDesignArchivedStatus = onCall<SetDesignArchivedRequest, Promise<
     if (caller.role !== 'admin' && current.departmentId !== caller.departmentId) {
       throw new HttpsError('permission-denied', 'Cannot modify designs belonging to another department.');
     }
+
+    const effectiveProjectId = current.projectId || `proj_general_${current.departmentId}`;
+    await assertProjectRole(caller, effectiveProjectId, 'lead');
 
     const status = archived ? 'archived' : 'draft';
     const now = new Date().toISOString();

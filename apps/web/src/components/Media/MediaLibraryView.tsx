@@ -46,9 +46,15 @@ import type { MediaAsset, Department, ProjectRecord } from '@aura-dims/display-s
 
 export interface MediaLibraryViewProps {
   projectId?: string;
+  canUpload?: boolean;
+  isReadOnly?: boolean;
 }
 
-export const MediaLibraryView: React.FC<MediaLibraryViewProps> = ({ projectId }) => {
+export const MediaLibraryView: React.FC<MediaLibraryViewProps> = ({
+  projectId,
+  canUpload = true,
+  isReadOnly = false,
+}) => {
   const { userProfile } = useAuth();
 
   // Scope state: 'project' | 'department' | 'shared' | 'global'
@@ -364,14 +370,16 @@ export const MediaLibraryView: React.FC<MediaLibraryViewProps> = ({ projectId })
           </button>
 
           {/* Upload Button */}
-          <button
-            type="button"
-            onClick={() => setIsUploadOpen(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors"
-          >
-            <UploadCloud className="h-4 w-4" />
-            <span>Upload media</span>
-          </button>
+          {canUpload && !isReadOnly && (
+            <button
+              type="button"
+              onClick={() => setIsUploadOpen(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors"
+            >
+              <UploadCloud className="h-4 w-4" />
+              <span>Upload media</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -490,17 +498,18 @@ export const MediaLibraryView: React.FC<MediaLibraryViewProps> = ({ projectId })
         /* Grid Layout */
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {assets.map((asset) => {
-            const isReadOnly =
-              (asset.visibility === 'shared' || asset.visibility === 'global') &&
+            const isItemReadOnly =
+              isReadOnly ||
+              ((asset.visibility === 'shared' || asset.visibility === 'global') &&
               asset.departmentId !== userProfile?.departmentId &&
-              userProfile?.role !== 'admin';
+              userProfile?.role !== 'admin');
 
             return (
               <MediaCard
                 key={asset.id}
                 asset={asset}
                 departmentName={departmentMap.get(asset.departmentId) || asset.departmentId}
-                isReadOnly={isReadOnly}
+                isReadOnly={isItemReadOnly}
                 onClick={() => setSelectedAsset(asset)}
               />
             );
@@ -522,10 +531,11 @@ export const MediaLibraryView: React.FC<MediaLibraryViewProps> = ({ projectId })
             </thead>
             <tbody className="divide-y divide-slate-100">
               {assets.map((asset) => {
-                const isReadOnly =
-                  (asset.visibility === 'shared' || asset.visibility === 'global') &&
+                const isItemReadOnly =
+                  isReadOnly ||
+                  ((asset.visibility === 'shared' || asset.visibility === 'global') &&
                   asset.departmentId !== userProfile?.departmentId &&
-                  userProfile?.role !== 'admin';
+                  userProfile?.role !== 'admin');
 
                 return (
                   <tr
@@ -553,7 +563,7 @@ export const MediaLibraryView: React.FC<MediaLibraryViewProps> = ({ projectId })
                         <span className="capitalize px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700">
                           {asset.visibility || 'project'}
                         </span>
-                        {isReadOnly && (
+                        {isItemReadOnly && (
                           <span title="Read-only shared asset">
                             <Lock className="h-3 w-3 text-slate-400" />
                           </span>
@@ -639,6 +649,7 @@ export const MediaLibraryView: React.FC<MediaLibraryViewProps> = ({ projectId })
         isOpen={Boolean(selectedAsset)}
         onClose={() => setSelectedAsset(null)}
         departments={departments}
+        isReadOnly={isReadOnly}
         onAssetUpdated={(updated) => {
           setSelectedAsset(updated);
           setAssets((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));

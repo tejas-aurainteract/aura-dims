@@ -41,9 +41,16 @@ import { DesignPreviewModal } from '@/components/Editor/DesignPreviewModal';
 export interface DesignsViewProps {
   onOpenCreateChoice?: () => void;
   projectId?: string;
+  canEdit?: boolean;
+  isReadOnly?: boolean;
 }
 
-export const DesignsView: React.FC<DesignsViewProps> = ({ onOpenCreateChoice, projectId }) => {
+export const DesignsView: React.FC<DesignsViewProps> = ({
+  onOpenCreateChoice,
+  projectId,
+  canEdit = true,
+  isReadOnly = false,
+}) => {
   const navigate = useNavigate();
 
   // State
@@ -232,7 +239,7 @@ export const DesignsView: React.FC<DesignsViewProps> = ({ onOpenCreateChoice, pr
                 : 'Get started by creating your first digital display visual layout.'}
             </p>
           </div>
-          {onOpenCreateChoice && (
+          {canEdit && !isReadOnly && onOpenCreateChoice && (
             <button
               type="button"
               onClick={onOpenCreateChoice}
@@ -256,7 +263,13 @@ export const DesignsView: React.FC<DesignsViewProps> = ({ onOpenCreateChoice, pr
                 {/* Visual Thumbnail Frame */}
                 <div
                   className="h-36 bg-slate-900 relative flex items-center justify-center overflow-hidden cursor-pointer"
-                  onClick={() => navigate(`/content/editor/${design.id}`)}
+                  onClick={() => {
+                    if (canEdit && !isReadOnly) {
+                      navigate(`/content/editor/${design.id}`);
+                    } else {
+                      handlePreview(design.id);
+                    }
+                  }}
                 >
                   {/* Decorative background layout placeholder */}
                   <div className="w-full h-full flex flex-col items-center justify-center text-slate-600 group-hover:scale-105 transition-transform duration-300">
@@ -321,52 +334,69 @@ export const DesignsView: React.FC<DesignsViewProps> = ({ onOpenCreateChoice, pr
 
                   {/* Actions Footer */}
                   <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/content/editor/${design.id}`)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-teal-50 text-teal-800 hover:bg-teal-100 transition-colors"
-                    >
-                      <Edit3 className="w-3 h-3" />
-                      <span>Edit</span>
-                    </button>
-
-                    <div className="flex items-center gap-1 text-slate-400">
+                    {canEdit && !isReadOnly ? (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/content/editor/${design.id}`)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-teal-50 text-teal-800 hover:bg-teal-100 transition-colors"
+                      >
+                        <Edit3 className="w-3 h-3" />
+                        <span>Edit</span>
+                      </button>
+                    ) : (
                       <button
                         type="button"
                         onClick={() => handlePreview(design.id)}
-                        className="p-1 hover:text-slate-700 rounded-md hover:bg-slate-50"
-                        title="Simulate display playback"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
                       >
-                        <Play className="w-3.5 h-3.5 text-teal-600" />
+                        <Play className="w-3 h-3 text-teal-600" />
+                        <span>Preview</span>
                       </button>
+                    )}
 
-                      <button
-                        type="button"
-                        disabled={actionLoadingId === design.id}
-                        onClick={() => handleDuplicate(design.id, design.title)}
-                        className="p-1 hover:text-slate-700 rounded-md hover:bg-slate-50 disabled:opacity-30"
-                        title="Duplicate design"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                      </button>
+                    <div className="flex items-center gap-1 text-slate-400">
+                      {canEdit && !isReadOnly && (
+                        <button
+                          type="button"
+                          onClick={() => handlePreview(design.id)}
+                          className="p-1 hover:text-slate-700 rounded-md hover:bg-slate-50"
+                          title="Simulate display playback"
+                        >
+                          <Play className="w-3.5 h-3.5 text-teal-600" />
+                        </button>
+                      )}
 
-                      <button
-                        type="button"
-                        disabled={actionLoadingId === design.id}
-                        onClick={() => handleToggleArchive(design.id, design.status)}
-                        className="p-1 hover:text-rose-600 rounded-md hover:bg-slate-50 disabled:opacity-30"
-                        title={
-                          design.status === 'archived'
-                            ? 'Restore design'
-                            : 'Archive design'
-                        }
-                      >
-                        {design.status === 'archived' ? (
-                          <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
-                        ) : (
-                          <Archive className="w-3.5 h-3.5" />
-                        )}
-                      </button>
+                      {canEdit && !isReadOnly && (
+                        <button
+                          type="button"
+                          disabled={actionLoadingId === design.id}
+                          onClick={() => handleDuplicate(design.id, design.title)}
+                          className="p-1 hover:text-slate-700 rounded-md hover:bg-slate-50 disabled:opacity-30"
+                          title="Duplicate design"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
+                      {canEdit && !isReadOnly && (
+                        <button
+                          type="button"
+                          disabled={actionLoadingId === design.id}
+                          onClick={() => handleToggleArchive(design.id, design.status)}
+                          className="p-1 hover:text-rose-600 rounded-md hover:bg-slate-50 disabled:opacity-30"
+                          title={
+                            design.status === 'archived'
+                              ? 'Restore design'
+                              : 'Archive design'
+                          }
+                        >
+                          {design.status === 'archived' ? (
+                            <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+                          ) : (
+                            <Archive className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -422,41 +452,57 @@ export const DesignsView: React.FC<DesignsViewProps> = ({ onOpenCreateChoice, pr
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/content/editor/${design.id}`)}
-                          className="px-2 py-1 text-xs font-semibold rounded bg-teal-50 text-teal-800 hover:bg-teal-100"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handlePreview(design.id)}
-                          className="p-1 hover:text-slate-800"
-                          title="Preview"
-                        >
-                          <Play className="w-3.5 h-3.5 text-teal-600" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDuplicate(design.id, design.title)}
-                          className="p-1 hover:text-slate-800"
-                          title="Duplicate"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleToggleArchive(design.id, design.status)}
-                          className="p-1 hover:text-rose-600"
-                          title={design.status === 'archived' ? 'Restore' : 'Archive'}
-                        >
-                          {design.status === 'archived' ? (
-                            <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
-                          ) : (
-                            <Archive className="w-3.5 h-3.5" />
-                          )}
-                        </button>
+                        {canEdit && !isReadOnly ? (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/content/editor/${design.id}`)}
+                            className="px-2 py-1 text-xs font-semibold rounded bg-teal-50 text-teal-800 hover:bg-teal-100"
+                          >
+                            Edit
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handlePreview(design.id)}
+                            className="px-2 py-1 text-xs font-semibold rounded bg-slate-100 text-slate-700 hover:bg-slate-200"
+                          >
+                            Preview
+                          </button>
+                        )}
+                        {canEdit && !isReadOnly && (
+                          <button
+                            type="button"
+                            onClick={() => handlePreview(design.id)}
+                            className="p-1 hover:text-slate-800"
+                            title="Preview"
+                          >
+                            <Play className="w-3.5 h-3.5 text-teal-600" />
+                          </button>
+                        )}
+                        {canEdit && !isReadOnly && (
+                          <button
+                            type="button"
+                            onClick={() => handleDuplicate(design.id, design.title)}
+                            className="p-1 hover:text-slate-800"
+                            title="Duplicate"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {canEdit && !isReadOnly && (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleArchive(design.id, design.status)}
+                            className="p-1 hover:text-rose-600"
+                            title={design.status === 'archived' ? 'Restore' : 'Archive'}
+                          >
+                            {design.status === 'archived' ? (
+                              <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+                            ) : (
+                              <Archive className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

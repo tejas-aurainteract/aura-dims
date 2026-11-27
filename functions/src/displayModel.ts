@@ -135,11 +135,20 @@ export async function loadAuthorizedDisplay(caller: UserProfile, displayId: stri
     if (!snap.exists) throw new HttpsError('not-found', 'Digital display not found.');
     return snap;
   }
-  const denied = new HttpsError('permission-denied', 'You are not assigned to this digital display.');
-  if (!snap.exists || caller.role !== 'department_head' || !caller.departmentId) throw denied;
+  const denied = new HttpsError('permission-denied', 'You do not have access to this digital display.');
+  if (!snap.exists) throw new HttpsError('not-found', 'Digital display not found.');
+
+  const displayData = snap.data();
+  // Allow all members of the digital display's assigned department to inspect display details and telemetry
+  if (caller.departmentId && displayData?.departmentId === caller.departmentId) {
+    return snap;
+  }
+
+  // Or if caller has an explicit assignment
   const assignment = await db.collection(COL.assignments).doc(assignmentId(displayId, caller.uid)).get();
-  if (!isAssignmentValid(assignment, caller, snap)) throw denied;
-  return snap;
+  if (isAssignmentValid(assignment, caller, snap)) return snap;
+
+  throw denied;
 }
 
 export function isAssignmentValid(

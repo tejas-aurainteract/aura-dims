@@ -34,12 +34,13 @@ import {
   type ProjectRecord,
 } from '@aura-dims/display-schema';
 
-interface MediaDetailModalProps {
+export interface MediaDetailModalProps {
   asset: MediaAsset | null;
   isOpen: boolean;
   onClose: () => void;
   departments: Department[];
   onAssetUpdated: (updatedAsset: MediaAsset) => void;
+  isReadOnly?: boolean;
 }
 
 export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
@@ -48,6 +49,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   onClose,
   departments,
   onAssetUpdated,
+  isReadOnly = false,
 }) => {
   const { userProfile } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -275,7 +277,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     }
   };
 
-  const canEdit = isAdmin || userProfile?.departmentId === asset.departmentId;
+  const canEdit = !isReadOnly && (isAdmin || userProfile?.departmentId === asset.departmentId);
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">

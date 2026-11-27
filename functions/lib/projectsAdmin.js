@@ -44,6 +44,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.moveAssetProject = exports.listProjectMembers = exports.updateProjectMemberRole = exports.removeProjectMember = exports.addProjectMember = exports.listProjects = exports.archiveProject = exports.updateProject = exports.createProject = exports.ALLOWED_PROJECT_CREATOR_ROLES = void 0;
 exports.ensureGeneralProject = ensureGeneralProject;
 exports.validateProjectRoleCeiling = validateProjectRoleCeiling;
+exports.assertProjectRole = assertProjectRole;
 const https_1 = require("firebase-functions/v2/https");
 const crypto = __importStar(require("crypto"));
 const common_js_1 = require("./common.js");
@@ -112,6 +113,60 @@ async function assertProjectManageAccess(caller, project) {
             return;
     }
     throw new https_1.HttpsError('permission-denied', 'You do not have permission to manage this project or its members.');
+}
+/**
+ * Role hierarchy for project members:
+ * 'lead' (Publisher): 3
+ * 'member' (Contributor): 2
+ * 'viewer' (Viewer): 1
+ */
+const PROJECT_ROLE_LEVELS = {
+    lead: 3,
+    member: 2,
+    viewer: 1,
+};
+/**
+ * Verifies that the caller has at least `minRole` privileges in the specified project.
+ * - Admin has superuser authority across all projects.
+ * - Department Head has publisher ('lead') authority over all projects in their department.
+ * - Enrolled project members must have a role >= minRole.
+ */
+async function assertProjectRole(caller, projectId, minRole = 'viewer') {
+    const pDoc = await common_js_1.db.collection('projects').doc(projectId).get();
+    if (!pDoc.exists) {
+        throw new https_1.HttpsError('not-found', `Project '${projectId}' not found.`);
+    }
+    const project = pDoc.data();
+    // Admin has superuser authority across all projects
+    if (caller.role === 'admin') {
+        return { project, memberRole: 'lead' };
+    }
+    // Department Head has publisher/lead authority over all projects in their department
+    if (caller.role === 'department_head' && caller.departmentId === project.departmentId) {
+        return { project, memberRole: 'lead' };
+    }
+    // Caller must belong to the project's department
+    if (caller.departmentId !== project.departmentId) {
+        throw new https_1.HttpsError('permission-denied', 'You do not have access to projects outside your department.');
+    }
+    // Check project membership
+    const mDoc = await common_js_1.db.collection('projects').doc(projectId).collection('members').doc(caller.uid).get();
+    if (!mDoc.exists) {
+        throw new https_1.HttpsError('permission-denied', `You are not an assigned member of project '${project.name}'.`);
+    }
+    const member = mDoc.data();
+    const userRole = member.role || 'viewer';
+    const userLevel = PROJECT_ROLE_LEVELS[userRole] || 1;
+    const requiredLevel = PROJECT_ROLE_LEVELS[minRole] || 1;
+    if (userLevel < requiredLevel) {
+        const roleTitles = {
+            lead: 'Publisher',
+            member: 'Contributor',
+            viewer: 'Viewer',
+        };
+        throw new https_1.HttpsError('permission-denied', `This action requires '${roleTitles[minRole]}' project privileges. Your project role is '${roleTitles[userRole]}'.`);
+    }
+    return { project, memberRole: userRole };
 }
 // ==============================================================================
 // 1. Project Lifecycle: Create, Update, Archive, List

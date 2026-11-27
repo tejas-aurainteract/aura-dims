@@ -125,7 +125,7 @@ async function assertAdminCaller(auth: { uid: string } | undefined): Promise<Use
   return caller;
 }
 
-import { ensureGeneralProject } from './projectsAdmin';
+import { ensureGeneralProject, assertProjectRole } from './projectsAdmin';
 
 export interface CanUseAssetContext {
   targetDepartmentId: string;
@@ -490,22 +490,12 @@ export const createPlaylist = onCall(
       }
       if (projectId && typeof projectId === 'string' && projectId.trim()) {
         const pId = projectId.trim();
-        const pDoc = await db.collection('projects').doc(pId).get();
-        if (!pDoc.exists) {
-          throw new HttpsError('not-found', `Project '${pId}' not found.`);
-        }
-        const pData = pDoc.data() as ProjectRecord;
+        const { project: pData } = await assertProjectRole(caller, pId, 'member');
         if (pData.status !== 'active') {
           throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
         }
         if (pData.departmentId !== targetDeptId) {
           throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${targetDeptId}'.`);
-        }
-        if (caller.role !== 'department_head') {
-          const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
-          if (!mDoc.exists) {
-            throw new HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
-          }
         }
         targetProjectId = pId;
       } else {
@@ -599,24 +589,12 @@ export const updatePlaylist = onCall(
     }
 
     let targetProjectId = projectId || current.projectId || `proj_general_${current.departmentId}`;
-    if (projectId && projectId !== current.projectId) {
-      const pDoc = await db.collection('projects').doc(projectId).get();
-      if (!pDoc.exists) {
-        throw new HttpsError('not-found', `Project '${projectId}' not found.`);
-      }
-      const pData = pDoc.data() as ProjectRecord;
-      if (pData.status === 'archived') {
-        throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
-      }
-      if (pData.departmentId !== current.departmentId) {
-        throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${current.departmentId}'.`);
-      }
-      if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === current.departmentId)) {
-        const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
-        if (!mDoc.exists) {
-          throw new HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
-        }
-      }
+    const { project: pData } = await assertProjectRole(caller, targetProjectId, 'member');
+    if (pData.status !== 'active') {
+      throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
+    }
+    if (pData.departmentId !== current.departmentId) {
+      throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${current.departmentId}'.`);
     }
 
     const playlistItems: PlaylistItem[] = (items || []).map((it, idx) => {
@@ -684,6 +662,9 @@ export const getPlaylist = onCall(
 
     const playlist = doc.data() as PlaylistRecord;
     assertDepartmentAccess(caller, playlist.departmentId);
+
+    const effectiveProjectId = playlist.projectId || `proj_general_${playlist.departmentId}`;
+    await assertProjectRole(caller, effectiveProjectId, 'lead');
 
     return { playlist };
   }
@@ -753,6 +734,9 @@ export const setPlaylistArchivedStatus = onCall(
 
     const playlist = doc.data() as PlaylistRecord;
     assertDepartmentAccess(caller, playlist.departmentId);
+
+    const effectiveProjectId = playlist.projectId || `proj_general_${playlist.departmentId}`;
+    await assertProjectRole(caller, effectiveProjectId, 'lead');
 
     await ref.update({
       isArchived,
@@ -1069,22 +1053,12 @@ export const createSchedule = onCall(
       }
       if (projectId && typeof projectId === 'string' && projectId.trim()) {
         const pId = projectId.trim();
-        const pDoc = await db.collection('projects').doc(pId).get();
-        if (!pDoc.exists) {
-          throw new HttpsError('not-found', `Project '${pId}' not found.`);
-        }
-        const pData = pDoc.data() as ProjectRecord;
+        const { project: pData } = await assertProjectRole(caller, pId, 'member');
         if (pData.status !== 'active') {
           throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
         }
         if (pData.departmentId !== targetDeptId) {
           throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${targetDeptId}'.`);
-        }
-        if (caller.role !== 'department_head') {
-          const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
-          if (!mDoc.exists) {
-            throw new HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
-          }
         }
         targetProjectId = pId;
       } else {
@@ -1174,24 +1148,12 @@ export const updateSchedule = onCall(
     assertDepartmentAccess(caller, current.departmentId);
 
     let targetProjectId = projectId || current.projectId || `proj_general_${current.departmentId}`;
-    if (projectId && projectId !== current.projectId) {
-      const pDoc = await db.collection('projects').doc(projectId).get();
-      if (!pDoc.exists) {
-        throw new HttpsError('not-found', `Project '${projectId}' not found.`);
-      }
-      const pData = pDoc.data() as ProjectRecord;
-      if (pData.status === 'archived') {
-        throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
-      }
-      if (pData.departmentId !== current.departmentId) {
-        throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${current.departmentId}'.`);
-      }
-      if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === current.departmentId)) {
-        const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
-        if (!mDoc.exists) {
-          throw new HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
-        }
-      }
+    const { project: pData } = await assertProjectRole(caller, targetProjectId, 'member');
+    if (pData.status !== 'active') {
+      throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
+    }
+    if (pData.departmentId !== current.departmentId) {
+      throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${current.departmentId}'.`);
     }
 
     const ruleVal = validateScheduleRule(scheduleRule);
@@ -1697,12 +1659,22 @@ export const preparePublication = onCall(
     const schedule = sDoc.data() as ScheduleRecord;
     assertDepartmentAccess(caller, schedule.departmentId);
 
-    // Authorization check: must be Admin, or Dept Head with canDirectPublish, or approved schedule
-    const isDirectAuthorized = caller.role === 'admin' || !!caller.canDirectPublish;
+    // Authorization check: must be Admin, or Dept Head with canDirectPublish, or project lead (Publisher), or approved schedule
+    let isDirectAuthorized = caller.role === 'admin' || !!caller.canDirectPublish;
+    if (!isDirectAuthorized && schedule.projectId) {
+      try {
+        const { memberRole } = await assertProjectRole(caller, schedule.projectId, 'lead');
+        if (memberRole === 'lead') {
+          isDirectAuthorized = true;
+        }
+      } catch {
+        // Not a publisher on this project
+      }
+    }
     if (!isDirectAuthorized && schedule.status !== 'approved') {
       throw new HttpsError(
         'permission-denied',
-        `Schedule '${schedule.title}' has status '${schedule.status}'. Direct publishing is not enabled for your account; submission must be approved by an Administrator.`
+        `Schedule '${schedule.title}' has status '${schedule.status}'. Direct publishing is not enabled for your account; submission must be approved by an Administrator or Publisher.`
       );
     }
 

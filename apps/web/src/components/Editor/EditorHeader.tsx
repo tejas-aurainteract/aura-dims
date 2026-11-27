@@ -28,6 +28,7 @@ import {
   Grid,
   Monitor,
   Smartphone,
+  Lock,
 } from 'lucide-react';
 import { DisplayOrientation } from '@aura-dims/display-schema';
 
@@ -50,6 +51,7 @@ export interface EditorHeaderProps {
   onOpenPreview: () => void;
   onRequestOrientationChange: () => void;
   isSaving: boolean;
+  isReadOnly?: boolean;
 }
 
 export const EditorHeader: React.FC<EditorHeaderProps> = ({
@@ -69,10 +71,20 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
   onOpenPreview,
   onRequestOrientationChange,
   isSaving,
+  isReadOnly = false,
 }) => {
   const navigate = useNavigate();
 
   const renderStatusPill = () => {
+    if (isReadOnly) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+          <Lock className="w-3.5 h-3.5 text-amber-600" />
+          <span>Read-Only Viewer</span>
+        </span>
+      );
+    }
+
     switch (saveStatus) {
       case 'saved':
         return (
@@ -125,9 +137,10 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
           type="text"
           value={title}
           maxLength={120}
+          disabled={isReadOnly}
           onChange={(e) => onChangeTitle(e.target.value)}
           placeholder="Untitled Design"
-          className="text-sm font-semibold text-slate-900 bg-transparent hover:bg-slate-50 focus:bg-white border border-transparent hover:border-slate-300 focus:border-teal-500 rounded-md px-2 py-1 transition-all outline-hidden max-w-[200px] sm:max-w-xs md:max-w-md truncate"
+          className="text-sm font-semibold text-slate-900 bg-transparent hover:bg-slate-50 focus:bg-white border border-transparent hover:border-slate-300 focus:border-teal-500 rounded-md px-2 py-1 transition-all outline-hidden max-w-[200px] sm:max-w-xs md:max-w-md truncate disabled:bg-slate-50 disabled:text-slate-500"
         />
 
         {/* Save Status indicator */}
@@ -136,26 +149,28 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
 
       {/* Middle: Undo / Redo & Orientation Badge */}
       <div className="flex items-center gap-2">
-        <div className="flex items-center border border-slate-200 rounded-lg p-0.5 bg-slate-50">
-          <button
-            type="button"
-            disabled={!canUndo}
-            onClick={onUndo}
-            className="p-1.5 rounded-md text-slate-600 hover:text-slate-900 disabled:opacity-30 disabled:pointer-events-none hover:bg-white transition-colors"
-            title="Undo (Ctrl+Z)"
-          >
-            <Undo2 className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            disabled={!canRedo}
-            onClick={onRedo}
-            className="p-1.5 rounded-md text-slate-600 hover:text-slate-900 disabled:opacity-30 disabled:pointer-events-none hover:bg-white transition-colors"
-            title="Redo (Ctrl+Y)"
-          >
-            <Redo2 className="w-4 h-4" />
-          </button>
-        </div>
+        {!isReadOnly && (
+          <div className="flex items-center border border-slate-200 rounded-lg p-0.5 bg-slate-50">
+            <button
+              type="button"
+              disabled={!canUndo}
+              onClick={onUndo}
+              className="p-1.5 rounded-md text-slate-600 hover:text-slate-900 disabled:opacity-30 disabled:pointer-events-none hover:bg-white transition-colors"
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo2 className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              disabled={!canRedo}
+              onClick={onRedo}
+              className="p-1.5 rounded-md text-slate-600 hover:text-slate-900 disabled:opacity-30 disabled:pointer-events-none hover:bg-white transition-colors"
+              title="Redo (Ctrl+Y)"
+            >
+              <Redo2 className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* Orientation conversion trigger */}
         <button
@@ -232,15 +247,17 @@ export const EditorHeader: React.FC<EditorHeaderProps> = ({
         </button>
 
         {/* Explicit Save button */}
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={isSaving || saveStatus === 'saved'}
-          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 disabled:pointer-events-none shadow-xs transition-colors"
-        >
-          <Save className="w-3.5 h-3.5" />
-          <span>Save</span>
-        </button>
+        {!isReadOnly && (
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={isSaving || saveStatus === 'saved'}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 disabled:pointer-events-none shadow-xs transition-colors"
+          >
+            <Save className="w-3.5 h-3.5" />
+            <span>Save</span>
+          </button>
+        )}
       </div>
     </header>
   );

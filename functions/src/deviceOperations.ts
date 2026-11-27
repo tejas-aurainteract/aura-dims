@@ -536,6 +536,12 @@ export const requestDisplayOperation = onCall<
   }
 
   // Enforce Admin or assigned Department Head scope
+  if (caller.role !== 'admin' && caller.role !== 'department_head') {
+    throw new HttpsError(
+      'permission-denied',
+      'Only Administrators and Department Heads can request device operations.'
+    );
+  }
   const displaySnap = await loadAuthorizedDisplay(caller, displayId);
   const displayData = displaySnap.data()!;
 
@@ -1402,6 +1408,12 @@ export const discardDisplayPreview = onCall<
   Promise<DiscardDisplayPreviewResponse>
 >(opts, async (request) => {
   const caller = await getAuthenticatedCaller(request.auth);
+  if (caller.role !== 'admin' && caller.role !== 'department_head') {
+    throw new HttpsError(
+      'permission-denied',
+      'Only Administrators and Department Heads can discard display previews.'
+    );
+  }
   const displayId = requireId(request.data?.displayId, 'Display ID');
   const displaySnap = await loadAuthorizedDisplay(caller, displayId);
   const displayData = displaySnap.data()!;
@@ -1526,6 +1538,12 @@ export const cancelDisplayOperation = onCall<
   Promise<CancelDisplayOperationResponse>
 >(opts, async (request) => {
   const caller = await getAuthenticatedCaller(request.auth);
+  if (caller.role !== 'admin' && caller.role !== 'department_head') {
+    throw new HttpsError(
+      'permission-denied',
+      'Only Administrators and Department Heads can cancel device operations.'
+    );
+  }
   const displayId = requireId(request.data?.displayId, 'Display ID');
   const operationId = requireId(request.data?.operationId, 'Operation ID');
   const reason = request.data?.reason ? String(request.data.reason).trim().slice(0, 300) : 'Cancelled by operator.';
@@ -1587,6 +1605,12 @@ export const retryDisplayOperation = onCall<
   Promise<RetryDisplayOperationResponse>
 >(opts, async (request) => {
   const caller = await getAuthenticatedCaller(request.auth);
+  if (caller.role !== 'admin' && caller.role !== 'department_head') {
+    throw new HttpsError(
+      'permission-denied',
+      'Only Administrators and Department Heads can retry device operations.'
+    );
+  }
   const displayId = requireId(request.data?.displayId, 'Display ID');
   const operationId = requireId(request.data?.operationId, 'Operation ID');
 

@@ -88,7 +88,14 @@ export const ProjectDetailPage: React.FC = () => {
     return members.find((m) => m.uid === userProfile?.uid);
   }, [members, userProfile?.uid]);
 
-  const isProjectLead = myMembership?.role === 'lead';
+  const isProjectLead = isAdmin || isDeptHead || myMembership?.role === 'lead';
+  const isContributor = isProjectLead || myMembership?.role === 'member';
+  const isViewer = !isContributor;
+
+  const canEdit = isContributor;
+  const canPublish = isProjectLead;
+  const isReadOnly = isViewer;
+
   // General projects are read-only for regular members; only Admin & HOD can manage General
   const canManageProject = (isAdmin || isDeptHead || isProjectLead) && (!isGeneral || isAdmin || isDeptHead);
   const canArchiveProject = (isAdmin || isDeptHead) && !isGeneral;
@@ -494,19 +501,24 @@ export const ProjectDetailPage: React.FC = () => {
       {/* Tab Panes */}
       <div>
         {activeTab === 'assets' && (
-          <MediaLibraryView projectId={project.id} />
+          <MediaLibraryView projectId={project.id} canUpload={canEdit} isReadOnly={isReadOnly} />
         )}
 
         {activeTab === 'designs' && (
-          <DesignsView projectId={project.id} />
+          <DesignsView projectId={project.id} canEdit={canEdit} isReadOnly={isReadOnly} />
         )}
 
         {activeTab === 'playlists' && (
-          <PlaylistsView projectId={project.id} />
+          <PlaylistsView projectId={project.id} canEdit={canEdit} isReadOnly={isReadOnly} />
         )}
 
         {activeTab === 'schedules' && (
-          <SchedulesListView projectId={project.id} />
+          <SchedulesListView
+            projectId={project.id}
+            canEdit={canEdit}
+            canPublish={canPublish}
+            isReadOnly={isReadOnly}
+          />
         )}
 
         {activeTab === 'members' && (

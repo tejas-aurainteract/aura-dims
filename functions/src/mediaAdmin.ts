@@ -40,7 +40,7 @@ import type {
   CleanupExpiredUploadsResponse,
 } from '@aura-dims/display-schema';
 import { MEDIA_CONSTRAINTS } from '@aura-dims/display-schema';
-import { ensureGeneralProject } from './projectsAdmin';
+import { ensureGeneralProject, assertProjectRole } from './projectsAdmin';
 
 /**
  * Computes authoritative access scopes for a media asset based on visibility,
@@ -294,22 +294,12 @@ export const initiateMediaUpload = onCall<InitiateMediaUploadRequest, Promise<In
 
       if (projectId && typeof projectId === 'string' && projectId.trim()) {
         const pId = projectId.trim();
-        const pDoc = await db.collection('projects').doc(pId).get();
-        if (!pDoc.exists) {
-          throw new HttpsError('not-found', `Target project '${pId}' not found.`);
-        }
-        const pData = pDoc.data() as ProjectRecord;
+        const { project: pData } = await assertProjectRole(caller, pId, 'member');
         if (pData.status !== 'active') {
           throw new HttpsError('failed-precondition', `Project '${pData.name}' is archived and cannot receive new assets.`);
         }
         if (pData.departmentId !== targetDeptId) {
           throw new HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${targetDeptId}'.`);
-        }
-        if (caller.role !== 'department_head') {
-          const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
-          if (!mDoc.exists) {
-            throw new HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
-          }
         }
         targetProjectId = pId;
       } else {
@@ -996,9 +986,13 @@ export const setMediaArchivedStatus = onCall<SetMediaArchivedRequest, Promise<Se
 
     const asset = assetDoc.data() as MediaAsset;
 
-    // Enforce departmental access
-    if (caller.role !== 'admin' && caller.departmentId !== asset.departmentId) {
-      throw new HttpsError('permission-denied', 'Cannot archive or restore media in another department.');
+    // Enforce departmental and project authority
+    if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === asset.departmentId)) {
+      if (asset.projectId) {
+        await assertProjectRole(caller, asset.projectId, 'lead');
+      } else {
+        throw new HttpsError('permission-denied', 'Only Administrators, Department Heads, and Project Publishers can archive assets.');
+      }
     }
 
     if (archived && asset.status !== 'ready') {

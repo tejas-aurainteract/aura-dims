@@ -436,6 +436,9 @@ exports.requestDisplayOperation = (0, https_1.onCall)(opts, async (request) => {
         }
     }
     // Enforce Admin or assigned Department Head scope
+    if (caller.role !== 'admin' && caller.role !== 'department_head') {
+        throw new https_1.HttpsError('permission-denied', 'Only Administrators and Department Heads can request device operations.');
+    }
     const displaySnap = await (0, displayModel_js_1.loadAuthorizedDisplay)(caller, displayId);
     const displayData = displaySnap.data();
     if (displayData.lifecycle !== 'active') {
@@ -1116,6 +1119,9 @@ exports.getDisplayPreviewUrl = (0, https_1.onCall)(opts, async (request) => {
 // ---------------------------------------------------------------------------
 exports.discardDisplayPreview = (0, https_1.onCall)(opts, async (request) => {
     const caller = await (0, common_js_1.getAuthenticatedCaller)(request.auth);
+    if (caller.role !== 'admin' && caller.role !== 'department_head') {
+        throw new https_1.HttpsError('permission-denied', 'Only Administrators and Department Heads can discard display previews.');
+    }
     const displayId = (0, common_js_1.requireId)(request.data?.displayId, 'Display ID');
     const displaySnap = await (0, displayModel_js_1.loadAuthorizedDisplay)(caller, displayId);
     const displayData = displaySnap.data();
@@ -1213,6 +1219,9 @@ exports.renewOperationLease = (0, https_1.onCall)(opts, async (request) => {
 // ---------------------------------------------------------------------------
 exports.cancelDisplayOperation = (0, https_1.onCall)(opts, async (request) => {
     const caller = await (0, common_js_1.getAuthenticatedCaller)(request.auth);
+    if (caller.role !== 'admin' && caller.role !== 'department_head') {
+        throw new https_1.HttpsError('permission-denied', 'Only Administrators and Department Heads can cancel device operations.');
+    }
     const displayId = (0, common_js_1.requireId)(request.data?.displayId, 'Display ID');
     const operationId = (0, common_js_1.requireId)(request.data?.operationId, 'Operation ID');
     const reason = request.data?.reason ? String(request.data.reason).trim().slice(0, 300) : 'Cancelled by operator.';
@@ -1261,6 +1270,9 @@ exports.cancelDisplayOperation = (0, https_1.onCall)(opts, async (request) => {
 // ---------------------------------------------------------------------------
 exports.retryDisplayOperation = (0, https_1.onCall)(opts, async (request) => {
     const caller = await (0, common_js_1.getAuthenticatedCaller)(request.auth);
+    if (caller.role !== 'admin' && caller.role !== 'department_head') {
+        throw new https_1.HttpsError('permission-denied', 'Only Administrators and Department Heads can retry device operations.');
+    }
     const displayId = (0, common_js_1.requireId)(request.data?.displayId, 'Display ID');
     const operationId = (0, common_js_1.requireId)(request.data?.operationId, 'Operation ID');
     const displaySnap = await (0, displayModel_js_1.loadAuthorizedDisplay)(caller, displayId);

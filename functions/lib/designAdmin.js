@@ -184,22 +184,12 @@ exports.createDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
         }
         if (projectId && typeof projectId === 'string' && projectId.trim()) {
             const pId = projectId.trim();
-            const pDoc = await db.collection('projects').doc(pId).get();
-            if (!pDoc.exists) {
-                throw new https_1.HttpsError('not-found', `Project '${pId}' not found.`);
-            }
-            const pData = pDoc.data();
+            const { project: pData } = await (0, projectsAdmin_1.assertProjectRole)(caller, pId, 'member');
             if (pData.status === 'archived') {
                 throw new https_1.HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
             }
             if (pData.departmentId !== targetDeptId) {
                 throw new https_1.HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${targetDeptId}'.`);
-            }
-            if (caller.role !== 'department_head') {
-                const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
-                if (!mDoc.exists) {
-                    throw new https_1.HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
-                }
             }
             targetProjectId = pId;
         }
@@ -319,24 +309,12 @@ exports.updateDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => {
             throw new https_1.HttpsError('failed-precondition', `Concurrent edit conflict: current server revision is ${current.revision}, but your draft was based on revision ${expectedRevision}. Please reload latest or save as a copy.`);
         }
         let targetProjectId = projectId || current.projectId || `proj_general_${current.departmentId}`;
-        if (projectId && projectId !== current.projectId) {
-            const pDoc = await db.collection('projects').doc(projectId).get();
-            if (!pDoc.exists) {
-                throw new https_1.HttpsError('not-found', `Project '${projectId}' not found.`);
-            }
-            const pData = pDoc.data();
-            if (pData.status === 'archived') {
-                throw new https_1.HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
-            }
-            if (pData.departmentId !== current.departmentId) {
-                throw new https_1.HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${current.departmentId}'.`);
-            }
-            if (caller.role !== 'admin' && !(caller.role === 'department_head' && caller.departmentId === current.departmentId)) {
-                const mDoc = await pDoc.ref.collection('members').doc(caller.uid).get();
-                if (!mDoc.exists) {
-                    throw new https_1.HttpsError('permission-denied', `You are not a member of project '${pData.name}'.`);
-                }
-            }
+        const { project: pData } = await (0, projectsAdmin_1.assertProjectRole)(caller, targetProjectId, 'member');
+        if (pData.status === 'archived') {
+            throw new https_1.HttpsError('failed-precondition', `Project '${pData.name}' is archived.`);
+        }
+        if (pData.departmentId !== current.departmentId) {
+            throw new https_1.HttpsError('invalid-argument', `Project '${pData.name}' does not belong to department '${current.departmentId}'.`);
         }
         // Revalidate referenced assets
         const referencedAssetIds = (0, display_schema_1.extractReferencedAssetIds)(document);
@@ -384,6 +362,7 @@ exports.duplicateDesign = (0, https_1.onCall)(CALLABLE_OPTS, async (request) => 
         throw new https_1.HttpsError('permission-denied', 'Cannot duplicate designs from another department.');
     }
     const targetProjectId = source.projectId || `proj_general_${source.departmentId}`;
+    await (0, projectsAdmin_1.assertProjectRole)(caller, targetProjectId, 'member');
     // Revalidate referenced assets
     const assetIds = (0, display_schema_1.extractReferencedAssetIds)(source.document);
     await validateReferencedAssets(assetIds, source.departmentId, caller, targetProjectId);
@@ -455,6 +434,8 @@ exports.setDesignArchivedStatus = (0, https_1.onCall)(CALLABLE_OPTS, async (requ
     if (caller.role !== 'admin' && current.departmentId !== caller.departmentId) {
         throw new https_1.HttpsError('permission-denied', 'Cannot modify designs belonging to another department.');
     }
+    const effectiveProjectId = current.projectId || `proj_general_${current.departmentId}`;
+    await (0, projectsAdmin_1.assertProjectRole)(caller, effectiveProjectId, 'lead');
     const status = archived ? 'archived' : 'draft';
     const now = new Date().toISOString();
     await ref.update({

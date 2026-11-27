@@ -50,7 +50,7 @@ import { EditorAssetPickerModal } from '@/components/Editor/EditorAssetPickerMod
 import { OrientationConversionModal } from '@/components/Editor/OrientationConversionModal';
 import { ConflictModal } from '@/components/Editor/ConflictModal';
 import { SaveAsTemplateModal } from '@/components/Editor/SaveAsTemplateModal';
-import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Loader2, AlertCircle, RefreshCw, Lock } from 'lucide-react';
 
 export const DesignEditorPage: React.FC = () => {
   const { designId } = useParams<{ designId: string }>();
@@ -62,6 +62,7 @@ export const DesignEditorPage: React.FC = () => {
   const [title, setTitle] = useState('');
   const [activeSlideIndex, setActiveSlideIndex] = useState(0);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [isReadOnlyViewer, setIsReadOnlyViewer] = useState(false);
 
   // Viewport & Guides
   const [zoom, setZoom] = useState(0.5);
@@ -127,6 +128,25 @@ export const DesignEditorPage: React.FC = () => {
       const map = await resolveAssetsBatch(assetIds, 'original');
       setAssetsMap(map);
 
+      // Check project role authorization for regular members
+      if (
+        userProfile?.role !== 'admin' &&
+        !(userProfile?.role === 'department_head' && userProfile?.departmentId === res.design.departmentId)
+      ) {
+        if (res.design.projectId) {
+          try {
+            const memRes = await api.listProjectMembers({ projectId: res.design.projectId });
+            const myMem = (memRes.members || []).find((m) => m.uid === userProfile?.uid);
+            if (myMem && myMem.role === 'viewer') {
+              setIsReadOnlyViewer(true);
+            }
+          } catch {
+            // In case of error querying membership, safely default to read-only
+            setIsReadOnlyViewer(true);
+          }
+        }
+      }
+
       // Check local recovery draft
       if (userProfile?.uid) {
         const backup = getDraftRecovery(userProfile.uid, designId);
@@ -153,7 +173,7 @@ export const DesignEditorPage: React.FC = () => {
   // Push new state to history & mark unsaved
   const commitChange = useCallback(
     (newDoc: DesignWithDocument['document'], newTitle: string = title) => {
-      if (!design || !userProfile?.uid || !designId) return;
+      if (!design || !userProfile?.uid || !designId || isReadOnlyViewer) return;
 
       const newHistory = history.slice(0, historyIndex + 1);
       if (newHistory.length >= 30) newHistory.shift();
@@ -703,7 +723,27 @@ export const DesignEditorPage: React.FC = () => {
         onOpenPreview={() => setPreviewModalOpen(true)}
         onRequestOrientationChange={() => setOrientationModalOpen(true)}
         isSaving={isSaving}
+        isReadOnly={isReadOnlyViewer}
       />
+
+      {/* View-Only Mode Banner */}
+      {isReadOnlyViewer && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between text-xs text-amber-900 shrink-0 z-30">
+          <div className="flex items-center gap-2">
+            <Lock className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              <strong>View-Only Layout:</strong> You have Viewer permissions in this project. Slide layouts and typography can be inspected and simulated, but changes cannot be saved.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPreviewModalOpen(true)}
+            className="px-2.5 py-1 bg-amber-600 text-white rounded-md font-semibold hover:bg-amber-700 transition-colors shadow-2xs"
+          >
+            Launch Display Simulation
+          </button>
+        </div>
+      )}
 
       {/* Local Recovery Draft Alert Banner */}
       {recoveryPrompt && recoveryPrompt.hasRecovery && (
@@ -745,14 +785,16 @@ export const DesignEditorPage: React.FC = () => {
       {/* Main Workspace Body */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Left Toolbar: Add Elements */}
-        <AddElementBar
-          onAddText={handleAddText}
-          onAddShape={handleAddShape}
-          onOpenAssetPicker={(mediaType) =>
-            setAssetPickerState({ isOpen: true, mediaType, target: 'element' })
-          }
-          canAddVideo={videoCount < DESIGN_CONSTRAINTS.MAX_VIDEOS_PER_SLIDE}
-        />
+        {!isReadOnlyViewer && (
+          <AddElementBar
+            onAddText={handleAddText}
+            onAddShape={handleAddShape}
+            onOpenAssetPicker={(mediaType) =>
+              setAssetPickerState({ isOpen: true, mediaType, target: 'element' })
+            }
+            canAddVideo={videoCount < DESIGN_CONSTRAINTS.MAX_VIDEOS_PER_SLIDE}
+          />
+        )}
 
         {/* Center: Scaled Visual Canvas */}
         <main className="flex-1 overflow-auto bg-slate-900/10 flex items-center justify-center relative">
@@ -770,24 +812,26 @@ export const DesignEditorPage: React.FC = () => {
         </main>
 
         {/* Right Inspector: Contextual Properties */}
-        <PropertiesPanel
-          selectedElement={selectedElement}
-          activeSlide={currentSlide}
-          onUpdateElement={handleUpdateElement}
-          onDeleteElement={handleDeleteElement}
-          onUpdateSlideBackground={handleUpdateSlideBackground}
-          onUpdateSlideDuration={(sec) => handleChangeDuration(activeSlideIndex, sec)}
-          onBringForward={(id) => handleLayerOrder(id, 'forward')}
-          onSendBackward={(id) => handleLayerOrder(id, 'backward')}
-          onBringToFront={(id) => handleLayerOrder(id, 'front')}
-          onSendToBack={(id) => handleLayerOrder(id, 'back')}
-          onOpenAssetPicker={(mediaType) =>
-            setAssetPickerState({ isOpen: true, mediaType, target: 'element' })
-          }
-          canvasDimensions={design.document.dimensions}
-          assetsMap={assetsMap}
-          assetDimensionsMap={assetDimensionsMap}
-        />
+        {!isReadOnlyViewer && (
+          <PropertiesPanel
+            selectedElement={selectedElement}
+            activeSlide={currentSlide}
+            onUpdateElement={handleUpdateElement}
+            onDeleteElement={handleDeleteElement}
+            onUpdateSlideBackground={handleUpdateSlideBackground}
+            onUpdateSlideDuration={(sec) => handleChangeDuration(activeSlideIndex, sec)}
+            onBringForward={(id) => handleLayerOrder(id, 'forward')}
+            onSendBackward={(id) => handleLayerOrder(id, 'backward')}
+            onBringToFront={(id) => handleLayerOrder(id, 'front')}
+            onSendToBack={(id) => handleLayerOrder(id, 'back')}
+            onOpenAssetPicker={(mediaType) =>
+              setAssetPickerState({ isOpen: true, mediaType, target: 'element' })
+            }
+            canvasDimensions={design.document.dimensions}
+            assetsMap={assetsMap}
+            assetDimensionsMap={assetDimensionsMap}
+          />
+        )}
       </div>
 
       {/* Bottom Horizontal Slide Manager Strip */}
@@ -805,6 +849,7 @@ export const DesignEditorPage: React.FC = () => {
         onMoveSlide={handleMoveSlide}
         onChangeDuration={handleChangeDuration}
         assetsMap={assetsMap}
+        isReadOnly={isReadOnlyViewer}
       />
 
       {/* Modals */}

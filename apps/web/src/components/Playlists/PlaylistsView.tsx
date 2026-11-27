@@ -30,9 +30,16 @@ import { PlaylistPreviewModal } from './PlaylistPreviewModal';
 export interface PlaylistsViewProps {
   departmentId?: string;
   projectId?: string;
+  canEdit?: boolean;
+  isReadOnly?: boolean;
 }
 
-export const PlaylistsView: React.FC<PlaylistsViewProps> = ({ departmentId, projectId }) => {
+export const PlaylistsView: React.FC<PlaylistsViewProps> = ({
+  departmentId,
+  projectId,
+  canEdit = true,
+  isReadOnly = false,
+}) => {
   const { userProfile } = useAuth();
   const [playlists, setPlaylists] = useState<PlaylistRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -158,17 +165,19 @@ export const PlaylistsView: React.FC<PlaylistsViewProps> = ({ departmentId, proj
             <span>Show Archived</span>
           </label>
 
-          <button
-            type="button"
-            onClick={() => {
-              setEditingPlaylist(null);
-              setIsCreateModalOpen(true);
-            }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors shrink-0"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Create playlist</span>
-          </button>
+          {canEdit && !isReadOnly && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditingPlaylist(null);
+                setIsCreateModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 shadow-xs transition-colors shrink-0"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Create playlist</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -201,17 +210,19 @@ export const PlaylistsView: React.FC<PlaylistsViewProps> = ({ departmentId, proj
               ? `No playlists match the filter "${searchQuery}".`
               : 'Create your first ordered playlist to sequence visual designs for your digital displays.'}
           </p>
-          <button
-            type="button"
-            onClick={() => {
-              setEditingPlaylist(null);
-              setIsCreateModalOpen(true);
-            }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            <span>New playlist</span>
-          </button>
+          {canEdit && !isReadOnly && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditingPlaylist(null);
+                setIsCreateModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              <span>New playlist</span>
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -275,30 +286,34 @@ export const PlaylistsView: React.FC<PlaylistsViewProps> = ({ departmentId, proj
                       <Eye className="h-4 w-4" />
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingPlaylist(p);
-                        setIsCreateModalOpen(true);
-                      }}
-                      title="Edit playlist items"
-                      className="p-1.5 rounded-lg text-slate-600 hover:text-indigo-600 hover:bg-slate-100 transition-colors"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
+                    {canEdit && !isReadOnly && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingPlaylist(p);
+                          setIsCreateModalOpen(true);
+                        }}
+                        title="Edit playlist items"
+                        className="p-1.5 rounded-lg text-slate-600 hover:text-indigo-600 hover:bg-slate-100 transition-colors"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    )}
 
-                    <button
-                      type="button"
-                      onClick={() => handleArchiveToggle(p)}
-                      title={p.isArchived ? 'Restore playlist' : 'Archive playlist'}
-                      className={`p-1.5 rounded-lg transition-colors ${
-                        p.isArchived
-                          ? 'text-amber-600 hover:bg-amber-100'
-                          : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
-                      }`}
-                    >
-                      <Archive className="h-4 w-4" />
-                    </button>
+                    {canEdit && !isReadOnly && (
+                      <button
+                        type="button"
+                        onClick={() => handleArchiveToggle(p)}
+                        title={p.isArchived ? 'Restore playlist' : 'Archive playlist'}
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          p.isArchived
+                            ? 'text-amber-600 hover:bg-amber-100'
+                            : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <Archive className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

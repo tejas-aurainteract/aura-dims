@@ -37,6 +37,7 @@ export interface SlideThumbnailsProps {
   onMoveSlide: (index: number, direction: 'left' | 'right') => void;
   onChangeDuration: (index: number, seconds: number) => void;
   assetsMap?: Map<string, string>;
+  isReadOnly?: boolean;
 }
 
 export const SlideThumbnails: React.FC<SlideThumbnailsProps> = ({
@@ -50,6 +51,7 @@ export const SlideThumbnails: React.FC<SlideThumbnailsProps> = ({
   onMoveSlide,
   onChangeDuration,
   assetsMap = new Map(),
+  isReadOnly = false,
 }) => {
   // Scale for thumbnail preview (e.g., thumbnail width around 120px)
   const thumbScale = dimensions.width === 1920 ? 0.0625 : 0.07; // ~120px wide
@@ -116,63 +118,65 @@ export const SlideThumbnails: React.FC<SlideThumbnailsProps> = ({
                   Slide {idx + 1}
                 </span>
 
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {/* Reorder Left */}
-                  <button
-                    type="button"
-                    disabled={idx === 0}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onMoveSlide(idx, 'left');
-                    }}
-                    className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-20"
-                    title="Move slide left"
-                  >
-                    <ChevronLeft className="w-3 h-3" />
-                  </button>
+                {!isReadOnly && (
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {/* Reorder Left */}
+                    <button
+                      type="button"
+                      disabled={idx === 0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onMoveSlide(idx, 'left');
+                      }}
+                      className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-20"
+                      title="Move slide left"
+                    >
+                      <ChevronLeft className="w-3 h-3" />
+                    </button>
 
-                  {/* Reorder Right */}
-                  <button
-                    type="button"
-                    disabled={idx === slides.length - 1}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onMoveSlide(idx, 'right');
-                    }}
-                    className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-20"
-                    title="Move slide right"
-                  >
-                    <ChevronRight className="w-3 h-3" />
-                  </button>
+                    {/* Reorder Right */}
+                    <button
+                      type="button"
+                      disabled={idx === slides.length - 1}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onMoveSlide(idx, 'right');
+                      }}
+                      className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-20"
+                      title="Move slide right"
+                    >
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
 
-                  {/* Duplicate */}
-                  <button
-                    type="button"
-                    disabled={slides.length >= DESIGN_CONSTRAINTS.MAX_SLIDES_PER_DESIGN}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDuplicateSlide(idx);
-                    }}
-                    className="p-0.5 text-slate-400 hover:text-teal-600 disabled:opacity-20"
-                    title="Duplicate slide"
-                  >
-                    <Copy className="w-3 h-3" />
-                  </button>
+                    {/* Duplicate */}
+                    <button
+                      type="button"
+                      disabled={slides.length >= DESIGN_CONSTRAINTS.MAX_SLIDES_PER_DESIGN}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDuplicateSlide(idx);
+                      }}
+                      className="p-0.5 text-slate-400 hover:text-teal-600 disabled:opacity-20"
+                      title="Duplicate slide"
+                    >
+                      <Copy className="w-3 h-3" />
+                    </button>
 
-                  {/* Delete */}
-                  <button
-                    type="button"
-                    disabled={slides.length <= 1}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDeleteSlide(idx);
-                    }}
-                    className="p-0.5 text-slate-400 hover:text-rose-600 disabled:opacity-20"
-                    title="Delete slide"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
+                    {/* Delete */}
+                    <button
+                      type="button"
+                      disabled={slides.length <= 1}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteSlide(idx);
+                      }}
+                      className="p-0.5 text-slate-400 hover:text-rose-600 disabled:opacity-20"
+                      title="Delete slide"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -180,7 +184,7 @@ export const SlideThumbnails: React.FC<SlideThumbnailsProps> = ({
       </div>
 
       {/* Add Slide Button */}
-      {slides.length < DESIGN_CONSTRAINTS.MAX_SLIDES_PER_DESIGN && (
+      {!isReadOnly && slides.length < DESIGN_CONSTRAINTS.MAX_SLIDES_PER_DESIGN && (
         <button
           type="button"
           onClick={onAddSlide}
@@ -201,6 +205,7 @@ export const SlideThumbnails: React.FC<SlideThumbnailsProps> = ({
             <div className="flex items-center gap-1">
               <input
                 type="number"
+                disabled={isReadOnly}
                 min={DESIGN_CONSTRAINTS.MIN_SLIDE_DURATION_SECONDS}
                 max={DESIGN_CONSTRAINTS.MAX_SLIDE_DURATION_SECONDS}
                 value={slides[activeSlideIndex].durationSeconds || 10}
@@ -210,7 +215,7 @@ export const SlideThumbnails: React.FC<SlideThumbnailsProps> = ({
                     Math.max(1, parseInt(e.target.value, 10) || 10)
                   )
                 }
-                className="w-14 px-1.5 py-0.5 text-xs font-mono border border-slate-300 rounded-md focus:border-teal-500 focus:outline-hidden"
+                className="w-14 px-1.5 py-0.5 text-xs font-mono border border-slate-300 rounded-md focus:border-teal-500 focus:outline-hidden disabled:bg-slate-100 disabled:text-slate-500"
               />
               <span className="text-xs text-slate-500">sec</span>
             </div>
